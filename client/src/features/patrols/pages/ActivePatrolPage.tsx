@@ -124,20 +124,28 @@ export const ActivePatrolPage: React.FC = () => {
       </div>
 
       {/* Mobile Touch Action Buttons */}
-      <div className="grid grid-cols-2 gap-3 mt-1 pt-2 border-t border-slate-800">
+      <div className="grid grid-cols-3 gap-2.5 mt-1 pt-2 border-t border-slate-800">
         <button
           onClick={() => setIsWaypointModalOpen(true)}
-          className="py-4 px-3 rounded-2xl font-bold bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-[0.97] transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-amber-400/10 text-sm"
+          className="py-3.5 px-2 rounded-2xl font-bold bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-[0.97] transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-amber-400/10 text-xs"
         >
-          <span className="text-lg">📍</span>
+          <span className="text-base">📍</span>
           <span>Add Waypoint</span>
         </button>
 
         <button
-          onClick={() => setCompleteConfirmModal(true)}
-          className="py-4 px-3 rounded-2xl font-bold bg-slate-800 border border-slate-700 text-slate-100 hover:bg-rose-950 hover:border-rose-700 hover:text-rose-200 active:scale-[0.97] transition-all flex flex-col items-center justify-center gap-1 text-sm shadow-md"
+          onClick={() => navigate(`/ranger/incidents/new?sessionId=${session._id}`)}
+          className="py-3.5 px-2 rounded-2xl font-bold bg-rose-500 text-slate-950 hover:bg-rose-400 active:scale-[0.97] transition-all flex flex-col items-center justify-center gap-1 shadow-lg shadow-rose-500/10 text-xs"
         >
-          <span className="text-lg">🏁</span>
+          <span className="text-base">🚨</span>
+          <span>Report Threat</span>
+        </button>
+
+        <button
+          onClick={() => setCompleteConfirmModal(true)}
+          className="py-3.5 px-2 rounded-2xl font-bold bg-slate-800 border border-slate-700 text-slate-100 hover:bg-rose-950 hover:border-rose-700 hover:text-rose-200 active:scale-[0.97] transition-all flex flex-col items-center justify-center gap-1 text-xs shadow-md"
+        >
+          <span className="text-base">🏁</span>
           <span>End Patrol</span>
         </button>
       </div>

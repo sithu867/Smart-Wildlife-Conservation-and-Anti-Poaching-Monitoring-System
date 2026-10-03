@@ -4,6 +4,8 @@ import { AssignedPatrolPage } from './features/patrols/pages/AssignedPatrolPage'
 import { PatrolRoutePage } from './features/patrols/pages/PatrolRoutePage';
 import { ActivePatrolPage } from './features/patrols/pages/ActivePatrolPage';
 import { PatrolCompletionPage } from './features/patrols/pages/PatrolCompletionPage';
+import { ReportIncidentPage } from './features/incidents/pages/ReportIncidentPage';
+import { IncidentHistoryPage } from './features/incidents/pages/IncidentHistoryPage';
 
 const Placeholder = ({ title, description }: { title: string; description: string }) => (
   <main className="page">
@@ -20,7 +22,8 @@ export default function App() {
       <header>
         <Link to="/" className="brand">WildlifeGuard</Link>
         <nav>
-          <Link to="/ranger/patrol">Ranger</Link>
+          <Link to="/ranger/patrol">Patrols</Link>
+          <Link to="/ranger/incidents">Incidents</Link>
           <Link to="/manager/analytics">Manager</Link>
         </nav>
       </header>
@@ -32,7 +35,8 @@ export default function App() {
         <Route path="/ranger/patrol/active/:sessionId" element={<ActivePatrolPage />} />
         <Route path="/ranger/patrol/summary/:sessionId" element={<PatrolCompletionPage />} />
 
-        <Route path="/ranger/incidents" element={<Placeholder title="Incidents" description="UC-B placeholder. Offline incident capture will be added here." />} />
+        <Route path="/ranger/incidents" element={<IncidentHistoryPage />} />
+        <Route path="/ranger/incidents/new" element={<ReportIncidentPage />} />
         <Route path="/ranger/alerts" element={<Placeholder title="Conflict alerts" description="UC-C field-response placeholder." />} />
         <Route path="/manager" element={<Placeholder title="Park manager" description="Central online manager route group." />} />
         <Route path="/manager/analytics" element={<Placeholder title="Analytics" description="UC-D placeholder for synchronized conservation analytics." />} />
