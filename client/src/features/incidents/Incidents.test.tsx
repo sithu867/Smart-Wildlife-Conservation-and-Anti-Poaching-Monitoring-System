@@ -128,4 +128,36 @@ describe('UC-B Conservation Incident Reporting Frontend Tests', () => {
     expect(result.location.source).toBe(LocationSource.MANUAL);
     expect(result.evidence[0].evidenceId).toContain('inc-offline-999');
   });
+
+  test('incidentApi.syncIncidentPayload syncs offline payload and updates remote incident', async () => {
+    const mockSynced = {
+      _id: 'inc-synced-123',
+      clientIncidentId: 'inc-offline-999',
+      incidentType: IncidentType.SNARE,
+      description: 'Offline snare report in Sector 9',
+      location: { latitude: -2.1800, longitude: 34.8500, source: LocationSource.MANUAL, timestamp: new Date().toISOString() },
+      reportedBy: 'R-101',
+      rangerName: 'Ranger John',
+      reportedAt: new Date().toISOString(),
+      evidence: [{ evidenceId: 'evid-01', imageUrl: 'data:image/jpeg;base64,sample...' }],
+      status: 'REPORTED',
+      syncStatus: 'SYNCED'
+    };
+
+    vi.spyOn(http, 'post').mockResolvedValueOnce({
+      data: { success: true, data: mockSynced }
+    } as any);
+
+    const synced = await incidentApi.syncIncidentPayload({
+      _id: 'inc-offline-999',
+      clientIncidentId: 'inc-offline-999',
+      incidentType: IncidentType.SNARE,
+      description: 'Offline snare report in Sector 9',
+      location: { latitude: -2.1800, longitude: 34.8500, source: LocationSource.MANUAL },
+      evidence: [{ imageUrl: 'data:image/jpeg;base64,sample...' }]
+    });
+
+    expect(synced.syncStatus).toBe('SYNCED');
+    expect(synced._id).toBe('inc-synced-123');
+  });
 });
