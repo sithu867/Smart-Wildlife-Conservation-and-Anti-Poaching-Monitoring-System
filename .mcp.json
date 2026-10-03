@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "project-filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/Himanga Hewagamage/OneDrive/Documents/GitHub/Smart-Wildlife-Conservation-and-Anti-Poaching-Monitoring-System"]
+    }
+  }
+}

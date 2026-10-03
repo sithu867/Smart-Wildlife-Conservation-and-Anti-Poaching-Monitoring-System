@@ -1,0 +1,1 @@
+{"root":["./src/app.test.tsx","./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/offline/db.test.ts","./src/offline/db.ts","./src/offline/syncservice.ts","./src/shared/api/http.ts","./src/shared/geolocation/geolocation.ts","./src/shared/types/enums.ts","./src/test/setup.ts","./vite.config.ts"],"version":"5.7.3"}
