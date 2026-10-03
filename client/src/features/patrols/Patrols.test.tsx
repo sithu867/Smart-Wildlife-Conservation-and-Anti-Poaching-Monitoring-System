@@ -1,7 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { PatrolStatusBadge } from './components/PatrolStatus';
 import { GPSStatus } from './components/GPSStatus';
-import { patrolApi } from './api/patrolApi';
+import { PatrolCard } from './components/PatrolCard';
+import { WaypointFormModal } from './components/WaypointForm';
+import { SyncStatusIndicator } from './components/SyncStatus';
+import { patrolApi, calculateHaversineDistanceKm, calculateTotalWaypointsDistanceKm } from './api/patrolApi';
+import { manualWaypointSchema } from './schemas/patrolSchemas';
 import { PatrolStatus, SyncStatus, LocationSource } from '../../shared/types/enums';
 
 describe('UC-A Patrol Component & Offline Sync Tests', () => {
@@ -52,5 +56,89 @@ describe('UC-A Patrol Component & Offline Sync Tests', () => {
     expect(offlineSession.syncStatus).toBe(SyncStatus.PENDING);
     expect(offlineSession.status).toBe(PatrolStatus.COMPLETED);
     expect(offlineSession.waypoints.length).toBe(1);
+  });
+
+  test('PatrolCard renders assignment details, route name, distance and buttons', () => {
+    const dummyAssignment = {
+      _id: 'assign-1',
+      rangerId: 'R-101',
+      rangerName: 'Ranger John',
+      patrolRoute: {
+        _id: 'route-1',
+        name: 'Northern Boundary Patrol',
+        park: { _id: 'park-1', name: 'Serengeti Northern Sector', code: 'SERENGETI' },
+        description: '12km boundary patrol.',
+        distanceKm: 12.5,
+        estimatedDurationHours: 3.5,
+        geometry: { type: 'LineString', coordinates: [[34.82, -2.15]] }
+      },
+      assignedDate: new Date().toISOString(),
+      status: PatrolStatus.ASSIGNED
+    };
+
+    const handleStart = vi.fn();
+    const handleView = vi.fn();
+
+    render(
+      <PatrolCard
+        assignment={dummyAssignment}
+        onStartPatrol={handleStart}
+        onViewRoute={handleView}
+      />
+    );
+
+    expect(screen.getByText('Northern Boundary Patrol')).toBeInTheDocument();
+    expect(screen.getByText('12.5 km')).toBeInTheDocument();
+    expect(screen.getByText('Start Patrol')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Start Patrol'));
+    expect(handleStart).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText('View Route Map'));
+    expect(handleView).toHaveBeenCalled();
+  });
+
+  test('WaypointFormModal handles user observation input and submission', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+    const handleCancel = vi.fn();
+
+    render(
+      <WaypointFormModal
+        currentLocation={{ latitude: -2.1523, longitude: 34.8214, accuracy: 5, timestamp: Date.now() }}
+        onSubmit={handleSubmit}
+        onCancel={handleCancel}
+      />
+    );
+
+    expect(screen.getByText('Add Manual Waypoint')).toBeInTheDocument();
+    const textarea = screen.getByPlaceholderText(/Spotted fresh tracks/i);
+    fireEvent.change(textarea, { target: { value: 'Fresh animal tracks found.' } });
+
+    fireEvent.click(screen.getByText('Record Waypoint'));
+    expect(handleSubmit).toHaveBeenCalledWith('Fresh animal tracks found.');
+  });
+
+  test('SyncStatusIndicator displays Online network state', () => {
+    render(<SyncStatusIndicator />);
+    expect(screen.getByText('Online')).toBeInTheDocument();
+  });
+
+  test('manualWaypointSchema Zod validation enforces latitude and longitude constraints', () => {
+    const valid = manualWaypointSchema.safeParse({ latitude: -2.15, longitude: 34.82, note: 'Valid note' });
+    expect(valid.success).toBe(true);
+
+    const invalidLat = manualWaypointSchema.safeParse({ latitude: 100, longitude: 34.82 });
+    expect(invalidLat.success).toBe(false);
+  });
+
+  test('calculateHaversineDistanceKm and calculateTotalWaypointsDistanceKm compute correctly', () => {
+    const dist = calculateHaversineDistanceKm(0, 0, 1, 1);
+    expect(dist).toBeGreaterThan(150);
+
+    const total = calculateTotalWaypointsDistanceKm([
+      { latitude: -2.1523, longitude: 34.8214, timestamp: new Date().toISOString(), source: LocationSource.GPS },
+      { latitude: -2.1480, longitude: 34.8320, timestamp: new Date().toISOString(), source: LocationSource.GPS }
+    ]);
+    expect(total).toBeGreaterThan(0);
   });
 });

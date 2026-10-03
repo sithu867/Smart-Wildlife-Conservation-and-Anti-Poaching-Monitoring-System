@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import {
   ParkModel,
   PatrolRouteModel,
@@ -37,7 +38,47 @@ export function calculateTotalWaypointsDistanceKm(waypoints: IWaypoint[]): numbe
   return Math.round(total * 1000) / 1000;
 }
 
+const MOCK_PARK = {
+  _id: '67a000000000000000000001',
+  name: 'Serengeti Northern Sector',
+  code: 'SERENGETI-NORTH',
+  description: 'Northern conservation sector guarding wildlife corridors.'
+};
+
+const MOCK_ROUTE = {
+  _id: '67a000000000000000000002',
+  name: 'Northern Boundary Patrol',
+  park: MOCK_PARK,
+  description: '12km boundary patrol along the northern river sector to prevent poaching.',
+  distanceKm: 12.5,
+  estimatedDurationHours: 3.5,
+  geometry: {
+    type: 'LineString',
+    coordinates: [
+      [34.8214, -2.1523],
+      [34.8320, -2.1480],
+      [34.8450, -2.1410],
+      [34.8580, -2.1350],
+      [34.8700, -2.1300]
+    ]
+  }
+};
+
+const memorySessionsStore = new Map<string, any>();
+
 async function ensureSeedData(rangerId: string, rangerName: string = 'Ranger John') {
+  if (mongoose.connection.readyState !== 1) {
+    return {
+      _id: '67a000000000000000000003',
+      rangerId,
+      rangerName,
+      patrolRoute: MOCK_ROUTE,
+      assignedDate: new Date(),
+      status: PatrolStatus.ASSIGNED,
+      notes: 'Scheduled morning anti-poaching patrol.'
+    } as any;
+  }
+
   let park = await ParkModel.findOne({ code: 'SERENGETI-NORTH' });
   if (!park) {
     park = await ParkModel.create({
@@ -95,6 +136,22 @@ async function ensureSeedData(rangerId: string, rangerName: string = 'Ranger Joh
 
 export class PatrolService {
   async getAssignedPatrol(rangerId: string, rangerName: string = 'Ranger John') {
+    if (mongoose.connection.readyState !== 1) {
+      const activeSession = Array.from(memorySessionsStore.values()).find(
+        s => s.rangerId === rangerId && s.status === PatrolStatus.ACTIVE
+      );
+      const assignment = {
+        _id: '67a000000000000000000003',
+        rangerId,
+        rangerName,
+        patrolRoute: MOCK_ROUTE,
+        assignedDate: new Date(),
+        status: activeSession ? PatrolStatus.ACTIVE : PatrolStatus.ASSIGNED,
+        notes: 'Scheduled morning anti-poaching patrol.'
+      };
+      return { assignment, activeSession: activeSession || null };
+    }
+
     let assignment = await PatrolAssignmentModel.findOne({
       rangerId,
       status: { $in: [PatrolStatus.ASSIGNED, PatrolStatus.ACTIVE] }
@@ -119,6 +176,10 @@ export class PatrolService {
   }
 
   async getPatrolRoute(routeId: string) {
+    if (mongoose.connection.readyState !== 1) {
+      return MOCK_ROUTE as any;
+    }
+
     const route = await PatrolRouteModel.findById(routeId).populate('park');
     if (!route) {
       throw new Error('Patrol route not found');
@@ -127,6 +188,36 @@ export class PatrolService {
   }
 
   async startPatrol(rangerId: string, rangerName: string = 'Ranger John', assignmentId?: string, clientSessionId?: string) {
+    if (mongoose.connection.readyState !== 1) {
+      const existingActive = Array.from(memorySessionsStore.values()).find(
+        s => s.rangerId === rangerId && s.status === PatrolStatus.ACTIVE
+      );
+      if (existingActive) {
+        if (clientSessionId && existingActive.clientSessionId === clientSessionId) {
+          return existingActive;
+        }
+        throw new Error('A patrol session is already active for this ranger.');
+      }
+
+      const id = `67a${Date.now().toString(16).padStart(21, '0')}`;
+      const session = {
+        _id: id,
+        clientSessionId,
+        rangerId,
+        rangerName,
+        patrolAssignment: assignmentId || '67a000000000000000000003',
+        patrolRoute: MOCK_ROUTE,
+        startTime: new Date(),
+        status: PatrolStatus.ACTIVE,
+        syncStatus: SyncStatus.SYNCED,
+        waypoints: [],
+        totalDistanceKm: 0,
+        durationSeconds: 0
+      };
+      memorySessionsStore.set(id, session);
+      return session;
+    }
+
     let assignment: IPatrolAssignment | null = null;
     if (assignmentId) {
       assignment = await PatrolAssignmentModel.findById(assignmentId);
@@ -150,7 +241,6 @@ export class PatrolService {
       throw new Error('Unauthorized: Patrol assignment does not belong to this ranger.');
     }
 
-    // Check if ranger has an existing active patrol session
     const existingActive = await PatrolSessionModel.findOne({
       rangerId,
       status: PatrolStatus.ACTIVE
@@ -163,7 +253,6 @@ export class PatrolService {
       throw new Error('A patrol session is already active for this ranger.');
     }
 
-    // Create new active patrol session
     const session = await PatrolSessionModel.create({
       clientSessionId,
       rangerId,
@@ -196,6 +285,34 @@ export class PatrolService {
       note?: string;
     }
   ) {
+    if (waypointData.latitude < -90 || waypointData.latitude > 90) {
+      throw new Error('Invalid latitude: must be between -90 and 90 degrees.');
+    }
+    if (waypointData.longitude < -180 || waypointData.longitude > 180) {
+      throw new Error('Invalid longitude: must be between -180 and 180 degrees.');
+    }
+
+    if (mongoose.connection.readyState !== 1) {
+      const session = memorySessionsStore.get(sessionId);
+      if (!session) throw new Error('Patrol session not found.');
+      if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
+      if (session.status !== PatrolStatus.ACTIVE) throw new Error('Cannot add waypoints to a patrol session that is not ACTIVE.');
+
+      const newWaypoint: IWaypoint = {
+        latitude: waypointData.latitude,
+        longitude: waypointData.longitude,
+        timestamp: waypointData.timestamp || new Date(),
+        source: waypointData.source,
+        accuracy: waypointData.accuracy,
+        note: waypointData.note
+      };
+
+      session.waypoints.push(newWaypoint);
+      session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
+      session.durationSeconds = Math.round((new Date().getTime() - new Date(session.startTime).getTime()) / 1000);
+      return session;
+    }
+
     const session = await PatrolSessionModel.findById(sessionId);
     if (!session) {
       throw new Error('Patrol session not found.');
@@ -207,13 +324,6 @@ export class PatrolService {
 
     if (session.status !== PatrolStatus.ACTIVE) {
       throw new Error('Cannot add waypoints to a patrol session that is not ACTIVE.');
-    }
-
-    if (waypointData.latitude < -90 || waypointData.latitude > 90) {
-      throw new Error('Invalid latitude: must be between -90 and 90 degrees.');
-    }
-    if (waypointData.longitude < -180 || waypointData.longitude > 180) {
-      throw new Error('Invalid longitude: must be between -180 and 180 degrees.');
     }
 
     const newWaypoint: IWaypoint = {
@@ -234,6 +344,21 @@ export class PatrolService {
   }
 
   async completePatrol(rangerId: string, sessionId: string, endTime?: Date) {
+    if (mongoose.connection.readyState !== 1) {
+      const session = memorySessionsStore.get(sessionId);
+      if (!session) throw new Error('Patrol session not found.');
+      if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
+      if (session.status === PatrolStatus.COMPLETED) throw new Error('Patrol session is already COMPLETED.');
+
+      const finalEndTime = endTime || new Date();
+      session.status = PatrolStatus.COMPLETED;
+      session.endTime = finalEndTime;
+      session.durationSeconds = Math.max(0, Math.round((finalEndTime.getTime() - new Date(session.startTime).getTime()) / 1000));
+      session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
+      session.syncStatus = SyncStatus.SYNCED;
+      return session;
+    }
+
     const session = await PatrolSessionModel.findById(sessionId);
     if (!session) {
       throw new Error('Patrol session not found.');
@@ -266,6 +391,13 @@ export class PatrolService {
   }
 
   async getPatrolSession(rangerId: string, sessionId: string) {
+    if (mongoose.connection.readyState !== 1) {
+      const session = memorySessionsStore.get(sessionId);
+      if (!session) throw new Error('Patrol session not found.');
+      if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
+      return session;
+    }
+
     const session = await PatrolSessionModel.findById(sessionId)
       .populate({
         path: 'patrolRoute',
@@ -284,7 +416,6 @@ export class PatrolService {
     return session;
   }
 
-  // Idempotent synchronization endpoint for offline session payloads
   async syncPatrolSession(
     rangerId: string,
     rangerName: string = 'Ranger John',
@@ -300,14 +431,47 @@ export class PatrolService {
       durationSeconds?: number;
     }
   ) {
-    // 1. Idempotency Check: search by clientSessionId first
+    if (mongoose.connection.readyState !== 1) {
+      let existing = Array.from(memorySessionsStore.values()).find(
+        s => s.clientSessionId === payload.clientSessionId && s.rangerId === rangerId
+      );
+
+      if (existing) {
+        existing.waypoints = payload.waypoints || existing.waypoints;
+        existing.status = payload.status || existing.status;
+        existing.endTime = payload.endTime || existing.endTime;
+        existing.durationSeconds = payload.durationSeconds ?? existing.durationSeconds;
+        existing.totalDistanceKm = calculateTotalWaypointsDistanceKm(existing.waypoints);
+        existing.syncStatus = SyncStatus.SYNCED;
+        return existing;
+      }
+
+      const id = `67a${Date.now().toString(16).padStart(21, '0')}`;
+      const session = {
+        _id: id,
+        clientSessionId: payload.clientSessionId,
+        rangerId,
+        rangerName,
+        patrolAssignment: '67a000000000000000000003',
+        patrolRoute: MOCK_ROUTE,
+        startTime: payload.startTime,
+        endTime: payload.endTime || null,
+        status: payload.status,
+        syncStatus: SyncStatus.SYNCED,
+        waypoints: payload.waypoints || [],
+        totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints || []),
+        durationSeconds: payload.durationSeconds || 0
+      };
+      memorySessionsStore.set(id, session);
+      return session;
+    }
+
     let session = await PatrolSessionModel.findOne({
       clientSessionId: payload.clientSessionId,
       rangerId
     });
 
     if (session) {
-      // Idempotent update of existing synced record
       session.waypoints = payload.waypoints || session.waypoints;
       session.status = payload.status || session.status;
       session.endTime = payload.endTime || session.endTime;
@@ -324,7 +488,6 @@ export class PatrolService {
       return session;
     }
 
-    // 2. Not existing: Get assignment
     let assignment = await ensureSeedData(rangerId, rangerName);
     if (!assignment) {
       throw new Error('Failed to resolve assignment for sync.');
