@@ -110,10 +110,11 @@ export const incidentApi = {
   },
 
   async getMyIncidents(): Promise<ConservationIncident[]> {
+    let remoteIncidents: ConservationIncident[] = [];
     try {
       const response = await http.get('/incidents/my');
       if (response.data?.success) {
-        const remoteIncidents: ConservationIncident[] = response.data.data;
+        remoteIncidents = response.data.data;
 
         for (const inc of remoteIncidents) {
           const local = await findLocalIncidentByRemoteId(inc._id);
@@ -127,16 +128,43 @@ export const incidentApi = {
             });
           }
         }
-        return remoteIncidents;
       }
     } catch (error) {
       console.warn('Network request failed for getMyIncidents, retrieving from local offline db:', error);
     }
 
-    const cached = await offlineDb.incidents.toArray();
-    return cached
-      .map(c => c.payload as ConservationIncident)
-      .sort((a, b) => new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime());
+    // Retrieve cached local incidents (including pending/failed offline items)
+    let cached: OfflineRecord[] = [];
+    try {
+      if (typeof indexedDB !== 'undefined') {
+        cached = await offlineDb.incidents.toArray();
+      }
+    } catch (e) {
+      console.warn('Error reading local offline database:', e);
+    }
+
+    const itemsMap = new Map<string, ConservationIncident>();
+
+    // Add remote incidents
+    for (const inc of remoteIncidents) {
+      const key = inc.clientIncidentId || inc._id;
+      itemsMap.set(key, inc);
+    }
+
+    // Merge local cached items (prioritizing local pending/failed status if unsynced)
+    for (const c of cached) {
+      const inc = c.payload as ConservationIncident;
+      if (inc) {
+        const key = inc.clientIncidentId || inc._id;
+        if (!itemsMap.has(key) || c.syncStatus === SyncStatus.PENDING || c.syncStatus === SyncStatus.FAILED) {
+          itemsMap.set(key, { ...inc, syncStatus: c.syncStatus });
+        }
+      }
+    }
+
+    return Array.from(itemsMap.values()).sort(
+      (a, b) => new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime()
+    );
   },
 
   async getIncidentById(incidentId: string): Promise<ConservationIncident> {
