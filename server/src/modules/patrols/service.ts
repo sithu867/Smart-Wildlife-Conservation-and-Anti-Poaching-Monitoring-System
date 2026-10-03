@@ -416,6 +416,24 @@ export class PatrolService {
     return session;
   }
 
+  async getPatrolHistory(rangerId: string) {
+    if (mongoose.connection.readyState !== 1) {
+      const sessions = Array.from(memorySessionsStore.values()).filter(
+        s => s.rangerId === rangerId
+      );
+      return sessions.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    }
+
+    const sessions = await PatrolSessionModel.find({ rangerId })
+      .populate({
+        path: 'patrolRoute',
+        populate: { path: 'park' }
+      })
+      .sort({ startTime: -1 });
+
+    return sessions;
+  }
+
   async syncPatrolSession(
     rangerId: string,
     rangerName: string = 'Ranger John',

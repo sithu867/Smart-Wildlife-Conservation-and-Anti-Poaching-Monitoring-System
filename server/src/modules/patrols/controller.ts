@@ -95,6 +95,19 @@ export const patrolController = {
     }
   },
 
+  async getPatrolHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId } = getAuthenticatedRanger(req);
+      const data = await patrolService.getPatrolHistory(rangerId);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
   async syncPatrol(req: Request, res: Response, next: NextFunction) {
     try {
       const { rangerId, rangerName } = getAuthenticatedRanger(req);

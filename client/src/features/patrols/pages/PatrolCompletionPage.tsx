@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { patrolApi } from '../api/patrolApi';
 import type { PatrolSession } from '../types/patrol';
 import { SyncStatusIndicator } from '../components/SyncStatus';
+import { PatrolMap } from '../components/PatrolMap';
 import { SyncStatus } from '../../../shared/types/enums';
 
 export const PatrolCompletionPage: React.FC = () => {
@@ -147,6 +148,12 @@ export const PatrolCompletionPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Patrol Map View on Summary */}
+        <div className="flex flex-col gap-2 mt-1">
+          <span className="text-xs font-bold text-slate-300">Recorded Patrol Track & Waypoints</span>
+          <PatrolMap route={route} waypoints={waypoints} height="240px" />
+        </div>
+
         <button
           onClick={() => navigate('/ranger/patrol')}
           className="w-full py-4 rounded-2xl font-bold bg-emerald-400 text-slate-950 hover:bg-emerald-300 active:scale-[0.98] transition-all text-center text-sm shadow-xl shadow-emerald-400/20 mt-1"
@@ -157,3 +164,4 @@ export const PatrolCompletionPage: React.FC = () => {
     </div>
   );
 };
+

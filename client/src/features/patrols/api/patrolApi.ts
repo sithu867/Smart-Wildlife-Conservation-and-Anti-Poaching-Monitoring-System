@@ -336,6 +336,35 @@ export const patrolApi = {
     }
   },
 
+  async getPatrolHistory(): Promise<PatrolSession[]> {
+    try {
+      const response = await http.get('/patrols/sessions/history');
+      if (response.data?.success) {
+        const remoteSessions: PatrolSession[] = response.data.data;
+        for (const sess of remoteSessions) {
+          const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sess._id);
+          if (!local) {
+            await offlineDb.patrolSessions.put({
+              remoteId: sess._id,
+              syncStatus: SyncStatus.SYNCED,
+              createdAt: sess.startTime,
+              updatedAt: new Date().toISOString(),
+              payload: sess
+            });
+          }
+        }
+        return remoteSessions;
+      }
+    } catch (error) {
+      console.warn('Network request failed for patrol history, retrieving from local storage:', error);
+    }
+
+    const cached = await offlineDb.patrolSessions.toArray();
+    return cached
+      .map(c => c.payload as PatrolSession)
+      .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  },
+
   async syncSessionPayload(payload: unknown): Promise<PatrolSession> {
     const session = payload as PatrolSession;
     const response = await http.post('/patrols/sessions/sync', {

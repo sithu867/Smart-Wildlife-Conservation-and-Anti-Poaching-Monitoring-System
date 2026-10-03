@@ -5,23 +5,37 @@ import 'leaflet/dist/leaflet.css';
 import type { PatrolRoute, Waypoint } from '../types/patrol';
 import type { GeoLocation } from '../../../shared/geolocation/geolocation';
 
-// Fix Leaflet marker icon paths for webpack/vite
-const defaultIcon = L.icon({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41]
-});
+// Helper function to create clean, high-visibility SVG/HTML map markers
+const createCustomMarkerIcon = (bgGradient: string, iconSymbol: string, borderHex: string = '#ffffff') => {
+  return L.divIcon({
+    className: 'custom-map-marker-container',
+    html: `
+      <div style="
+        background: ${bgGradient};
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 2px solid ${borderHex};
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: white;
+        transform: translate(-50%, -50%);
+      ">
+        ${iconSymbol}
+      </div>
+    `,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -16]
+  });
+};
 
-const manualIcon = L.icon({
-  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-amber.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  iconSize: [25, 41],
-  iconAnchor: [12, 41]
-});
-
-L.Marker.prototype.options.icon = defaultIcon;
+const gpsWaypointIcon = createCustomMarkerIcon('linear-gradient(135deg, #10b981, #047857)', '📍', '#d1fae5');
+const manualWaypointIcon = createCustomMarkerIcon('linear-gradient(135deg, #f59e0b, #d97706)', '✍️', '#fef3c7');
+const currentLocationIcon = createCustomMarkerIcon('linear-gradient(135deg, #06b6d4, #0284c7)', '🎯', '#cffaff');
 
 interface PatrolMapProps {
   route?: PatrolRoute | null;
@@ -38,18 +52,23 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
 }) => {
   // Convert [lon, lat] coordinates to Leaflet [lat, lon] tuples
   const routePositions: [number, number][] =
-    route?.geometry?.coordinates?.map(coord => [coord[1], coord[0]]) || [];
+    route?.geometry?.coordinates?.map(coord => [Number(coord[1]), Number(coord[0])]) || [];
 
-  const waypointsPositions: [number, number][] = waypoints.map(w => [w.latitude, w.longitude]);
+  // Filter and convert valid waypoints
+  const validWaypoints = waypoints.filter(
+    w => typeof w.latitude === 'number' && !isNaN(w.latitude) && typeof w.longitude === 'number' && !isNaN(w.longitude)
+  );
+
+  const waypointsPositions: [number, number][] = validWaypoints.map(w => [w.latitude, w.longitude]);
 
   // Determine initial center
   let center: [number, number] = [-2.1523, 34.8214]; // Default Serengeti coords
-  if (currentLocation) {
+  if (currentLocation && !isNaN(currentLocation.latitude) && !isNaN(currentLocation.longitude)) {
     center = [currentLocation.latitude, currentLocation.longitude];
+  } else if (waypointsPositions.length > 0) {
+    center = waypointsPositions[waypointsPositions.length - 1];
   } else if (routePositions.length > 0) {
     center = routePositions[0];
-  } else if (waypointsPositions.length > 0) {
-    center = waypointsPositions[0];
   }
 
   return (
@@ -82,17 +101,28 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
         )}
 
         {/* Recorded Waypoint Markers */}
-        {waypoints.map((wp, idx) => (
+        {validWaypoints.map((wp, idx) => (
           <Marker
-            key={idx}
+            key={wp._id || `wp-${idx}-${wp.timestamp}`}
             position={[wp.latitude, wp.longitude]}
-            icon={wp.source === 'MANUAL' ? manualIcon : defaultIcon}
+            icon={wp.source === 'MANUAL' ? manualWaypointIcon : gpsWaypointIcon}
           >
             <Popup>
-              <div className="text-xs">
-                <p className="font-bold">{wp.source} Waypoint #{idx + 1}</p>
-                <p className="text-slate-600">{new Date(wp.timestamp).toLocaleTimeString()}</p>
-                {wp.note && <p className="mt-1 italic text-slate-800">"{wp.note}"</p>}
+              <div className="text-xs p-1 text-slate-900">
+                <p className="font-bold border-b pb-1 mb-1 border-slate-200">
+                  {wp.source === 'MANUAL' ? '✍️ Manual Waypoint' : '📍 GPS Auto Waypoint'} #{idx + 1}
+                </p>
+                <p className="text-slate-600 font-mono text-[11px]">
+                  {new Date(wp.timestamp).toLocaleTimeString()}
+                </p>
+                <p className="text-slate-500 font-mono text-[10px] mt-0.5">
+                  Lat: {wp.latitude.toFixed(5)}, Lng: {wp.longitude.toFixed(5)}
+                </p>
+                {wp.note && (
+                  <p className="mt-1.5 p-1.5 bg-amber-50 border border-amber-200 rounded text-amber-900 italic">
+                    "{wp.note}"
+                  </p>
+                )}
               </div>
             </Popup>
           </Marker>
@@ -100,10 +130,13 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
 
         {/* Current Location Marker */}
         {currentLocation && (
-          <Marker position={[currentLocation.latitude, currentLocation.longitude]}>
+          <Marker
+            position={[currentLocation.latitude, currentLocation.longitude]}
+            icon={currentLocationIcon}
+          >
             <Popup>
-              <div className="text-xs font-bold text-emerald-700">
-                Your Current Position
+              <div className="text-xs font-bold text-cyan-900 p-1">
+                🎯 Current Location Position
               </div>
             </Popup>
           </Marker>
@@ -112,3 +145,4 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
     </div>
   );
 };
+

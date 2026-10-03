@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { GeoLocation } from '../../../shared/geolocation/geolocation';
+import { manualWaypointSchema } from '../schemas/patrolSchemas';
 
 interface WaypointFormProps {
   currentLocation: GeoLocation | null;
@@ -12,7 +13,14 @@ export const WaypointFormModal: React.FC<WaypointFormProps> = ({
   onSubmit,
   onCancel
 }) => {
+  const [mode, setMode] = useState<'GPS' | 'MANUAL'>(currentLocation ? 'GPS' : 'MANUAL');
   const [note, setNote] = useState<string>('');
+  const [customLatStr, setCustomLatStr] = useState<string>(
+    currentLocation ? String(currentLocation.latitude) : '-2.1523'
+  );
+  const [customLngStr, setCustomLngStr] = useState<string>(
+    currentLocation ? String(currentLocation.longitude) : '34.8214'
+  );
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,8 +29,32 @@ export const WaypointFormModal: React.FC<WaypointFormProps> = ({
     setIsSubmitting(true);
     setError(null);
 
+    let lat: number | undefined;
+    let lng: number | undefined;
+
+    if (mode === 'MANUAL') {
+      const parsedLat = parseFloat(customLatStr);
+      const parsedLng = parseFloat(customLngStr);
+
+      const validation = manualWaypointSchema.safeParse({
+        latitude: parsedLat,
+        longitude: parsedLng,
+        note
+      });
+
+      if (!validation.success) {
+        const firstError = validation.error.issues[0]?.message || 'Invalid coordinates entered.';
+        setError(firstError);
+        setIsSubmitting(false);
+        return;
+      }
+
+      lat = parsedLat;
+      lng = parsedLng;
+    }
+
     try {
-      await onSubmit(note);
+      await onSubmit(note, lat, lng);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to record manual waypoint');
       setIsSubmitting(false);
@@ -32,6 +64,7 @@ export const WaypointFormModal: React.FC<WaypointFormProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-800 text-slate-100 rounded-t-3xl sm:rounded-2xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div>
             <h3 className="text-lg font-bold text-white">Add Manual Waypoint</h3>
@@ -46,14 +79,83 @@ export const WaypointFormModal: React.FC<WaypointFormProps> = ({
           </button>
         </div>
 
-        {currentLocation ? (
-          <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 flex justify-between">
-            <span>Lat: {currentLocation.latitude.toFixed(5)}°</span>
-            <span>Lng: {currentLocation.longitude.toFixed(5)}°</span>
-          </div>
+        {/* Mode Selector Switch */}
+        <div className="grid grid-cols-2 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold">
+          <button
+            type="button"
+            onClick={() => setMode('GPS')}
+            className={`py-2 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              mode === 'GPS'
+                ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>📍</span>
+            <span>Current GPS Fix</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('MANUAL')}
+            className={`py-2 px-3 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+              mode === 'MANUAL'
+                ? 'bg-amber-400 text-slate-950 shadow-md font-bold'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>✍️</span>
+            <span>Manual Coordinates</span>
+          </button>
+        </div>
+
+        {/* GPS vs Manual Info Box */}
+        {mode === 'GPS' ? (
+          currentLocation ? (
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-emerald-500/30 text-xs font-mono text-emerald-400 flex justify-between items-center">
+              <div>
+                <span className="text-[10px] text-slate-400 block uppercase font-sans">Active GPS Fix</span>
+                <span className="font-bold">Lat: {currentLocation.latitude.toFixed(5)}°</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-slate-400 block uppercase font-sans">Accuracy</span>
+                <span className="font-bold">Lng: {currentLocation.longitude.toFixed(5)}°</span>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-amber-950/60 border border-amber-800/60 p-3 rounded-xl text-xs text-amber-300">
+              ⚠️ GPS signal is unavailable. Switch to <strong>Manual Coordinates</strong> tab to enter custom location.
+            </div>
+          )
         ) : (
-          <div className="bg-amber-950/60 border border-amber-800/60 p-3 rounded-xl text-xs text-amber-300">
-            GPS location is pending fix. Current waypoint will use best available location fix.
+          <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 flex flex-col gap-3">
+            <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+              Manual Override / GPS Failure Coordinates
+            </span>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                  Latitude (-90 to 90)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={customLatStr}
+                  onChange={e => setCustomLatStr(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-400 mb-1">
+                  Longitude (-180 to 180)
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  value={customLngStr}
+                  onChange={e => setCustomLngStr(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-white font-mono text-xs focus:outline-none focus:border-amber-400"
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -96,3 +198,4 @@ export const WaypointFormModal: React.FC<WaypointFormProps> = ({
     </div>
   );
 };
+

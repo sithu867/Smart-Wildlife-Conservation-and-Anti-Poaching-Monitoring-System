@@ -8,6 +8,7 @@ patrolRoutes.get('/my-assignment', patrolController.getMyAssignment);
 patrolRoutes.get('/routes/:routeId', patrolController.getRouteById);
 
 // Patrol Session endpoints (under /api/patrols/sessions)
+patrolRoutes.get('/sessions/history', patrolController.getPatrolHistory);
 patrolRoutes.post('/sessions', patrolController.startPatrol);
 patrolRoutes.post('/sessions/sync', patrolController.syncPatrol);
 patrolRoutes.get('/sessions/:sessionId', patrolController.getSessionById);
@@ -16,6 +17,7 @@ patrolRoutes.post('/sessions/:sessionId/complete', patrolController.completePatr
 
 // Legacy alias endpoints to support both path conventions (/api/patrol-sessions)
 export const patrolSessionRoutes = Router();
+patrolSessionRoutes.get('/history', patrolController.getPatrolHistory);
 patrolSessionRoutes.post('/', patrolController.startPatrol);
 patrolSessionRoutes.post('/sync', patrolController.syncPatrol);
 patrolSessionRoutes.get('/:sessionId', patrolController.getSessionById);

@@ -115,7 +115,26 @@ describe('UC-A Patrol Component & Offline Sync Tests', () => {
     fireEvent.change(textarea, { target: { value: 'Fresh animal tracks found.' } });
 
     fireEvent.click(screen.getByText('Record Waypoint'));
-    expect(handleSubmit).toHaveBeenCalledWith('Fresh animal tracks found.');
+    expect(handleSubmit).toHaveBeenCalledWith('Fresh animal tracks found.', undefined, undefined);
+  });
+
+  test('WaypointFormModal supports Manual Coordinates override mode when GPS is unavailable', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+    const handleCancel = vi.fn();
+
+    render(
+      <WaypointFormModal
+        currentLocation={null} // GPS unavailable scenario
+        onSubmit={handleSubmit}
+        onCancel={handleCancel}
+      />
+    );
+
+    expect(screen.getByText('Add Manual Waypoint')).toBeInTheDocument();
+    expect(screen.getByText(/Manual Override \/ GPS Failure Coordinates/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Record Waypoint'));
+    expect(handleSubmit).toHaveBeenCalledWith('', -2.1523, 34.8214);
   });
 
   test('SyncStatusIndicator displays Online network state', () => {

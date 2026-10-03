@@ -25,8 +25,8 @@ export const ActivePatrolPage: React.FC = () => {
   const [isCompleting, setIsCompleting] = useState<boolean>(false);
   const [completeConfirmModal, setCompleteConfirmModal] = useState<boolean>(false);
 
-  const handleConfirmAddWaypoint = async (note: string) => {
-    await addManualWaypoint(note);
+  const handleConfirmAddWaypoint = async (note: string, customLat?: number, customLng?: number) => {
+    await addManualWaypoint(note, customLat, customLng);
     setIsWaypointModalOpen(false);
   };
 
