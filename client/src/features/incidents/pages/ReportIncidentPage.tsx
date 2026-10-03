@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { geolocationService, type GeoLocation } from '../../../shared/geolocation/geolocation';
 import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
 import { PhotoCapture } from '../components/PhotoCapture';
+import { ManualLocationPicker } from '../components/ManualLocationPicker';
 import { incidentApi } from '../api/incidentApi';
 import { reportIncidentFormSchema } from '../schemas/incidentSchemas';
 import { IncidentType, LocationSource, SyncStatus } from '../../../shared/types/enums';
@@ -21,6 +22,11 @@ export const ReportIncidentPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const patrolSessionId = searchParams.get('sessionId') || undefined;
 
+  // Stable client ID generated for this report draft session
+  const [clientIncidentId] = useState<string>(
+    () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+  );
+
   const [selectedType, setSelectedType] = useState<IncidentType | null>(null);
   const [otherDescription, setOtherDescription] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -32,6 +38,7 @@ export const ReportIncidentPage: React.FC = () => {
   const [locationStatus, setLocationStatus] = useState<'obtaining' | 'available' | 'unavailable'>('obtaining');
   const [locationSource, setLocationSource] = useState<LocationSource>(LocationSource.GPS);
 
+  const [isManualPickerOpen, setIsManualPickerOpen] = useState<boolean>(false);
   const [isReviewOpen, setIsReviewOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -49,10 +56,22 @@ export const ReportIncidentPage: React.FC = () => {
         setLocationSource(LocationSource.GPS);
       })
       .catch(err => {
-        console.warn('GPS location request error:', err);
+        console.warn('GPS location request failed or permission denied:', err);
         setLocationStatus('unavailable');
       });
   }, []);
+
+  const handleManualLocationSelect = (selectedLoc: { latitude: number; longitude: number }) => {
+    setLocation({
+      latitude: selectedLoc.latitude,
+      longitude: selectedLoc.longitude,
+      timestamp: Date.now()
+    });
+    setLocationSource(LocationSource.MANUAL);
+    setLocationStatus('available');
+    setIsManualPickerOpen(false);
+    setValidationError(null);
+  };
 
   const handlePhotoCaptured = (dataUrl: string, size?: number, mime?: string) => {
     setImageUrl(dataUrl);
@@ -80,7 +99,7 @@ export const ReportIncidentPage: React.FC = () => {
       description,
       latitude: lat,
       longitude: lng,
-      locationSource: location ? LocationSource.GPS : LocationSource.MANUAL,
+      locationSource: location ? locationSource : LocationSource.MANUAL,
       patrolSessionId,
       imageUrl: imageUrl || ''
     });
@@ -99,18 +118,21 @@ export const ReportIncidentPage: React.FC = () => {
     setIsSubmitting(true);
     setValidationError(null);
 
-    const lat = location ? location.latitude : -2.1523;
-    const lng = location ? location.longitude : 34.8214;
+    if (!location) {
+      setValidationError('Location is missing. Please select a valid location before submitting.');
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       const created = await incidentApi.createIncident({
-        clientIncidentId: `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+        clientIncidentId,
         incidentType: selectedType!,
         otherTypeDescription: selectedType === IncidentType.OTHER ? otherDescription : undefined,
         description,
-        latitude: lat,
-        longitude: lng,
-        locationSource: location ? LocationSource.GPS : LocationSource.MANUAL,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        locationSource,
         patrolSessionId,
         evidence: [
           {
@@ -130,7 +152,7 @@ export const ReportIncidentPage: React.FC = () => {
     }
   };
 
-  // Submission Success Confirmation Screen
+  // Submission Confirmation Screen
   if (submittedIncident) {
     const isSynced = submittedIncident.syncStatus === SyncStatus.SYNCED;
     return (
@@ -149,8 +171,20 @@ export const ReportIncidentPage: React.FC = () => {
             <h1 className="text-2xl font-black text-white mt-1">
               {isSynced ? 'Incident Reported Successfully' : 'Incident Saved Locally'}
             </h1>
-            <p className="text-xs text-slate-400 mt-1">Incident ID: {submittedIncident._id}</p>
+            <p className="text-xs text-slate-400 mt-1">Incident Client ID: {submittedIncident.clientIncidentId || submittedIncident._id}</p>
           </div>
+
+          {!isSynced && (
+            <div className="bg-amber-950/60 border border-amber-500/40 p-3 rounded-2xl text-xs text-amber-200 text-left flex items-start gap-2">
+              <span className="text-base">🟡</span>
+              <div>
+                <p className="font-extrabold text-amber-300">Pending Synchronization</p>
+                <p className="mt-0.5 opacity-90 leading-tight">
+                  This incident is safely stored on this device and will synchronize automatically when connectivity returns.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-xs text-left flex flex-col gap-2.5">
             <div className="flex justify-between border-b border-slate-900 pb-2">
@@ -158,9 +192,9 @@ export const ReportIncidentPage: React.FC = () => {
               <span className="font-bold text-amber-400">{submittedIncident.incidentType}</span>
             </div>
             <div className="flex justify-between border-b border-slate-900 pb-2">
-              <span className="text-slate-400">Location</span>
+              <span className="text-slate-400">Location ({submittedIncident.location.source})</span>
               <span className="font-mono text-emerald-400">
-                {submittedIncident.location.latitude.toFixed(4)}°, {submittedIncident.location.longitude.toFixed(4)}° ({submittedIncident.location.source})
+                {submittedIncident.location.latitude.toFixed(4)}°, {submittedIncident.location.longitude.toFixed(4)}°
               </span>
             </div>
             <div className="flex justify-between border-b border-slate-900 pb-2">
@@ -190,6 +224,9 @@ export const ReportIncidentPage: React.FC = () => {
                 setSelectedType(null);
                 setDescription('');
                 setImageUrl(null);
+                setLocation(null);
+                setLocationStatus('obtaining');
+                setLocationSource(LocationSource.GPS);
               }}
               className="w-full py-3 rounded-2xl font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs"
             >
@@ -228,9 +265,9 @@ export const ReportIncidentPage: React.FC = () => {
         </div>
       )}
 
-      {/* Validation Error Banner (Preserves Form Data) */}
+      {/* Validation / System Error Banner */}
       {validationError && (
-        <div className="p-4 bg-rose-950/80 border border-rose-700/80 rounded-2xl text-xs text-rose-200 font-semibold flex items-start gap-2 shadow-lg animate-bounce">
+        <div className="p-4 bg-rose-950/90 border border-rose-700/80 rounded-2xl text-xs text-rose-200 font-semibold flex items-start gap-2 shadow-lg animate-bounce">
           <span className="text-base">⚠️</span>
           <div className="flex-1">
             <p className="font-bold text-rose-100">Validation Error</p>
@@ -241,10 +278,12 @@ export const ReportIncidentPage: React.FC = () => {
 
       {/* Main Incident Reporting Form */}
       <form onSubmit={handleOpenReview} className="flex flex-col gap-5">
-        {/* 1. Location Status Box */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-2">
+        {/* 1. Location Status & Selection Box */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-300 uppercase tracking-wider text-[11px]">Location Detection</span>
+            <span className="font-bold text-slate-300 uppercase tracking-wider text-[11px]">
+              Location ({locationSource})
+            </span>
             {locationStatus === 'obtaining' && (
               <span className="text-amber-400 font-semibold flex items-center gap-1.5 animate-pulse">
                 <span className="w-2 h-2 rounded-full bg-amber-400"></span> Obtaining location...
@@ -252,24 +291,48 @@ export const ReportIncidentPage: React.FC = () => {
             )}
             {locationStatus === 'available' && (
               <span className="text-emerald-400 font-bold flex items-center gap-1">
-                <span>📍</span> Location Available (GPS)
+                <span>📍</span> Location Ready ({locationSource})
               </span>
             )}
             {locationStatus === 'unavailable' && (
-              <span className="text-amber-400 font-bold flex items-center gap-1">
-                <span>⚠️</span> Location Unavailable (Manual)
+              <span className="text-rose-400 font-bold flex items-center gap-1">
+                <span>⚠️</span> GPS Unavailable
               </span>
             )}
           </div>
 
           {location ? (
-            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 flex justify-between">
-              <span>Lat: {location.latitude.toFixed(5)}°</span>
-              <span>Lng: {location.longitude.toFixed(5)}°</span>
+            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 flex justify-between items-center">
+              <div>
+                <span className="block text-[10px] text-slate-400 uppercase font-sans">
+                  Source: {locationSource}
+                </span>
+                <span>
+                  Lat: {location.latitude.toFixed(5)}°, Lng: {location.longitude.toFixed(5)}°
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualPickerOpen(true)}
+                className="py-1 px-2.5 bg-slate-800 hover:bg-slate-700 text-amber-300 font-sans font-bold text-[10px] rounded-lg border border-slate-700"
+              >
+                Change Pin 📍
+              </button>
             </div>
           ) : (
-            <div className="text-[11px] text-slate-400 bg-slate-950 p-2.5 rounded-xl border border-slate-850 italic">
-              GPS location fix pending. Standard park coordinates will be attached if GPS fix is delayed.
+            <div className="flex flex-col gap-2">
+              <div className="text-[11px] text-rose-300 bg-rose-950/50 p-2.5 rounded-xl border border-rose-800/60 font-medium flex items-center gap-2">
+                <span>⚠️</span>
+                <span>GPS position fix is taking time or permission was denied.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManualPickerOpen(true)}
+                className="w-full py-3 rounded-xl font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs flex items-center justify-center gap-2 shadow"
+              >
+                <span>📍</span>
+                <span>Select Location Manually on Map</span>
+              </button>
             </div>
           )}
         </div>
@@ -364,6 +427,15 @@ export const ReportIncidentPage: React.FC = () => {
         </button>
       </form>
 
+      {/* Manual Location Picker Modal */}
+      {isManualPickerOpen && (
+        <ManualLocationPicker
+          initialLocation={location}
+          onLocationSelected={handleManualLocationSelect}
+          onCancel={() => setIsManualPickerOpen(false)}
+        />
+      )}
+
       {/* Review Screen Subview / Modal */}
       {isReviewOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -399,13 +471,13 @@ export const ReportIncidentPage: React.FC = () => {
               <div className="flex justify-between items-center border-b border-slate-900 pb-2">
                 <span className="text-slate-400">Location Coordinates</span>
                 <span className="font-mono text-emerald-400">
-                  {location ? `${location.latitude.toFixed(4)}°, ${location.longitude.toFixed(4)}°` : '-2.1523°, 34.8214°'}
+                  {location ? `${location.latitude.toFixed(4)}°, ${location.longitude.toFixed(4)}°` : 'None'}
                 </span>
               </div>
 
               <div className="flex justify-between items-center border-b border-slate-900 pb-2">
                 <span className="text-slate-400">Location Source</span>
-                <span className="font-bold text-slate-200">{location ? 'GPS' : 'MANUAL'}</span>
+                <span className="font-bold text-slate-200">{locationSource}</span>
               </div>
 
               {patrolSessionId && (

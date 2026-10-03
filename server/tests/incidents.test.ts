@@ -122,4 +122,23 @@ describe('UC-B Conservation Incidents API Endpoints', () => {
     expect(accessRes.status).toBe(403);
     expect(accessRes.body.error.message).toContain('Unauthorized');
   });
+
+  test('POST /api/incidents accepts MANUAL location source', async () => {
+    const manualPayload = {
+      ...sampleIncidentPayload,
+      locationSource: LocationSource.MANUAL,
+      latitude: -2.1999,
+      longitude: 34.8999
+    };
+
+    const res = await request(app)
+      .post('/api/incidents')
+      .set('x-ranger-id', 'R-101')
+      .send(manualPayload);
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.location.source).toBe(LocationSource.MANUAL);
+    expect(res.body.data.location.latitude).toBe(-2.1999);
+  });
 });

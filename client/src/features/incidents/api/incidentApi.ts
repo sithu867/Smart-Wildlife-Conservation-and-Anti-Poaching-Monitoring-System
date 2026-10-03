@@ -63,7 +63,7 @@ export const incidentApi = {
         reportedAt: new Date().toISOString(),
         patrolSession: payload.patrolSessionId,
         evidence: payload.evidence.map((ev, idx) => ({
-          evidenceId: `local-ev-${idx}-${Date.now()}`,
+          evidenceId: `evid-${clientIncidentId}-${idx}`,
           imageUrl: ev.imageUrl,
           capturedAt: ev.capturedAt || new Date().toISOString(),
           fileSize: ev.fileSize,
@@ -74,23 +74,35 @@ export const incidentApi = {
       };
 
       try {
-        const id = await offlineDb.incidents.put({
-          remoteId: clientIncidentId,
-          syncStatus: SyncStatus.PENDING,
-          createdAt: offlineIncident.reportedAt,
-          updatedAt: new Date().toISOString(),
-          payload: offlineIncident
-        });
+        if (typeof indexedDB !== 'undefined') {
+          await offlineDb.transaction('rw', [offlineDb.incidents, offlineDb.syncQueue], async () => {
+            const id = await offlineDb.incidents.put({
+              remoteId: clientIncidentId,
+              syncStatus: SyncStatus.PENDING,
+              createdAt: offlineIncident.reportedAt,
+              updatedAt: new Date().toISOString(),
+              payload: offlineIncident
+            });
 
-        await syncService.enqueue({
-          entity: 'INCIDENT',
-          operation: 'CREATE',
-          recordId: id,
-          payload: offlineIncident
-        });
+            await offlineDb.syncQueue.add({
+              entity: 'INCIDENT',
+              operation: 'CREATE',
+              recordId: id,
+              status: SyncStatus.PENDING,
+              attempts: 0,
+              createdAt: new Date().toISOString(),
+              payload: offlineIncident
+            });
+          });
+
+          // Trigger sync processing if network is available
+          if (syncService.getIsOnline()) {
+            void syncService.processAll();
+          }
+        }
       } catch (dbErr) {
         console.error('Local storage error creating incident offline:', dbErr);
-        throw new Error('Unable to save incident locally. Device storage error.');
+        throw new Error('Unable to save this incident on the device. Please try again.');
       }
 
       return offlineIncident;
@@ -174,6 +186,14 @@ export const incidentApi = {
     }
 
     return synced;
+  },
+
+  async retrySyncIncident(clientIncidentId: string): Promise<ConservationIncident> {
+    const localRecord = await findLocalIncidentByRemoteId(clientIncidentId);
+    if (!localRecord || !localRecord.payload) {
+      throw new Error('Local incident record not found for sync retry.');
+    }
+    return await this.syncIncidentPayload(localRecord.payload);
   }
 };
 

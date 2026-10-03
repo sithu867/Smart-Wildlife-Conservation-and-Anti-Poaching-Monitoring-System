@@ -27,19 +27,22 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({
     setError(null);
 
     // Validate MIME type
-    if (!file.type.startsWith('image/')) {
-      setError('Invalid file type: Please select or capture an image (JPEG, PNG, WebP).');
+    if (!file.type || !file.type.startsWith('image/')) {
+      setError('Invalid file type: Camera or photo evidence must be a valid image format (JPEG, PNG, WebP).');
       return;
     }
 
     // Validate size (max 5MB)
     const MAX_BYTES = 5 * 1024 * 1024;
     if (file.size > MAX_BYTES) {
-      setError('Image file is too large. Maximum allowed size is 5MB.');
+      setError('Image file is too large. Maximum allowed evidence size is 5MB.');
       return;
     }
 
     const reader = new FileReader();
+    reader.onerror = () => {
+      setError('Camera access error or failed to read captured image.');
+    };
     reader.onload = event => {
       const dataUrl = event.target?.result as string;
       if (dataUrl) {
@@ -47,6 +50,8 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({
         const kb = Math.round(file.size / 1024);
         setFileDetails({ sizeKb: kb, mimeType: file.type });
         onPhotoCaptured(dataUrl, file.size, file.type);
+      } else {
+        setError('Unable to process captured photograph. Please try again.');
       }
     };
     reader.readAsDataURL(file);
@@ -63,6 +68,7 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({
   };
 
   const handleTriggerCapture = () => {
+    setError(null);
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
@@ -80,8 +86,9 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({
       />
 
       {error && (
-        <div className="p-3 bg-rose-950/80 border border-rose-700/60 rounded-xl text-xs text-rose-300 font-semibold">
-          ⚠️ {error}
+        <div className="p-3 bg-rose-950/90 border border-rose-700/80 rounded-xl text-xs text-rose-200 font-semibold flex items-start gap-2 shadow">
+          <span>⚠️</span>
+          <span>{error}</span>
         </div>
       )}
 

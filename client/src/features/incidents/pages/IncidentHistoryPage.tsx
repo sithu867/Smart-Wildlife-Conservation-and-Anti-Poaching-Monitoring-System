@@ -9,14 +9,42 @@ export const IncidentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
   const [incidents, setIncidents] = useState<ConservationIncident[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchIncidents = () => {
+    setLoading(true);
     incidentApi
       .getMyIncidents()
       .then(res => setIncidents(res))
       .catch(err => console.warn('Could not load incident history:', err))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchIncidents();
   }, []);
+
+  const handleManualRetry = async (inc: ConservationIncident) => {
+    const idToRetry = inc.clientIncidentId || inc._id;
+    if (!idToRetry) return;
+
+    setRetryingId(idToRetry);
+    setSyncError(null);
+
+    try {
+      await incidentApi.retrySyncIncident(idToRetry);
+      fetchIncidents();
+    } catch (err) {
+      setSyncError(
+        err instanceof Error
+          ? err.message
+          : 'Synchronization retry failed. Incident remains safely stored locally.'
+      );
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 text-slate-100 flex flex-col gap-6">
@@ -27,6 +55,13 @@ export const IncidentHistoryPage: React.FC = () => {
         </div>
         <SyncStatusIndicator />
       </div>
+
+      {syncError && (
+        <div className="p-3 bg-rose-950/90 border border-rose-700/80 rounded-2xl text-xs text-rose-200 font-semibold flex items-center gap-2">
+          <span>⚠️</span>
+          <span>{syncError}</span>
+        </div>
+      )}
 
       <div className="flex justify-between items-center">
         <button
@@ -61,7 +96,9 @@ export const IncidentHistoryPage: React.FC = () => {
         <div className="flex flex-col gap-4">
           {incidents.map(inc => {
             const isSynced = inc.syncStatus === SyncStatus.SYNCED;
+            const isFailed = inc.syncStatus === SyncStatus.FAILED;
             const photoUrl = inc.evidence?.[0]?.imageUrl;
+            const targetId = inc.clientIncidentId || inc._id;
 
             return (
               <div
@@ -80,15 +117,30 @@ export const IncidentHistoryPage: React.FC = () => {
                     </h3>
                   </div>
 
-                  <span
-                    className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
-                      isSynced
-                        ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
-                        : 'bg-amber-950 text-amber-300 border-amber-500/40'
-                    }`}
-                  >
-                    {isSynced ? '🟢 SYNCED' : '🟡 PENDING SYNC'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
+                        isSynced
+                          ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
+                          : isFailed
+                          ? 'bg-rose-950 text-rose-300 border-rose-500/40'
+                          : 'bg-amber-950 text-amber-300 border-amber-500/40'
+                      }`}
+                    >
+                      {isSynced ? '🟢 SYNCED' : isFailed ? '🔴 SYNC FAILED' : '🟡 PENDING SYNC'}
+                    </span>
+
+                    {!isSynced && (
+                      <button
+                        type="button"
+                        onClick={() => handleManualRetry(inc)}
+                        disabled={retryingId === targetId}
+                        className="py-1 px-2.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 text-[10px] font-extrabold shadow disabled:opacity-50"
+                      >
+                        {retryingId === targetId ? 'Syncing...' : 'Retry Sync 🔄'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-slate-950 p-2.5 rounded-2xl border border-slate-800 text-slate-300">
@@ -97,7 +149,9 @@ export const IncidentHistoryPage: React.FC = () => {
                     <span>{new Date(inc.reportedAt).toLocaleDateString()} {new Date(inc.reportedAt).toLocaleTimeString()}</span>
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block uppercase font-sans">Coordinates</span>
+                    <span className="text-[10px] text-slate-500 block uppercase font-sans">
+                      Coordinates ({inc.location?.source || 'GPS'})
+                    </span>
                     <span className="text-emerald-400">
                       {inc.location.latitude.toFixed(4)}°, {inc.location.longitude.toFixed(4)}°
                     </span>

@@ -31,6 +31,16 @@ export class IncidentService {
 
     const reportedAt = new Date();
 
+    // Validate PatrolSession ownership if patrolSessionId is supplied
+    if (patrolSessionId) {
+      if (mongoose.Types.ObjectId.isValid(patrolSessionId)) {
+        const session = await PatrolSessionModel.findById(patrolSessionId);
+        if (session && session.rangerId !== rangerId) {
+          throw new Error('Unauthorized: Attached patrol session does not belong to this ranger.');
+        }
+      }
+    }
+
     if (mongoose.connection.readyState !== 1) {
       // Memory fallback for tests
       if (clientIncidentId) {
@@ -78,14 +88,10 @@ export class IncidentService {
       }
     }
 
-    // Validate PatrolSession ownership if patrolSessionId is supplied
     let verifiedPatrolId: mongoose.Types.ObjectId | undefined;
     if (patrolSessionId && mongoose.Types.ObjectId.isValid(patrolSessionId)) {
       const session = await PatrolSessionModel.findById(patrolSessionId);
       if (session) {
-        if (session.rangerId !== rangerId) {
-          throw new Error('Unauthorized: Attached patrol session does not belong to this ranger.');
-        }
         verifiedPatrolId = session._id as mongoose.Types.ObjectId;
       }
     }

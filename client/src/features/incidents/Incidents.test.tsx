@@ -104,4 +104,28 @@ describe('UC-B Conservation Incident Reporting Frontend Tests', () => {
     expect(result._id).toBe('inc-test-01');
     expect(result.evidence.length).toBe(1);
   });
+
+  test('incidentApi.createIncident handles offline network failure with PENDING sync status', async () => {
+    vi.spyOn(http, 'post').mockRejectedValueOnce(new Error('Network Error - Device Offline'));
+
+    const result = await incidentApi.createIncident({
+      clientIncidentId: 'inc-offline-999',
+      incidentType: IncidentType.SNARE,
+      description: 'Offline snare report in Sector 9',
+      latitude: -2.1800,
+      longitude: 34.8500,
+      locationSource: LocationSource.MANUAL,
+      evidence: [
+        {
+          imageUrl: 'data:image/jpeg;base64,sampleoffline...',
+          capturedAt: new Date().toISOString()
+        }
+      ]
+    });
+
+    expect(result.clientIncidentId).toBe('inc-offline-999');
+    expect(result.syncStatus).toBe('PENDING');
+    expect(result.location.source).toBe(LocationSource.MANUAL);
+    expect(result.evidence[0].evidenceId).toContain('inc-offline-999');
+  });
 });
