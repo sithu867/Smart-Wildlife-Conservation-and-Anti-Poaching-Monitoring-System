@@ -60,25 +60,27 @@ beforeEach(() => {
   jest
     .spyOn(PatrolRouteModel, 'find')
     .mockReturnValue(queryResult([{ _id: routeId }]));
-  jest
-    .spyOn(PatrolSessionModel, 'find')
-    .mockReturnValue(
-      queryResult([
-        { _id: sessionId, status: 'COMPLETED', rangerName: 'Ranger' },
-      ]),
-    );
-  jest
-    .spyOn(ConservationIncidentModel, 'find')
-    .mockReturnValue(
-      queryResult([
-        {
-          incidentType: 'SNARE',
-          status: 'REPORTED',
-          reportedAt: new Date('2026-09-02'),
-          location: { latitude: -2.1523, longitude: 34.8214 },
-        },
-      ]),
-    );
+  jest.spyOn(PatrolSessionModel, 'find').mockReturnValue(
+    queryResult([
+      {
+        _id: sessionId,
+        patrolRoute: routeId,
+        startTime: new Date('2026-09-02'),
+        status: 'COMPLETED',
+        rangerName: 'Ranger',
+      },
+    ]),
+  );
+  jest.spyOn(ConservationIncidentModel, 'find').mockReturnValue(
+    queryResult([
+      {
+        incidentType: 'SNARE',
+        status: 'REPORTED',
+        reportedAt: new Date('2026-09-02'),
+        location: { latitude: -2.1523, longitude: 34.8214 },
+      },
+    ]),
+  );
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -247,16 +249,18 @@ describe('UC-D category and park-scoping boundaries', () => {
     });
     expect(PatrolSessionModel.find).toHaveBeenCalledWith({
       patrolRoute: { $in: [routeId] },
-      startTime: {
-        $gte: new Date('2026-09-01T00:00:00.000Z'),
-        $lte: new Date('2026-09-30T23:59:59.999Z'),
-      },
+      $or: ['startTime', 'endTime', 'waypoints.timestamp'].map((field) => ({
+        [field]: {
+          $gte: new Date('2026-09-01T00:00:00.000Z'),
+          $lte: new Date('2026-09-30T23:59:59.999Z'),
+        },
+      })),
       rangerId: 'R-101',
     });
     expect(ConservationIncidentModel.find).not.toHaveBeenCalled();
     expect(result.matchedRecords.patrols).toBe(1);
     expect(result.categoryAvailability).toEqual([
-      { category: 'PATROL_COVERAGE', status: 'NOT_IMPLEMENTED' },
+      { category: 'PATROL_COVERAGE', status: 'AVAILABLE' },
     ]);
   });
   test('hotspots calculate selected geographic results without incident statistics', async () => {

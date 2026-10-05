@@ -1,9 +1,11 @@
+import type { Ref } from 'react';
 import {
   CATEGORY_LABELS,
   type AnalysisCriteria,
   type AnalyticsResult,
 } from '../../../../server/src/modules/analytics/contract';
 import { FeedbackPanel } from './AnalyticsFeedback';
+import { PatrolCoverageResults } from './PatrolCoverageResults';
 import {
   IncidentStatisticsResults,
   IncidentHotspotResults,
@@ -23,6 +25,7 @@ export function hasMeaningfulMatchingData(
 }
 
 interface Props {
+  headingRef?: Ref<HTMLHeadingElement>;
   data: AnalyticsResult;
   appliedCriteria: AnalysisCriteria;
   loading: boolean;
@@ -31,6 +34,7 @@ interface Props {
   onDownload: () => void;
 }
 export function AnalyticsResults({
+  headingRef,
   data,
   appliedCriteria,
   loading,
@@ -42,11 +46,21 @@ export function AnalyticsResults({
   const hasMatchingData = hasMeaningfulMatchingData(data);
   return (
     <section className="analytics-results" aria-label="Analysis results">
-      <section className="card" aria-label="Applied scope">
-        <h2>Applied scope</h2>
+      <section
+        className="card analytics-applied-scope"
+        aria-label="Applied scope"
+      >
+        <p className="eyebrow">Reviewed findings</p>
+        <h2 ref={headingRef} tabIndex={-1}>
+          Conservation Analysis Results
+        </h2>
+        <a className="analytics-refine-link" href="#analytics-criteria">
+          Refine Analysis
+        </a>
+        <h3>Applied scope</h3>
         <p>
-          {data.park.name} ({data.park.code}) · {appliedCriteria.start} to{' '}
-          {appliedCriteria.end} (inclusive)
+          Park: {data.park.name} ({data.park.code}) · Period:{' '}
+          {appliedCriteria.start} to {appliedCriteria.end} (inclusive)
         </p>
         <p>
           {appliedCriteria.categories
@@ -85,21 +99,15 @@ export function AnalyticsResults({
           <p>
             Analysis completed successfully, but no records matched the applied
             criteria within the scope of the selected categories. Refine the
-            criteria and Analyze again.
+            criteria and select Update Analysis.
           </p>
         </FeedbackPanel>
       ) : (
-        <>
+        <div className="analytics-result-grid">
           {(selected.has('INCIDENT_STATISTICS') ||
             selected.has('INCIDENT_HOTSPOTS')) && (
-            <p>
+            <p className="analytics-results-total">
               Matching park-linked incidents: {data.matchedRecords.incidents}.
-            </p>
-          )}
-          {selected.has('PATROL_COVERAGE') && (
-            <p>
-              Matching park-linked patrol sessions:{' '}
-              {data.matchedRecords.patrols}. Coverage calculation is pending.
             </p>
           )}
           {selected.has('INCIDENT_STATISTICS') && (
@@ -108,10 +116,13 @@ export function AnalyticsResults({
           {selected.has('INCIDENT_HOTSPOTS') && data.incidentHotspots && (
             <IncidentHotspotResults analysis={data.incidentHotspots} />
           )}
+          {selected.has('PATROL_COVERAGE') && data.patrolCoverage && (
+            <PatrolCoverageResults analysis={data.patrolCoverage} />
+          )}
           {selected.has('HWC_TRENDS') && data.conflictTrends && (
             <ConflictTrendResults analysis={data.conflictTrends} />
           )}
-        </>
+        </div>
       )}
       <ul>
         {data.categoryAvailability
@@ -129,33 +140,47 @@ export function AnalyticsResults({
             </li>
           ))}
       </ul>
-      <ul aria-label="Scope limitations">
-        {data.limitations.map((message) => (
-          <li key={message}>{message}</li>
-        ))}
-      </ul>
-      <button
-        className="button analytics-button analytics-button--secondary"
-        type="button"
-        disabled={loading || downloading || !hasMatchingData}
-        aria-describedby={
-          !hasMatchingData ? 'analytics-report-unavailable' : undefined
-        }
-        onClick={onDownload}
-      >
-        {downloading ? 'Downloading...' : 'Download report'}
-      </button>
-      {!hasMatchingData && (
-        <p id="analytics-report-unavailable">
-          Download Report is available after a successful analysis with matching
-          conservation data.
+      {data.status === 'NO_MATCHING_DATA' &&
+        selected.has('PATROL_COVERAGE') &&
+        data.patrolCoverage && (
+          <PatrolCoverageResults analysis={data.patrolCoverage} />
+        )}
+      <details className="analytics-method">
+        <summary>Data scope and limitations</summary>
+        <ul aria-label="Scope limitations">
+          {data.limitations.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      </details>
+      <div className="analytics-existing-report">
+        <p>
+          The basic report download is available here. Report generation,
+          preview and export are planned for the next workflow.
         </p>
-      )}
-      {reportError && (
-        <FeedbackPanel tone="system" title="Report could not be downloaded">
-          <p>{reportError}</p>
-        </FeedbackPanel>
-      )}
+        <button
+          className="button analytics-button analytics-button--secondary"
+          type="button"
+          disabled={loading || downloading || !hasMatchingData}
+          aria-describedby={
+            !hasMatchingData ? 'analytics-report-unavailable' : undefined
+          }
+          onClick={onDownload}
+        >
+          {downloading ? 'Downloading...' : 'Download report'}
+        </button>
+        {!hasMatchingData && (
+          <p id="analytics-report-unavailable">
+            Download Report is available after a successful analysis with
+            matching conservation data.
+          </p>
+        )}
+        {reportError && (
+          <FeedbackPanel tone="system" title="Report could not be downloaded">
+            <p>{reportError}</p>
+          </FeedbackPanel>
+        )}
+      </div>
     </section>
   );
 }

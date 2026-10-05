@@ -6,6 +6,7 @@ import {
   type ParkOption,
   type AnalysisCriteria,
   type AnalyticsResult,
+  type PatrolCoverageAnalysis,
 } from '../../../../server/src/modules/analytics/contract';
 
 export const parks: ParkOption[] = [
@@ -18,6 +19,63 @@ export const validCriteria: AnalysisCriteria = {
   start: '2026-09-01',
   end: '2026-09-30',
 };
+export function patrolCoverageFixture(): PatrolCoverageAnalysis {
+  return {
+    totalRoutes: 3,
+    coveredRoutes: 1,
+    limitedActivityRoutes: 1,
+    neglectedRoutes: 1,
+    coveragePercentage: 33.3,
+    patrolSessionCount: 2,
+    completedPatrolCount: 1,
+    excludedSessionCount: 0,
+    missingGeometryRouteCount: 1,
+    routes: [
+      {
+        routeId: 'boundary',
+        routeName: 'Boundary route',
+        status: 'COVERED',
+        sessionCount: 1,
+        completedSessionCount: 1,
+        waypointCount: 2,
+        lastPatrolDate: '2026-09-30T12:00:00.000Z',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [34.8, -2.1],
+            [34.9, -2.2],
+          ],
+        },
+      },
+      {
+        routeId: 'river',
+        routeName: 'River route',
+        status: 'LIMITED_ACTIVITY',
+        sessionCount: 1,
+        completedSessionCount: 0,
+        waypointCount: 1,
+        lastPatrolDate: '2026-09-02T12:00:00.000Z',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [34.7, -2.2],
+            [34.8, -2.3],
+          ],
+        },
+      },
+      {
+        routeId: 'forest',
+        routeName: 'Forest route',
+        status: 'NEGLECTED',
+        sessionCount: 0,
+        completedSessionCount: 0,
+        waypointCount: 0,
+        lastPatrolDate: null,
+        geometry: null,
+      },
+    ],
+  };
+}
 export function result(
   criteria = validCriteria,
   status: AnalyticsResult['status'] = 'DATA',
@@ -36,19 +94,14 @@ export function result(
       )
         ? count
         : 0,
-      patrols: 0,
+      patrols: criteria.categories.includes('PATROL_COVERAGE') ? count : 0,
       ...(criteria.categories.includes('HWC_TRENDS')
         ? { conflicts: count, responses: count ? 1 : 0 }
         : {}),
     },
     categoryAvailability: criteria.categories.map((category) => ({
       category,
-      status:
-        category === 'PATROL_COVERAGE'
-          ? 'NOT_IMPLEMENTED'
-          : category === 'HWC_TRENDS'
-            ? 'AVAILABLE_UNSCOPED'
-            : 'AVAILABLE',
+      status: category === 'HWC_TRENDS' ? 'AVAILABLE_UNSCOPED' : 'AVAILABLE',
     })),
     limitations: ['Unlinked incidents are excluded.'],
     summary: {
@@ -64,6 +117,24 @@ export function result(
     patrols: { byStatus: [], byRanger: [] },
     conflicts: { bySeverity: [], byStatus: [], bySource: [], byType: [] },
     responses: { byAction: [] },
+    ...(criteria.categories.includes('PATROL_COVERAGE')
+      ? {
+          patrolCoverage: count
+            ? patrolCoverageFixture()
+            : {
+                totalRoutes: 0,
+                coveredRoutes: 0,
+                limitedActivityRoutes: 0,
+                neglectedRoutes: 0,
+                coveragePercentage: 0,
+                patrolSessionCount: 0,
+                completedPatrolCount: 0,
+                excludedSessionCount: 0,
+                missingGeometryRouteCount: 0,
+                routes: [],
+              },
+        }
+      : {}),
     ...(criteria.categories.includes('INCIDENT_STATISTICS')
       ? {
           incidentStatistics: {

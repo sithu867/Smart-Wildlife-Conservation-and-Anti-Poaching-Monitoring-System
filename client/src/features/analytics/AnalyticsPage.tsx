@@ -1,17 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { isAxiosError } from 'axios';
 import {
-  ANALYSIS_CATEGORIES,
-  CATEGORY_LABELS,
   type AnalysisCriteria,
   type AnalyticsResult,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
-import {
-  AlertSeverity,
-  AlertStatus,
-  IncidentType,
-} from '../../shared/types/enums';
 import { analyticsApi } from './api';
 import {
   copyCriteria,
@@ -24,6 +17,8 @@ import {
   AnalyticsResults,
   hasMeaningfulMatchingData,
 } from './AnalyticsResults';
+import { AnalysisCriteriaForm } from './AnalysisCriteriaForm';
+import { AnalyticsOverview, AnalysisProcessing } from './AnalyticsExperience';
 import './analytics.css';
 
 type ReviewedAnalysis = {
@@ -70,11 +65,33 @@ export function AnalyticsPage() {
     null,
   );
   const [loading, setLoading] = useState(false);
+  const [processingCategories, setProcessingCategories] = useState<
+    AnalysisCriteria['categories']
+  >([]);
   const [downloading, setDownloading] = useState(false);
   const [reportError, setReportError] = useState('');
   const requestId = useRef(0);
   const pendingRequest = useRef<AbortController | null>(null);
   const failedCriteria = useRef<AnalysisCriteria | null>(null);
+  const processingHeading = useRef<HTMLHeadingElement>(null);
+  const resultsHeading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!loading) return;
+    // The submit action can be below the fold. Bring the real indeterminate
+    // processing state into view and give keyboard users a stable destination.
+    processingHeading.current?.focus({ preventScroll: true });
+    processingHeading.current?.scrollIntoView?.({ block: 'start' });
+  }, [loading]);
+
+  useEffect(() => {
+    if (!reviewedAnalysis) return;
+    // Draft editing is allowed while processing. Do not take focus away from
+    // a field the manager is still editing when the submitted snapshot returns.
+    if (document.activeElement?.matches('input, select, textarea')) return;
+    resultsHeading.current?.focus({ preventScroll: true });
+    resultsHeading.current?.scrollIntoView?.({ block: 'start' });
+  }, [reviewedAnalysis]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -135,6 +152,8 @@ export function AnalyticsPage() {
     const controller = new AbortController();
     pendingRequest.current = controller;
     const sequence = ++requestId.current;
+    // Announce the submitted categories even if criteria are edited mid-request.
+    setProcessingCategories(appliedSnapshot.categories);
     setLoading(true);
     try {
       const data = await analyticsApi.analyze(
@@ -198,231 +217,15 @@ export function AnalyticsPage() {
     JSON.stringify(draftCriteria) !== JSON.stringify(appliedCriteria);
   const hasMatchingData = hasMeaningfulMatchingData(data);
 
-  function fieldAccessibility(field: keyof AnalysisCriteria) {
-    const invalid = validationErrors.some((issue) => issue.field === field);
-    return {
-      'aria-invalid': invalid,
-      'aria-describedby': invalid ? `analytics-error-${field}` : undefined,
-    };
-  }
-
-  function fieldFeedback(field: keyof AnalysisCriteria) {
-    const messages = validationErrors
-      .filter((issue) => issue.field === field)
-      .map((issue) => issue.message);
-    return messages.length ? (
-      <p className="analytics-field-error" id={`analytics-error-${field}`}>
-        {messages.join(' ')}
-      </p>
-    ) : null;
-  }
-
   return (
-    <main className="page">
-      <p className="eyebrow">Park manager</p>
-      <h1>Conservation Analytics</h1>
-      <p>Select criteria, then Analyze to review conservation data.</p>
-      <form
-        className="card analytics-criteria"
-        onSubmit={submit}
-        noValidate
-        aria-label="Analysis criteria"
-      >
-        <div className="analytics-filters">
-          <div className="analytics-field">
-            <label>
-              Park / Conservation Area
-              <select
-                {...fieldAccessibility('parkId')}
-                value={draftCriteria.parkId}
-                onChange={(event) => editCriteria('parkId', event.target.value)}
-                disabled={parksLoading || !!parksError}
-              >
-                <option value="">Select a park</option>
-                {parks.map((park) => (
-                  <option key={park.id} value={park.id}>
-                    {park.name} ({park.code})
-                  </option>
-                ))}
-              </select>
-            </label>
-            {fieldFeedback('parkId')}
-          </div>
-          <div className="analytics-field">
-            <label>
-              Start Date
-              <input
-                type="date"
-                {...fieldAccessibility('start')}
-                value={draftCriteria.start}
-                onChange={(event) => editCriteria('start', event.target.value)}
-              />
-            </label>
-            {fieldFeedback('start')}
-          </div>
-          <div className="analytics-field">
-            <label>
-              End Date
-              <input
-                type="date"
-                {...fieldAccessibility('end')}
-                value={draftCriteria.end}
-                onChange={(event) => editCriteria('end', event.target.value)}
-              />
-            </label>
-            {fieldFeedback('end')}
-          </div>
-        </div>
-        <fieldset
-          className="analytics-categories"
-          {...fieldAccessibility('categories')}
-        >
-          <legend>Analysis Categories (select one or more)</legend>
-          {ANALYSIS_CATEGORIES.map((category) => (
-            <label key={category}>
-              <input
-                type="checkbox"
-                {...fieldAccessibility('categories')}
-                checked={draftCriteria.categories.includes(category)}
-                onChange={(event) =>
-                  editCriteria(
-                    'categories',
-                    event.target.checked
-                      ? [...draftCriteria.categories, category]
-                      : draftCriteria.categories.filter(
-                          (value) => value !== category,
-                        ),
-                  )
-                }
-              />
-              {CATEGORY_LABELS[category]}
-            </label>
-          ))}
-          {fieldFeedback('categories')}
-        </fieldset>
-        <div className="analytics-filters">
-          <div className="analytics-field">
-            <label>
-              Ranger ID
-              <input
-                placeholder="All rangers"
-                {...fieldAccessibility('rangerId')}
-                value={draftCriteria.rangerId}
-                onChange={(event) =>
-                  editCriteria('rangerId', event.target.value)
-                }
-              />
-            </label>
-            {fieldFeedback('rangerId')}
-          </div>
-          <div className="analytics-field">
-            <label>
-              Incident type
-              <select
-                {...fieldAccessibility('incidentType')}
-                value={draftCriteria.incidentType}
-                onChange={(event) =>
-                  editCriteria('incidentType', event.target.value)
-                }
-              >
-                <option value="">All types</option>
-                {Object.values(IncidentType).map((type) => (
-                  <option key={type}>{type}</option>
-                ))}
-              </select>
-            </label>
-            {fieldFeedback('incidentType')}
-          </div>
-          <div className="analytics-field">
-            <label>
-              Severity
-              <select
-                {...fieldAccessibility('severity')}
-                value={draftCriteria.severity}
-                onChange={(event) =>
-                  editCriteria('severity', event.target.value)
-                }
-              >
-                <option value="">All severities</option>
-                {Object.values(AlertSeverity).map((severity) => (
-                  <option key={severity}>{severity}</option>
-                ))}
-              </select>
-            </label>
-            {fieldFeedback('severity')}
-          </div>
-          <div className="analytics-field">
-            <label>
-              Conflict status
-              <select
-                {...fieldAccessibility('conflictStatus')}
-                value={draftCriteria.conflictStatus}
-                onChange={(event) =>
-                  editCriteria('conflictStatus', event.target.value)
-                }
-              >
-                <option value="">All statuses</option>
-                {Object.values(AlertStatus).map((status) => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-            </label>
-            {fieldFeedback('conflictStatus')}
-          </div>
-        </div>
-        <p>
-          End Date includes the entire selected day (UTC). Patrol Coverage is
-          pending a later batch. Conflict trends cover all parks / unassigned
-          alerts, not the selected park.
-        </p>
-        {parksLoading && <p role="status">Loading parks...</p>}
-        {parksError && (
-          <FeedbackPanel tone="system" title="Parks could not be loaded">
-            <p>{parksError}</p>
-            <button
-              type="button"
-              onClick={() => setParkRetry((value) => value + 1)}
-            >
-              Retry loading parks
-            </button>
-          </FeedbackPanel>
-        )}
-        {!parksLoading && !parksError && !parks.length && (
-          <p role="status">
-            No parks are available. Add real park data before analyzing.
-          </p>
-        )}
-        {!!validationErrors.length && (
-          <FeedbackPanel tone="validation" title="Check the analysis criteria">
-            <p>Correct the highlighted fields, then select Analyze.</p>
-            <ul>
-              {validationErrors.map((issue) => (
-                <li key={`${issue.field}-${issue.message}`}>{issue.message}</li>
-              ))}
-            </ul>
-          </FeedbackPanel>
-        )}
-        <div className="analytics-actions">
-          <button
-            className="button analytics-button analytics-button--primary"
-            type="submit"
-            disabled={loading || parksLoading || !!parksError || !parks.length}
-          >
-            {loading ? 'Analyzing...' : 'Analyze'}
-          </button>
-          <button
-            className="button analytics-button analytics-button--secondary"
-            type="button"
-            onClick={reset}
-          >
-            Reset
-          </button>
-        </div>
-      </form>
+    <main className="page analytics-page">
+      <AnalyticsOverview />
+
       {loading && (
-        <p role="status">
-          Analyzing conservation data. Your entered criteria are preserved.
-        </p>
+        <AnalysisProcessing
+          categories={processingCategories}
+          headingRef={processingHeading}
+        />
       )}
       {requestError && (
         <FeedbackPanel
@@ -445,13 +248,9 @@ export function AnalyticsPage() {
           </button>
         </FeedbackPanel>
       )}
-      {draftChanged && (
-        <p>
-          Criteria have changed. Analyze again to update the displayed results.
-        </p>
-      )}
       {data && appliedCriteria && (
         <AnalyticsResults
+          headingRef={resultsHeading}
           data={data}
           appliedCriteria={appliedCriteria}
           loading={loading}
@@ -460,6 +259,20 @@ export function AnalyticsPage() {
           onDownload={() => void downloadReport()}
         />
       )}
+      <AnalysisCriteriaForm
+        criteria={draftCriteria}
+        parks={parks}
+        parksLoading={parksLoading}
+        parksError={parksError}
+        validationErrors={validationErrors}
+        loading={loading}
+        hasResults={!!reviewedAnalysis}
+        draftChanged={!!draftChanged}
+        onEdit={editCriteria}
+        onSubmit={submit}
+        onReset={reset}
+        onRetryParks={() => setParkRetry((value) => value + 1)}
+      />
     </main>
   );
 }

@@ -88,6 +88,39 @@ export interface ConflictTrendAnalysis {
   responsesByAction: AnalyticsGroup[];
   responsesOverTime: AnalyticsTimeSeries;
 }
+export const PATROL_COVERAGE_STATUSES = [
+  'COVERED',
+  'LIMITED_ACTIVITY',
+  'NEGLECTED',
+] as const;
+export type PatrolCoverageStatus = (typeof PATROL_COVERAGE_STATUSES)[number];
+export const PATROL_COVERAGE_LABELS: Record<PatrolCoverageStatus, string> = {
+  COVERED: 'Covered',
+  LIMITED_ACTIVITY: 'Limited activity',
+  NEGLECTED: 'Neglected',
+};
+export interface PatrolRouteCoverage {
+  routeId: string;
+  routeName: string;
+  status: PatrolCoverageStatus;
+  sessionCount: number;
+  completedSessionCount: number;
+  waypointCount: number;
+  lastPatrolDate: string | null;
+  geometry: { type: 'LineString'; coordinates: [number, number][] } | null;
+}
+export interface PatrolCoverageAnalysis {
+  totalRoutes: number;
+  coveredRoutes: number;
+  limitedActivityRoutes: number;
+  neglectedRoutes: number;
+  coveragePercentage: number;
+  patrolSessionCount: number;
+  completedPatrolCount: number;
+  excludedSessionCount: number;
+  missingGeometryRouteCount: number;
+  routes: PatrolRouteCoverage[];
+}
 export interface AnalyticsResult {
   generatedAt: string;
   filters: AnalysisCriteria;
@@ -128,6 +161,7 @@ export interface AnalyticsResult {
   incidentStatistics?: IncidentStatisticsAnalysis;
   incidentHotspots?: IncidentHotspotAnalysis;
   conflictTrends?: ConflictTrendAnalysis;
+  patrolCoverage?: PatrolCoverageAnalysis;
 }
 
 export function isValidAnalysisDate(value: string): boolean {

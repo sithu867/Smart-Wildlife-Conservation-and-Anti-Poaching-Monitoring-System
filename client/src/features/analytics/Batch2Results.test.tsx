@@ -269,7 +269,9 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: validCriteria.end },
     });
-    const analyze = screen.getByRole('button', { name: 'Analyze' });
+    const analyze = screen.getByRole('button', {
+      name: /^(Analyze|Update Analysis)$/,
+    });
     expect(analyze).toHaveClass('analytics-button--primary');
     expect(screen.getByRole('button', { name: 'Reset' })).toHaveClass(
       'analytics-button--secondary',

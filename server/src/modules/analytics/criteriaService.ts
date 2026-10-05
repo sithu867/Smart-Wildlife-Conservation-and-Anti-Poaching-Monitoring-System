@@ -26,6 +26,7 @@ import {
   groupBy,
 } from './calculations.js';
 import { calculateIncidentHotspots } from './hotspots.js';
+import { calculatePatrolCoverage } from './patrolCoverage.js';
 import { HWC_SCOPE_NOTICE } from './contract.js';
 import { analysisCriteriaSchema, analysisDateRange } from './validation.js';
 
@@ -75,7 +76,10 @@ export async function getCriteriaAnalytics(
 
   const parkRoutes =
     wantsIncidents || wantsPatrols
-      ? await routes.find({ park: park._id }).select('_id').lean()
+      ? await routes
+          .find({ park: park._id })
+          .select(wantsPatrols ? '_id name geometry' : '_id')
+          .lean()
       : [];
   const routeIds = parkRoutes.map((route) => route._id);
 
@@ -123,7 +127,13 @@ export async function getCriteriaAnalytics(
         ? sessions
             .find({
               patrolRoute: { $in: routeIds },
-              startTime: { $gte: start, $lte: end },
+              // Include explicit activity events from long-running sessions,
+              // including a completion or waypoint after an earlier start.
+              $or: [
+                { startTime: { $gte: start, $lte: end } },
+                { endTime: { $gte: start, $lte: end } },
+                { 'waypoints.timestamp': { $gte: start, $lte: end } },
+              ],
               ...(criteria.rangerId ? { rangerId: criteria.rangerId } : {}),
             })
             .lean()
@@ -170,7 +180,9 @@ export async function getCriteriaAnalytics(
     );
   if (wantsPatrols)
     limitations.push(
-      'Patrol Coverage calculation remains pending a later batch; matching session counts are source records only.',
+      'Coverage is completed routes / all selected-park routes, not geographic land area. Ranger ID filters activity, not the route denominator.',
+      'Activity uses starts, completions and valid waypoints in the inclusive UTC period. Completed sessions lacking an end time use their start time. Assignments alone do not count as patrol activity.',
+      'Sessions without a valid direct route-to-park link are excluded; park membership is never inferred from coordinates or ranger identity.',
     );
 
   const incidentStatistics = selected.has('INCIDENT_STATISTICS')
@@ -182,32 +194,35 @@ export async function getCriteriaAnalytics(
   const conflictTrends = wantsConflicts
     ? calculateConflictTrends(alertRows, responses, start, end)
     : undefined;
+  const patrolCoverage = wantsPatrols
+    ? calculatePatrolCoverage(parkRoutes, patrolRows, start, end)
+    : undefined;
+  if (patrolCoverage?.excludedSessionCount)
+    limitations.push(
+      `${patrolCoverage.excludedSessionCount} retrieved sessions with missing or unknown route links were excluded.`,
+    );
   return {
     generatedAt: new Date().toISOString(),
     filters: criteria,
     park: parkOption(park),
     status:
       incidentRows.length ||
-      patrolRows.length ||
+      // Routes with no activity are meaningful neglected-route findings.
+      (patrolCoverage?.totalRoutes ?? 0) ||
       alertRows.length ||
       responses.length
         ? 'DATA'
         : 'NO_MATCHING_DATA',
     matchedRecords: {
       incidents: incidentRows.length,
-      patrols: patrolRows.length,
+      patrols: patrolCoverage?.patrolSessionCount ?? 0,
       ...(wantsConflicts
         ? { conflicts: alertRows.length, responses: responses.length }
         : {}),
     },
     categoryAvailability: criteria.categories.map((category) => ({
       category,
-      status:
-        category === 'PATROL_COVERAGE'
-          ? 'NOT_IMPLEMENTED'
-          : category === 'HWC_TRENDS'
-            ? 'AVAILABLE_UNSCOPED'
-            : 'AVAILABLE',
+      status: category === 'HWC_TRENDS' ? 'AVAILABLE_UNSCOPED' : 'AVAILABLE',
     })),
     limitations,
     summary: {
@@ -245,5 +260,6 @@ export async function getCriteriaAnalytics(
     ...(incidentStatistics ? { incidentStatistics } : {}),
     ...(incidentHotspots ? { incidentHotspots } : {}),
     ...(conflictTrends ? { conflictTrends } : {}),
+    ...(patrolCoverage ? { patrolCoverage } : {}),
   };
 }

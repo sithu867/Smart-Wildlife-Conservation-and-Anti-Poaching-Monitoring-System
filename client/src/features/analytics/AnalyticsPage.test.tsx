@@ -43,12 +43,16 @@ async function enterValidCriteria() {
     target: { value: validCriteria.end },
   });
   await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled(),
+    expect(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    ).toBeEnabled(),
   );
 }
 async function analyzeValidCriteria() {
   await enterValidCriteria();
-  fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+  );
   return screen.findByRole('region', { name: 'Applied scope' });
 }
 
@@ -87,7 +91,9 @@ describe('UC-D criteria and Analyze workflow', () => {
       target: { value: parks[1].id },
     });
     fireEvent.click(screen.getByLabelText('Patrol Coverage'));
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     await screen.findByRole('region', { name: 'Applied scope' });
     expect(analyticsApi.analyze).toHaveBeenCalledWith(
       {
@@ -102,7 +108,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     render(<AnalyticsPage />);
     await enterValidCriteria();
     fireEvent.click(screen.getByLabelText('Incident Statistics'));
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Select at least one analysis category.',
     );
@@ -111,9 +119,13 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('validates missing park/dates and reversed dates in the frontend', async () => {
     render(<AnalyticsPage />);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled(),
+      expect(
+        screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+      ).toBeEnabled(),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(screen.getByRole('alert')).toHaveTextContent('Select a valid Park');
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Enter a valid Start Date',
@@ -125,7 +137,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.change(screen.getByLabelText('Start Date'), {
       target: { value: '2026-10-01' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Start Date must be on or before End Date.',
     );
@@ -134,12 +148,16 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('validation banner and inline descriptions stay visible until the invalid fields are corrected', async () => {
     render(<AnalyticsPage />);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled(),
+      expect(
+        screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+      ).toBeEnabled(),
     );
     fireEvent.change(screen.getByLabelText('Ranger ID'), {
       target: { value: 'R-102' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     const banner = screen.getByRole('alert', {
       name: 'Check the analysis criteria',
     });
@@ -170,7 +188,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-08-31' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     const categories = screen.getByRole('group', {
       name: 'Analysis Categories (select one or more)',
     });
@@ -217,7 +237,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     expect(scope).not.toHaveTextContent('R-102');
     expect(analyticsApi.analyze).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/Criteria have changed/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     await waitFor(() => expect(scope).toHaveTextContent('Beta park'));
     expect(scope).toHaveTextContent('2026-10-05');
     expect(scope).toHaveTextContent('Patrol Coverage');
@@ -257,7 +279,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     await screen.findByRole('heading', { name: 'Incidents by type' });
     expect(
       screen.queryByText('No matching conservation data'),
@@ -268,16 +292,20 @@ describe('UC-D criteria and Analyze workflow', () => {
     vi.mocked(analyticsApi.analyze).mockReturnValueOnce(pending.promise);
     render(<AnalyticsPage />);
     await enterValidCriteria();
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(screen.getByRole('button', { name: 'Analyzing...' })).toBeDisabled();
-    expect(screen.getByText(/Analyzing conservation data/)).toBeInTheDocument();
+    expect(screen.getByText(/Analyzing Conservation Data/)).toBeInTheDocument();
     fireEvent.submit(screen.getByRole('form', { name: 'Analysis criteria' }));
     expect(analyticsApi.analyze).toHaveBeenCalledTimes(1);
     expect(screen.getByLabelText('Start Date')).toHaveValue(
       validCriteria.start,
     );
     await act(async () => pending.resolve(result()));
-    expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    ).toBeEnabled();
   });
   test('a failed re-analysis keeps previous results; Retry retries its snapshot even after draft changes', async () => {
     render(<AnalyticsPage />);
@@ -288,7 +316,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-04' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Unable to analyze conservation data',
     );
@@ -311,14 +341,18 @@ describe('UC-D criteria and Analyze workflow', () => {
     vi.mocked(analyticsApi.analyze).mockRejectedValueOnce(
       new Error('Network failure'),
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     await screen.findByRole('alert', {
       name: 'Analysis could not be completed',
     });
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(screen.getAllByRole('alert')).toHaveLength(1);
     expect(
       screen.getByRole('alert', { name: 'Check the analysis criteria' }),
@@ -336,7 +370,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     });
     render(<AnalyticsPage />);
     await enterValidCriteria();
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The selected park does not exist.',
     );
@@ -352,7 +388,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     vi.mocked(analyticsApi.analyze).mockReturnValueOnce(older.promise);
     render(<AnalyticsPage />);
     await enterValidCriteria();
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     const signal = vi.mocked(analyticsApi.analyze).mock.calls[0][1];
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(signal.aborted).toBe(true);
@@ -363,7 +401,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.change(screen.getByLabelText('Park / Conservation Area'), {
       target: { value: parks[1].id },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     const scope = await screen.findByRole('region', { name: 'Applied scope' });
     expect(scope).toHaveTextContent('Beta park');
     await act(async () => older.resolve(result()));
@@ -379,7 +419,10 @@ describe('UC-D criteria and Analyze workflow', () => {
     vi.mocked(analyticsApi.analyze).mockReturnValueOnce(pending.promise);
     render(<AnalyticsPage />);
     await enterValidCriteria();
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
+    screen.getByLabelText('End Date').focus();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
     });
@@ -388,6 +431,7 @@ describe('UC-D criteria and Analyze workflow', () => {
       screen.getByRole('region', { name: 'Applied scope' }),
     ).toHaveTextContent('2026-09-30');
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
+    expect(screen.getByLabelText('End Date')).toHaveFocus();
   });
   test('Download Report requires meaningful matching records even for a DATA response', async () => {
     const download = vi
@@ -422,16 +466,18 @@ describe('UC-D criteria and Analyze workflow', () => {
       ),
     );
   });
-  test('future categories display a pending calculation message', async () => {
+  test('Patrol Coverage displays computed route results', async () => {
     render(<AnalyticsPage />);
     await enterValidCriteria();
     fireEvent.click(screen.getByLabelText('Patrol Coverage'));
-    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    );
     const results = await screen.findByRole('region', {
       name: 'Analysis results',
     });
     expect(
-      within(results).getByText(/Patrol Coverage: calculation pending/),
+      within(results).getByRole('region', { name: 'Patrol Coverage results' }),
     ).toBeInTheDocument();
   });
 });
@@ -444,7 +490,9 @@ describe('park loading and recovery', () => {
     expect(screen.getByText('Loading parks...')).toBeInTheDocument();
     expect(screen.getByLabelText('Start Date')).toBeInTheDocument();
     await act(async () => pending.resolve(parks));
-    expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled();
+    expect(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    ).toBeEnabled();
   });
   test('recovers from a park-list API failure without losing draft values', async () => {
     vi.mocked(analyticsApi.listParks).mockRejectedValueOnce(
@@ -467,7 +515,9 @@ describe('park loading and recovery', () => {
     vi.mocked(analyticsApi.listParks).mockResolvedValueOnce([]);
     render(<AnalyticsPage />);
     await screen.findByText(/No parks are available/);
-    expect(screen.getByRole('button', { name: 'Analyze' })).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
+    ).toBeDisabled();
     expect(
       screen.getAllByRole('option', { name: 'Select a park' }),
     ).toHaveLength(1);

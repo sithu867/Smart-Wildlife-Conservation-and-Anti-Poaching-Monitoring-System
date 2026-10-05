@@ -46,7 +46,11 @@ const report: RequestHandler = async (req, res) => {
     if (req.query.parkId !== undefined || req.query.categories !== undefined) {
       const { format: _format, ...criteriaQuery } = req.query;
       const scopedData = await analyticsService.getAnalytics(analysisCriteriaSchema.parse(criteriaQuery));
-      if (scopedData.status === 'NO_MATCHING_DATA') {
+      // Neglected-route findings are DATA even without field activity. They
+      // must not bypass the existing basic PDF's matching-source-record guard.
+      const hasMatchingRecords = Object.values(scopedData.matchedRecords)
+        .some(count => (count ?? 0) > 0);
+      if (scopedData.status === 'NO_MATCHING_DATA' || !hasMatchingRecords) {
         res.status(400).json({ success: false, error: { message: 'Download Report requires matching conservation data. Refine the criteria and Analyze again.' } });
         return;
       }
