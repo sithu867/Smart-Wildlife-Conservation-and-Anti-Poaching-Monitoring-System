@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { isAxiosError } from 'axios';
 import {
   ANALYSIS_CATEGORIES,
@@ -26,6 +19,11 @@ import {
   validateDraftCriteriaIssues,
   type CriteriaValidationIssue,
 } from './criteria';
+import { FeedbackPanel } from './AnalyticsFeedback';
+import {
+  AnalyticsResults,
+  hasMeaningfulMatchingData,
+} from './AnalyticsResults';
 import './analytics.css';
 
 type ReviewedAnalysis = {
@@ -34,28 +32,6 @@ type ReviewedAnalysis = {
 };
 
 type AnalysisRequestError = { kind: 'validation' | 'system'; message: string };
-
-function FeedbackPanel({
-  tone,
-  title,
-  children,
-}: {
-  tone: 'validation' | 'system' | 'info';
-  title: string;
-  children: ReactNode;
-}) {
-  const titleId = useId();
-  return (
-    <div
-      className={`analytics-feedback analytics-feedback--${tone}`}
-      role={tone === 'info' ? 'status' : 'alert'}
-      aria-labelledby={titleId}
-    >
-      <h3 id={titleId}>{title}</h3>
-      {children}
-    </div>
-  );
-}
 
 function requestMessage(error: unknown): AnalysisRequestError {
   // Surface intentional API validation messages; other failures use a stable
@@ -220,13 +196,7 @@ export function AnalyticsPage() {
   const draftChanged =
     appliedCriteria &&
     JSON.stringify(draftCriteria) !== JSON.stringify(appliedCriteria);
-  const hasStatistics = appliedCriteria?.categories.includes(
-    'INCIDENT_STATISTICS',
-  );
-
-  const hasMatchingData =
-    data?.status === 'DATA' &&
-    (data.matchedRecords.incidents > 0 || data.matchedRecords.patrols > 0);
+  const hasMatchingData = hasMeaningfulMatchingData(data);
 
   function fieldAccessibility(field: keyof AnalysisCriteria) {
     const invalid = validationErrors.some((issue) => issue.field === field);
@@ -401,9 +371,9 @@ export function AnalyticsPage() {
           </div>
         </div>
         <p>
-          End Date includes the entire selected day. Hotspots, patrol coverage,
-          and conflict trends are criteria for later batches. Conflict filters
-          are retained, but conflict records cannot yet be scoped to a park.
+          End Date includes the entire selected day (UTC). Patrol Coverage is
+          pending a later batch. Conflict trends cover all parks / unassigned
+          alerts, not the selected park.
         </p>
         {parksLoading && <p role="status">Loading parks...</p>}
         {parksError && (
@@ -434,13 +404,17 @@ export function AnalyticsPage() {
         )}
         <div className="analytics-actions">
           <button
-            className="button"
+            className="button analytics-button analytics-button--primary"
             type="submit"
             disabled={loading || parksLoading || !!parksError || !parks.length}
           >
             {loading ? 'Analyzing...' : 'Analyze'}
           </button>
-          <button className="button" type="button" onClick={reset}>
+          <button
+            className="button analytics-button analytics-button--secondary"
+            type="button"
+            onClick={reset}
+          >
             Reset
           </button>
         </div>
@@ -477,114 +451,14 @@ export function AnalyticsPage() {
         </p>
       )}
       {data && appliedCriteria && (
-        <section className="analytics-results" aria-label="Analysis results">
-          <section className="card" aria-label="Applied scope">
-            <h2>Applied scope</h2>
-            <p>
-              {data.park.name} ({data.park.code}) · {appliedCriteria.start} to{' '}
-              {appliedCriteria.end} (inclusive)
-            </p>
-            <p>
-              {appliedCriteria.categories
-                .map((category) => CATEGORY_LABELS[category])
-                .join(', ')}
-            </p>
-            {appliedCriteria.rangerId && (
-              <p>Ranger ID: {appliedCriteria.rangerId}</p>
-            )}
-            {appliedCriteria.incidentType && (
-              <p>Incident type: {appliedCriteria.incidentType}</p>
-            )}
-            {appliedCriteria.severity && (
-              <p>Severity: {appliedCriteria.severity}</p>
-            )}
-            {appliedCriteria.conflictStatus && (
-              <p>Conflict status: {appliedCriteria.conflictStatus}</p>
-            )}
-            <p>Analyzed at {data.generatedAt}</p>
-          </section>
-          {data.status === 'NO_MATCHING_DATA' ? (
-            <FeedbackPanel tone="info" title="No matching conservation data">
-              <p>
-                Analysis completed successfully, but no park-linked records
-                matched the applied criteria. Refine the criteria and Analyze
-                again.
-              </p>
-            </FeedbackPanel>
-          ) : (
-            <>
-              <p>
-                Matching park-linked records: {data.matchedRecords.incidents}{' '}
-                incidents, {data.matchedRecords.patrols} patrol sessions.
-              </p>
-              {hasStatistics && (
-                <>
-                  <section className="analytics-grid">
-                    <article className="card">
-                      <small>Incidents</small>
-                      <strong>{data.summary.incidents.total}</strong>
-                    </article>
-                  </section>
-                  <section className="card">
-                    <h2>Incidents by type</h2>
-                    {data.incidents.byType.length ? (
-                      <ul>
-                        {data.incidents.byType.map((row) => (
-                          <li key={row.name}>
-                            {row.name}: {row.count}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p>No incidents match the applied criteria.</p>
-                    )}
-                  </section>
-                </>
-              )}
-            </>
-          )}
-          <ul>
-            {data.categoryAvailability
-              .filter((item) => item.status !== 'AVAILABLE')
-              .map((item) => (
-                <li key={item.category}>
-                  {CATEGORY_LABELS[item.category]}:{' '}
-                  {item.status === 'UNAVAILABLE_PARK_ASSOCIATION'
-                    ? 'unavailable for park-scoped data; calculation pending.'
-                    : 'calculation pending a later batch.'}
-                </li>
-              ))}
-          </ul>
-          <ul aria-label="Scope limitations">
-            {data.limitations.map((message) => (
-              <li key={message}>{message}</li>
-            ))}
-          </ul>
-          {/* Retain the existing PDF download using reviewed criteria. No new report
-          preview, history, or export format is added in Batch 1. */}
-          <button
-            className="button"
-            type="button"
-            disabled={loading || downloading || !hasMatchingData}
-            aria-describedby={
-              !hasMatchingData ? 'analytics-report-unavailable' : undefined
-            }
-            onClick={() => void downloadReport()}
-          >
-            {downloading ? 'Downloading...' : 'Download report'}
-          </button>
-          {!hasMatchingData && (
-            <p id="analytics-report-unavailable">
-              Download Report is available after a successful analysis with
-              matching conservation data.
-            </p>
-          )}
-          {reportError && (
-            <FeedbackPanel tone="system" title="Report could not be downloaded">
-              <p>{reportError}</p>
-            </FeedbackPanel>
-          )}
-        </section>
+        <AnalyticsResults
+          data={data}
+          appliedCriteria={appliedCriteria}
+          loading={loading}
+          downloading={downloading}
+          reportError={reportError}
+          onDownload={() => void downloadReport()}
+        />
       )}
     </main>
   );

@@ -39,15 +39,73 @@ export interface AnalyticsGroup {
   name: string;
   count: number;
 }
+export type TimeBucket = 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
+export interface AnalyticsTimeSeries {
+  bucket: TimeBucket;
+  points: Array<{ date: string; count: number }>;
+}
+export interface IncidentStatisticsAnalysis {
+  total: number;
+  byType: AnalyticsGroup[];
+  byStatus: AnalyticsGroup[];
+  overTime: AnalyticsTimeSeries;
+}
+export const HOTSPOT_GRID_DEGREES = 0.01;
+export const HOTSPOT_MIN_INCIDENTS = 2;
+export const HOTSPOT_CONCENTRATION_THRESHOLDS = {
+  medium: 5,
+  high: 10,
+} as const;
+export interface IncidentHotspot {
+  cellId: string;
+  latitude: number;
+  longitude: number;
+  incidentCount: number;
+  rank: number;
+  concentration: 'LOW' | 'MEDIUM' | 'HIGH';
+  byType: AnalyticsGroup[];
+}
+export interface IncidentHotspotAnalysis {
+  gridSizeDegrees: number;
+  minimumIncidents: number;
+  validIncidentCount: number;
+  excludedCoordinateCount: number;
+  isolatedIncidentCount: number;
+  hotspots: IncidentHotspot[];
+}
+export const HWC_SCOPE_NOTICE =
+  'Conflict trends cover all parks / unassigned alerts, not the selected park. Alerts have no reliable park reference and parks have no boundary geometry.';
+export interface ConflictTrendAnalysis {
+  scope: 'ALL_PARKS_UNASSIGNED';
+  scopeNotice: string;
+  totalAlerts: number;
+  alertsOverTime: AnalyticsTimeSeries;
+  bySeverity: AnalyticsGroup[];
+  byStatus: AnalyticsGroup[];
+  bySource: AnalyticsGroup[];
+  byType: AnalyticsGroup[];
+  totalResponses: number;
+  responsesByAction: AnalyticsGroup[];
+  responsesOverTime: AnalyticsTimeSeries;
+}
 export interface AnalyticsResult {
   generatedAt: string;
   filters: AnalysisCriteria;
   park: ParkOption;
   status: 'DATA' | 'NO_MATCHING_DATA';
-  matchedRecords: { incidents: number; patrols: number };
+  matchedRecords: {
+    incidents: number;
+    patrols: number;
+    conflicts?: number;
+    responses?: number;
+  };
   categoryAvailability: Array<{
     category: AnalysisCategory;
-    status: 'AVAILABLE' | 'NOT_IMPLEMENTED' | 'UNAVAILABLE_PARK_ASSOCIATION';
+    status:
+      | 'AVAILABLE'
+      | 'AVAILABLE_UNSCOPED'
+      | 'NOT_IMPLEMENTED'
+      | 'UNAVAILABLE_PARK_ASSOCIATION';
   }>;
   limitations: string[];
   summary: {
@@ -65,6 +123,11 @@ export interface AnalyticsResult {
     byType: AnalyticsGroup[];
   };
   responses: { byAction: AnalyticsGroup[] };
+  // Additive category sections are omitted entirely when not selected. Legacy
+  // summary/grouping fields remain compatible with the existing basic PDF.
+  incidentStatistics?: IncidentStatisticsAnalysis;
+  incidentHotspots?: IncidentHotspotAnalysis;
+  conflictTrends?: ConflictTrendAnalysis;
 }
 
 export function isValidAnalysisDate(value: string): boolean {

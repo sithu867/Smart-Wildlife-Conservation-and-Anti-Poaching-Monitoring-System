@@ -7,6 +7,9 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import { parks, validCriteria, result } from './analyticsTestFixtures';
+import { installAnalyticsObservers } from './analyticsTestSetup';
+installAnalyticsObservers();
 import { AnalyticsPage } from './AnalyticsPage';
 import { analyticsApi } from './api';
 import {
@@ -21,48 +24,6 @@ import type {
   ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
 
-const parks: ParkOption[] = [
-  { id: '67a000000000000000000001', name: 'Alpha park', code: 'ALPHA' },
-  { id: '67a000000000000000000002', name: 'Beta park', code: 'BETA' },
-];
-const validCriteria: AnalysisCriteria = {
-  ...createDraftCriteria(),
-  parkId: parks[0].id,
-  start: '2026-09-01',
-  end: '2026-09-30',
-};
-function result(
-  criteria = validCriteria,
-  status: AnalyticsResult['status'] = 'DATA',
-): AnalyticsResult {
-  const count = status === 'DATA' ? 2 : 0;
-  return {
-    filters: copyCriteria(criteria),
-    park: parks.find((park) => park.id === criteria.parkId) ?? parks[0],
-    generatedAt: '2026-10-05T06:00:00.000Z',
-    status,
-    matchedRecords: { incidents: count, patrols: 0 },
-    categoryAvailability: criteria.categories.map((category) => ({
-      category,
-      status:
-        category === 'INCIDENT_STATISTICS' ? 'AVAILABLE' : 'NOT_IMPLEMENTED',
-    })),
-    limitations: ['Unlinked incidents are excluded.'],
-    summary: {
-      incidents: { total: count },
-      patrols: { total: 0, completed: 0, active: 0 },
-      conflicts: { total: 0, open: 0, resolved: 0 },
-      responses: { total: 0 },
-    },
-    incidents: {
-      byType: count ? [{ name: 'SNARE', count }] : [],
-      byStatus: [],
-    },
-    patrols: { byStatus: [], byRanger: [] },
-    conflicts: { bySeverity: [], byStatus: [], bySource: [], byType: [] },
-    responses: { byAction: [] },
-  };
-}
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -464,13 +425,13 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('future categories display a pending calculation message', async () => {
     render(<AnalyticsPage />);
     await enterValidCriteria();
-    fireEvent.click(screen.getByLabelText('Incident Hotspots'));
+    fireEvent.click(screen.getByLabelText('Patrol Coverage'));
     fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
     const results = await screen.findByRole('region', {
       name: 'Analysis results',
     });
     expect(
-      within(results).getByText(/Incident Hotspots: calculation pending/),
+      within(results).getByText(/Patrol Coverage: calculation pending/),
     ).toBeInTheDocument();
   });
 });

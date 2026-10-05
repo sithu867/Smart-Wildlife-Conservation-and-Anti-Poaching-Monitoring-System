@@ -53,6 +53,9 @@ function analyzeQuery(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  jest
+    .spyOn(WildlifeConflictAlertModel, 'find')
+    .mockReturnValue(queryResult([]));
   jest.spyOn(ParkModel, 'findById').mockReturnValue(queryResult(park));
   jest
     .spyOn(PatrolRouteModel, 'find')
@@ -67,7 +70,14 @@ beforeEach(() => {
   jest
     .spyOn(ConservationIncidentModel, 'find')
     .mockReturnValue(
-      queryResult([{ incidentType: 'SNARE', status: 'REPORTED' }]),
+      queryResult([
+        {
+          incidentType: 'SNARE',
+          status: 'REPORTED',
+          reportedAt: new Date('2026-09-02'),
+          location: { latitude: -2.1523, longitude: 34.8214 },
+        },
+      ]),
     );
 });
 afterEach(() => jest.restoreAllMocks());
@@ -249,7 +259,7 @@ describe('UC-D category and park-scoping boundaries', () => {
       { category: 'PATROL_COVERAGE', status: 'NOT_IMPLEMENTED' },
     ]);
   });
-  test('hotspots accept incident criteria without calculating hotspot/statistics results', async () => {
+  test('hotspots calculate selected geographic results without incident statistics', async () => {
     const result = await analyticsService.getAnalytics({
       ...criteria,
       categories: ['INCIDENT_HOTSPOTS'],
@@ -261,22 +271,30 @@ describe('UC-D category and park-scoping boundaries', () => {
     );
     expect(result.matchedRecords.incidents).toBe(1);
     expect(result.incidents.byType).toEqual([]);
-    expect(result.categoryAvailability[0].status).toBe('NOT_IMPLEMENTED');
+    expect(result.categoryAvailability[0].status).toBe('AVAILABLE');
+    expect(result.incidentStatistics).toBeUndefined();
+    expect(result.incidentHotspots?.hotspots).toEqual([]);
   });
-  test('HWC-only criteria never query unscoped conflicts or unrelated categories', async () => {
+  test('HWC-only criteria explicitly query all-parks conflicts without unrelated categories', async () => {
     const conflictFind = jest.spyOn(WildlifeConflictAlertModel, 'find');
     const result = await analyticsService.getAnalytics({
       ...criteria,
       categories: ['HWC_TRENDS'],
       severity: 'HIGH',
     });
-    expect(conflictFind).not.toHaveBeenCalled();
+    expect(conflictFind).toHaveBeenCalledTimes(2);
+    expect(conflictFind).toHaveBeenCalledWith({
+      severity: 'HIGH',
+      createdAt: {
+        $gte: new Date('2026-09-01T00:00:00Z'),
+        $lte: new Date('2026-09-30T23:59:59.999Z'),
+      },
+    });
+    expect(result.conflictTrends?.scope).toBe('ALL_PARKS_UNASSIGNED');
     expect(ConservationIncidentModel.find).not.toHaveBeenCalled();
     expect(PatrolSessionModel.find).not.toHaveBeenCalled();
     expect(result.status).toBe('NO_MATCHING_DATA');
-    expect(result.categoryAvailability[0].status).toBe(
-      'UNAVAILABLE_PARK_ASSOCIATION',
-    );
+    expect(result.categoryAvailability[0].status).toBe('AVAILABLE_UNSCOPED');
     expect(result.limitations.join(' ')).toContain('no boundary geometry');
   });
 });

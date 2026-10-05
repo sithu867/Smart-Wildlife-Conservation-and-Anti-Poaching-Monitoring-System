@@ -15,7 +15,123 @@
 }
 .analytics-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.analytics-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.65rem 1.15rem;
+  border: 1px solid;
+  border-radius: 0.5rem;
+  font-weight: 700;
+  cursor: pointer;
+  width: fit-content;
+}
+.analytics-button--primary {
+  background: #047857;
+  color: #fff;
+  border-color: #34d399;
+}
+.analytics-button--primary:hover:not(:disabled) {
+  background: #065f46;
+}
+.analytics-button--secondary {
+  background: #16382c;
+  color: #d1fae5;
+  border-color: #6ee7b7;
+}
+.analytics-button--secondary:hover:not(:disabled) {
+  background: #24533f;
+}
+.analytics-button:focus-visible {
+  outline: 3px solid #a7f3d0;
+  outline-offset: 3px;
+}
+.analytics-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.analytics-category {
+  min-width: 0;
+}
+.analytics-category h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+.analytics-category h3 {
+  font-weight: 600;
+  margin: 0.75rem 0;
+}
+.analytics-category .analytics-count {
+  display: inline;
+  font-size: 1.5rem;
+}
+.analytics-breakdowns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+.analytics-breakdown table,
+.analytics-chart table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.analytics-breakdown th,
+.analytics-breakdown td,
+.analytics-chart th,
+.analytics-chart td {
+  padding: 0.45rem;
+  text-align: left;
+  border-bottom: 1px solid #315546;
+}
+.analytics-chart {
+  margin-top: 1.5rem;
+}
+.analytics-chart details {
+  margin-top: 0.75rem;
+}
+.analytics-chart summary {
+  cursor: pointer;
+  color: #a7f3d0;
+}
+.analytics-table-scroll {
+  overflow: auto;
+  max-height: 18rem;
+}
+.analytics-hotspot-map {
+  height: 350px;
+  overflow: hidden;
+  border-radius: 0.5rem;
+}
+.analytics-hotspot-list {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin-top: 1rem;
+}
+.analytics-hotspot-list li {
+  margin-bottom: 1rem;
+}
+.analytics-hotspot-list strong {
+  display: inline;
+  font-size: 1rem;
+}
+.analytics-scope-notice {
+  padding: 0.75rem;
+  border-left: 3px solid #7dd3fc;
+  background: #102b3e;
+  color: #e0f2fe;
+}
+.analytics-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 .analytics-results {
   display: grid;

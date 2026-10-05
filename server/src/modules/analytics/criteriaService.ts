@@ -13,10 +13,20 @@ import {
 } from '../incidents/models.js';
 import type {
   AnalysisCriteria,
-  AnalyticsGroup,
   AnalyticsResult,
   ParkOption,
 } from './contract.js';
+import {
+  WildlifeConflictAlertModel,
+  type IWildlifeConflictAlert,
+} from '../conflict-alerts/models.js';
+import {
+  calculateIncidentStatistics,
+  calculateConflictTrends,
+  groupBy,
+} from './calculations.js';
+import { calculateIncidentHotspots } from './hotspots.js';
+import { HWC_SCOPE_NOTICE } from './contract.js';
 import { analysisCriteriaSchema, analysisDateRange } from './validation.js';
 
 // Existing model exports include Mongoose's untyped model cache. Narrow them
@@ -25,6 +35,7 @@ const parks = ParkModel as Model<IPark>;
 const routes = PatrolRouteModel as Model<IPatrolRoute>;
 const sessions = PatrolSessionModel as Model<IPatrolSession>;
 const incidents = ConservationIncidentModel as Model<IConservationIncident>;
+const conflicts = WildlifeConflictAlertModel as Model<IWildlifeConflictAlert>;
 
 export class AnalyticsCriteriaError extends Error {}
 
@@ -44,15 +55,6 @@ export async function listAnalyticsParks(): Promise<ParkOption[]> {
   return records.map(parkOption);
 }
 
-function groupBy<T>(rows: T[], key: keyof T): AnalyticsGroup[] {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const name = String(row[key] ?? 'UNKNOWN');
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return [...counts].map(([name, count]) => ({ name, count }));
-}
-
 export async function getCriteriaAnalytics(
   input: AnalysisCriteria,
 ): Promise<AnalyticsResult> {
@@ -68,6 +70,7 @@ export async function getCriteriaAnalytics(
   const wantsIncidents =
     selected.has('INCIDENT_STATISTICS') || selected.has('INCIDENT_HOTSPOTS');
   const wantsPatrols = selected.has('PATROL_COVERAGE');
+  const wantsConflicts = selected.has('HWC_TRENDS');
   const { start, end } = analysisDateRange(criteria);
 
   const parkRoutes =
@@ -86,73 +89,125 @@ export async function getCriteriaAnalytics(
         .lean()
     : [];
 
-  const [incidentRows, patrolRows] = await Promise.all([
-    wantsIncidents
-      ? incidents
-          .find({
-            patrolSession: {
-              $in: scopedSessions.map((session) => session._id),
-            },
-            // Session dates must not exclude an incident reported within this range.
-            reportedAt: { $gte: start, $lte: end },
-            ...(criteria.rangerId ? { reportedBy: criteria.rangerId } : {}),
-            ...(criteria.incidentType
-              ? { incidentType: criteria.incidentType }
-              : {}),
-            ...(criteria.incidentStatus
-              ? { status: criteria.incidentStatus }
-              : {}),
-          })
-          .lean()
-      : [],
-    wantsPatrols
-      ? sessions
-          .find({
-            patrolRoute: { $in: routeIds },
-            startTime: { $gte: start, $lte: end },
-            ...(criteria.rangerId ? { rangerId: criteria.rangerId } : {}),
-          })
-          .lean()
-      : [],
-  ]);
+  // There is no trustworthy park link for UC-C records. Apply only reliable
+  // alert filters, and expose ALL_PARKS_UNASSIGNED explicitly in the contract.
+  const conflictFilters = {
+    ...(criteria.rangerId ? { acknowledgedBy: criteria.rangerId } : {}),
+    ...(criteria.severity ? { severity: criteria.severity } : {}),
+    ...(criteria.conflictStatus ? { status: criteria.conflictStatus } : {}),
+    ...(criteria.conflictSource ? { source: criteria.conflictSource } : {}),
+    ...(criteria.conflictType ? { alertType: criteria.conflictType } : {}),
+  };
+  const [incidentRows, patrolRows, alertRows, responseAlerts] =
+    await Promise.all([
+      wantsIncidents
+        ? incidents
+            .find({
+              patrolSession: {
+                $in: scopedSessions.map((session) => session._id),
+              },
+              // Session dates must not exclude an incident reported within this range.
+              reportedAt: { $gte: start, $lte: end },
+              ...(criteria.rangerId ? { reportedBy: criteria.rangerId } : {}),
+              ...(criteria.incidentType
+                ? { incidentType: criteria.incidentType }
+                : {}),
+              ...(criteria.incidentStatus
+                ? { status: criteria.incidentStatus }
+                : {}),
+            })
+            .select('incidentType status reportedAt location')
+            .lean()
+        : [],
+      wantsPatrols
+        ? sessions
+            .find({
+              patrolRoute: { $in: routeIds },
+              startTime: { $gte: start, $lte: end },
+              ...(criteria.rangerId ? { rangerId: criteria.rangerId } : {}),
+            })
+            .lean()
+        : [],
+      wantsConflicts
+        ? conflicts
+            .find({ ...conflictFilters, createdAt: { $gte: start, $lte: end } })
+            .select('createdAt severity status source alertType')
+            .lean()
+        : [],
+      // Response activity is dated independently of alert creation. Otherwise an
+      // in-period response to an older alert would disappear from the trend.
+      // The same parent-alert filters (including acknowledgedBy) apply here.
+      wantsConflicts
+        ? conflicts
+            .find({
+              ...conflictFilters,
+              'responses.respondedAt': { $gte: start, $lte: end },
+            })
+            .select('responses')
+            .lean()
+        : [],
+    ]);
 
-  const limitations = [
-    'Incidents without a valid patrol-session-to-park link are excluded from park-scoped analysis.',
-  ];
-  if (selected.has('HWC_TRENDS'))
+  const responses = responseAlerts
+    .flatMap((alert) => alert.responses ?? [])
+    .filter((response) => {
+      const respondedAt = new Date(response.respondedAt);
+      return (
+        Number.isFinite(respondedAt.getTime()) &&
+        respondedAt >= start &&
+        respondedAt <= end
+      );
+    });
+  const limitations: string[] = [];
+  if (wantsIncidents)
     limitations.push(
-      'Conflict alerts cannot currently be associated reliably with a park: alerts have no park reference and parks have no boundary geometry. Conflict records are excluded; conflict trends are unavailable.',
+      'Incidents without a valid patrol-session-to-park link are excluded from park-scoped analysis.',
     );
-  if (
-    selected.has('INCIDENT_HOTSPOTS') ||
-    wantsPatrols ||
-    selected.has('HWC_TRENDS')
-  )
+  if (wantsConflicts)
     limitations.push(
-      'Batch 1 establishes category criteria only. Hotspot, patrol coverage, and conflict trend calculations are pending later batches.',
+      HWC_SCOPE_NOTICE,
+      'Conflict Ranger ID filters acknowledgedBy; response activity uses respondedAt and the same parent-alert filters, including alerts created before this period.',
+    );
+  if (wantsPatrols)
+    limitations.push(
+      'Patrol Coverage calculation remains pending a later batch; matching session counts are source records only.',
     );
 
-  // Only the existing incident statistics are calculated. Matching source
-  // records for future categories do not imply their algorithms have run.
-  const statistics = selected.has('INCIDENT_STATISTICS') ? incidentRows : [];
+  const incidentStatistics = selected.has('INCIDENT_STATISTICS')
+    ? calculateIncidentStatistics(incidentRows, start, end)
+    : undefined;
+  const incidentHotspots = selected.has('INCIDENT_HOTSPOTS')
+    ? calculateIncidentHotspots(incidentRows)
+    : undefined;
+  const conflictTrends = wantsConflicts
+    ? calculateConflictTrends(alertRows, responses, start, end)
+    : undefined;
   return {
     generatedAt: new Date().toISOString(),
     filters: criteria,
     park: parkOption(park),
     status:
-      incidentRows.length || patrolRows.length ? 'DATA' : 'NO_MATCHING_DATA',
+      incidentRows.length ||
+      patrolRows.length ||
+      alertRows.length ||
+      responses.length
+        ? 'DATA'
+        : 'NO_MATCHING_DATA',
     matchedRecords: {
       incidents: incidentRows.length,
       patrols: patrolRows.length,
+      ...(wantsConflicts
+        ? { conflicts: alertRows.length, responses: responses.length }
+        : {}),
     },
     categoryAvailability: criteria.categories.map((category) => ({
       category,
       status:
-        category === 'INCIDENT_STATISTICS'
-          ? 'AVAILABLE'
+        category === 'PATROL_COVERAGE'
+          ? 'NOT_IMPLEMENTED'
           : category === 'HWC_TRENDS'
-            ? 'UNAVAILABLE_PARK_ASSOCIATION'
-            : 'NOT_IMPLEMENTED',
+            ? 'AVAILABLE_UNSCOPED'
+            : 'AVAILABLE',
     })),
     limitations,
     summary: {
@@ -162,19 +217,33 @@ export async function getCriteriaAnalytics(
           .length,
         active: patrolRows.filter((row) => row.status === 'ACTIVE').length,
       },
-      incidents: { total: statistics.length },
-      conflicts: { total: 0, open: 0, resolved: 0 },
-      responses: { total: 0 },
+      incidents: { total: incidentRows.length },
+      conflicts: {
+        total: alertRows.length,
+        open: alertRows.filter(
+          (row) => row.status !== 'RESOLVED' && row.status !== 'CANCELLED',
+        ).length,
+        resolved: alertRows.filter((row) => row.status === 'RESOLVED').length,
+      },
+      responses: { total: responses.length },
     },
     incidents: {
-      byType: groupBy(statistics, 'incidentType'),
-      byStatus: groupBy(statistics, 'status'),
+      byType: incidentStatistics?.byType ?? [],
+      byStatus: incidentStatistics?.byStatus ?? [],
     },
     patrols: {
       byStatus: groupBy(patrolRows, 'status'),
       byRanger: groupBy(patrolRows, 'rangerName'),
     },
-    conflicts: { bySeverity: [], byStatus: [], bySource: [], byType: [] },
-    responses: { byAction: [] },
+    conflicts: {
+      bySeverity: conflictTrends?.bySeverity ?? [],
+      byStatus: conflictTrends?.byStatus ?? [],
+      bySource: conflictTrends?.bySource ?? [],
+      byType: conflictTrends?.byType ?? [],
+    },
+    responses: { byAction: conflictTrends?.responsesByAction ?? [] },
+    ...(incidentStatistics ? { incidentStatistics } : {}),
+    ...(incidentHotspots ? { incidentHotspots } : {}),
+    ...(conflictTrends ? { conflictTrends } : {}),
   };
 }
