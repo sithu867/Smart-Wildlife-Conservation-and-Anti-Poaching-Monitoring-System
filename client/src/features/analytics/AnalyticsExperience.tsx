@@ -25,10 +25,10 @@ export function AnalyticsOverview() {
           <h2>Human-Wildlife Conflict Trends</h2>
           <p>Understand alert and response activity.</p>
         </article>
-        <article className="analytics-area analytics-area--future">
-          <span className="analytics-badge">Coming next</span>
+        <article className="analytics-area">
+          <span aria-hidden="true">04</span>
           <h2>Report Generation</h2>
-          <p>Generate, preview and export reports in the next workflow.</p>
+          <p>Generate, review and export a Statistical Conservation Report.</p>
         </article>
       </div>
     </header>

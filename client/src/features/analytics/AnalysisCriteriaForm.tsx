@@ -2,6 +2,7 @@ import type { FormEvent } from 'react';
 import {
   ANALYSIS_CATEGORIES,
   CATEGORY_LABELS,
+  isValidAnalysisDate,
   type AnalysisCriteria,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
@@ -44,6 +45,15 @@ export function AnalysisCriteriaForm({
   onReset,
   onRetryParks,
 }: Props) {
+  function openCalendar(input: HTMLInputElement) {
+    // showPicker requires a user gesture and is not available in every browser.
+    // The native date control remains usable when unsupported or restricted.
+    try {
+      input.showPicker?.();
+    } catch {
+      /* Browser retains its native fallback. */
+    }
+  }
   function fieldAccessibility(field: keyof AnalysisCriteria) {
     const invalid = validationErrors.some((issue) => issue.field === field);
     return {
@@ -108,6 +118,8 @@ export function AnalysisCriteriaForm({
             Start Date
             <input
               type="date"
+              max={isValidAnalysisDate(criteria.end) ? criteria.end : undefined}
+              onClick={(event) => openCalendar(event.currentTarget)}
               {...fieldAccessibility('start')}
               value={criteria.start}
               onChange={(event) => onEdit('start', event.target.value)}
@@ -120,6 +132,10 @@ export function AnalysisCriteriaForm({
             End Date
             <input
               type="date"
+              min={
+                isValidAnalysisDate(criteria.start) ? criteria.start : undefined
+              }
+              onClick={(event) => openCalendar(event.currentTarget)}
               {...fieldAccessibility('end')}
               value={criteria.end}
               onChange={(event) => onEdit('end', event.target.value)}

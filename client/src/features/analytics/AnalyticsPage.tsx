@@ -19,12 +19,16 @@ import {
 } from './AnalyticsResults';
 import { AnalysisCriteriaForm } from './AnalysisCriteriaForm';
 import { AnalyticsOverview, AnalysisProcessing } from './AnalyticsExperience';
+import {
+  ConservationReportPreview,
+  ReportGeneration,
+} from './ConservationReport';
+import {
+  useConservationReport,
+  type ReviewedAnalysis,
+} from './useConservationReport';
+import { matchesReviewedReportScope } from '../../../../server/src/modules/analytics/reportContract';
 import './analytics.css';
-
-type ReviewedAnalysis = {
-  appliedCriteria: AnalysisCriteria;
-  data: AnalyticsResult;
-};
 
 type AnalysisRequestError = { kind: 'validation' | 'system'; message: string };
 
@@ -68,8 +72,6 @@ export function AnalyticsPage() {
   const [processingCategories, setProcessingCategories] = useState<
     AnalysisCriteria['categories']
   >([]);
-  const [downloading, setDownloading] = useState(false);
-  const [reportError, setReportError] = useState('');
   const requestId = useRef(0);
   const pendingRequest = useRef<AbortController | null>(null);
   const failedCriteria = useRef<AnalysisCriteria | null>(null);
@@ -143,7 +145,6 @@ export function AnalyticsPage() {
     // A new attempt replaces earlier failure feedback even if local validation
     // stops it. Keep the reviewed results and their applied scope intact.
     setRequestError(null);
-    setReportError('');
     failedCriteria.current = null;
     const errors = validateDraftCriteriaIssues(criteria, parks);
     setValidationErrors(errors);
@@ -189,25 +190,7 @@ export function AnalyticsPage() {
     setReviewedAnalysis(null);
     setValidationErrors([]);
     setRequestError(null);
-    setReportError('');
     setLoading(false);
-  }
-
-  async function downloadReport() {
-    // Guard the handler too, so an empty result cannot trigger a download even
-    // if the button's disabled state is bypassed. Use reviewed data, not draft.
-    if (!reviewedAnalysis || !hasMatchingData || loading || downloading) return;
-    setDownloading(true);
-    setReportError('');
-    try {
-      await analyticsApi.downloadExistingReport(
-        copyCriteria(reviewedAnalysis.appliedCriteria),
-      );
-    } catch {
-      setReportError('Unable to download the report. Please try again.');
-    } finally {
-      setDownloading(false);
-    }
   }
 
   const appliedCriteria = reviewedAnalysis?.appliedCriteria;
@@ -216,63 +199,102 @@ export function AnalyticsPage() {
     appliedCriteria &&
     JSON.stringify(draftCriteria) !== JSON.stringify(appliedCriteria);
   const hasMatchingData = hasMeaningfulMatchingData(data);
+  const canGenerateReport =
+    !!reviewedAnalysis &&
+    hasMatchingData &&
+    !loading &&
+    !requestError &&
+    validationErrors.length === 0 &&
+    matchesReviewedReportScope(
+      reviewedAnalysis.appliedCriteria,
+      reviewedAnalysis.data,
+    ) &&
+    validateDraftCriteriaIssues(reviewedAnalysis.appliedCriteria, parks)
+      .length === 0;
+  const report = useConservationReport(reviewedAnalysis, canGenerateReport);
+
+  useEffect(() => {
+    if (!report.preview && report.report) {
+      resultsHeading.current?.focus({ preventScroll: true });
+      resultsHeading.current?.scrollIntoView?.({ block: 'start' });
+    }
+  }, [report.preview, report.report]);
 
   return (
     <main className="page analytics-page">
       <AnalyticsOverview />
 
-      {loading && (
-        <AnalysisProcessing
-          categories={processingCategories}
-          headingRef={processingHeading}
+      {!report.preview && (
+        <>
+          {loading && (
+            <AnalysisProcessing
+              categories={processingCategories}
+              headingRef={processingHeading}
+            />
+          )}
+          {requestError && (
+            <FeedbackPanel
+              tone={requestError.kind}
+              title={
+                requestError.kind === 'validation'
+                  ? 'Check the analysis criteria'
+                  : 'Analysis could not be completed'
+              }
+            >
+              <p>{requestError.message}</p>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() =>
+                  failedCriteria.current && void analyze(failedCriteria.current)
+                }
+              >
+                Retry analysis
+              </button>
+            </FeedbackPanel>
+          )}
+          {data && appliedCriteria && (
+            <AnalyticsResults
+              headingRef={resultsHeading}
+              data={data}
+              appliedCriteria={appliedCriteria}
+            />
+          )}
+          <ReportGeneration
+            canGenerate={canGenerateReport && !report.exporting}
+            generating={report.generating}
+            error={report.generationError}
+            draftChanged={!!draftChanged}
+            hasReport={!!report.report}
+            onGenerate={(retry) => void report.generate(retry)}
+            onPreview={report.showPreview}
+          />
+          <AnalysisCriteriaForm
+            criteria={draftCriteria}
+            parks={parks}
+            parksLoading={parksLoading}
+            parksError={parksError}
+            validationErrors={validationErrors}
+            loading={loading}
+            hasResults={!!reviewedAnalysis}
+            draftChanged={!!draftChanged}
+            onEdit={editCriteria}
+            onSubmit={submit}
+            onReset={reset}
+            onRetryParks={() => setParkRetry((value) => value + 1)}
+          />
+        </>
+      )}
+      {report.preview && report.report && (
+        <ConservationReportPreview
+          snapshot={report.report}
+          exporting={report.exporting}
+          error={report.exportError}
+          exportedFilename={report.exportedFilename}
+          onBack={report.returnToAnalysis}
+          onExport={() => void report.exportPdf()}
         />
       )}
-      {requestError && (
-        <FeedbackPanel
-          tone={requestError.kind}
-          title={
-            requestError.kind === 'validation'
-              ? 'Check the analysis criteria'
-              : 'Analysis could not be completed'
-          }
-        >
-          <p>{requestError.message}</p>
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() =>
-              failedCriteria.current && void analyze(failedCriteria.current)
-            }
-          >
-            Retry analysis
-          </button>
-        </FeedbackPanel>
-      )}
-      {data && appliedCriteria && (
-        <AnalyticsResults
-          headingRef={resultsHeading}
-          data={data}
-          appliedCriteria={appliedCriteria}
-          loading={loading}
-          downloading={downloading}
-          reportError={reportError}
-          onDownload={() => void downloadReport()}
-        />
-      )}
-      <AnalysisCriteriaForm
-        criteria={draftCriteria}
-        parks={parks}
-        parksLoading={parksLoading}
-        parksError={parksError}
-        validationErrors={validationErrors}
-        loading={loading}
-        hasResults={!!reviewedAnalysis}
-        draftChanged={!!draftChanged}
-        onEdit={editCriteria}
-        onSubmit={submit}
-        onReset={reset}
-        onRetryParks={() => setParkRetry((value) => value + 1)}
-      />
     </main>
   );
 }

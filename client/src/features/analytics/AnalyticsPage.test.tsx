@@ -247,9 +247,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     expect(screen.queryByText(/Criteria have changed/)).not.toBeInTheDocument();
   });
   test('shows no matching data without fake statistics and permits refinement', async () => {
-    const download = vi
-      .spyOn(analyticsApi, 'downloadExistingReport')
-      .mockResolvedValue();
+    const generateReport = vi
+      .spyOn(analyticsApi, 'generateReport')
+      .mockImplementation(async (snapshot) => snapshot);
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce(
       result(validCriteria, 'NO_MATCHING_DATA'),
     );
@@ -262,19 +262,19 @@ describe('UC-D criteria and Analyze workflow', () => {
       screen.getByRole('status', { name: 'No matching conservation data' }),
     ).toHaveClass('analytics-feedback--info');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    const downloadButton = screen.getByRole('button', {
-      name: 'Download report',
+    const generateButton = screen.getByRole('button', {
+      name: 'Generate Report',
     });
-    expect(downloadButton).toHaveAccessibleDescription(
-      'Download Report is available after a successful analysis with matching conservation data.',
+    expect(generateButton).toHaveAccessibleDescription(
+      'Generate Report is available after a successful analysis with matching conservation data.',
     );
-    fireEvent.click(downloadButton);
-    expect(download).not.toHaveBeenCalled();
+    fireEvent.click(generateButton);
+    expect(generateReport).not.toHaveBeenCalled();
     expect(
       screen.queryByRole('heading', { name: 'Incidents by type' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Download report' }),
+      screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeDisabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
@@ -433,36 +433,42 @@ describe('UC-D criteria and Analyze workflow', () => {
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
     expect(screen.getByLabelText('End Date')).toHaveFocus();
   });
-  test('Download Report requires meaningful matching records even for a DATA response', async () => {
-    const download = vi
-      .spyOn(analyticsApi, 'downloadExistingReport')
-      .mockResolvedValue();
+  test('Generate Report requires meaningful matching records even for a DATA response', async () => {
+    const generateReport = vi
+      .spyOn(analyticsApi, 'generateReport')
+      .mockImplementation(async (snapshot) => snapshot);
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce({
       ...result(),
       matchedRecords: { incidents: 0, patrols: 0 },
     });
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
-    const button = screen.getByRole('button', { name: 'Download report' });
+    const button = screen.getByRole('button', { name: 'Generate Report' });
     expect(button).toBeDisabled();
     fireEvent.click(button);
-    expect(download).not.toHaveBeenCalled();
+    expect(generateReport).not.toHaveBeenCalled();
   });
-  test('existing report download uses applied criteria after draft edits', async () => {
-    vi.spyOn(analyticsApi, 'downloadExistingReport').mockResolvedValue();
+  test('report generation uses applied criteria after draft edits', async () => {
+    vi.spyOn(analyticsApi, 'generateReport').mockImplementation(
+      async (snapshot) => snapshot,
+    );
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Download report' }),
+      screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeEnabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Download report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
     await waitFor(() =>
-      expect(analyticsApi.downloadExistingReport).toHaveBeenCalledWith(
-        validCriteria,
+      expect(analyticsApi.generateReport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appliedCriteria: validCriteria,
+          analyticsResult: result(),
+        }),
+        expect.any(AbortSignal),
       ),
     );
   });

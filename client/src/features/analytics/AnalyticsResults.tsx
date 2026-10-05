@@ -28,22 +28,9 @@ interface Props {
   headingRef?: Ref<HTMLHeadingElement>;
   data: AnalyticsResult;
   appliedCriteria: AnalysisCriteria;
-  loading: boolean;
-  downloading: boolean;
-  reportError: string;
-  onDownload: () => void;
 }
-export function AnalyticsResults({
-  headingRef,
-  data,
-  appliedCriteria,
-  loading,
-  downloading,
-  reportError,
-  onDownload,
-}: Props) {
+export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
   const selected = new Set(appliedCriteria.categories);
-  const hasMatchingData = hasMeaningfulMatchingData(data);
   return (
     <section className="analytics-results" aria-label="Analysis results">
       <section
@@ -153,34 +140,6 @@ export function AnalyticsResults({
           ))}
         </ul>
       </details>
-      <div className="analytics-existing-report">
-        <p>
-          The basic report download is available here. Report generation,
-          preview and export are planned for the next workflow.
-        </p>
-        <button
-          className="button analytics-button analytics-button--secondary"
-          type="button"
-          disabled={loading || downloading || !hasMatchingData}
-          aria-describedby={
-            !hasMatchingData ? 'analytics-report-unavailable' : undefined
-          }
-          onClick={onDownload}
-        >
-          {downloading ? 'Downloading...' : 'Download report'}
-        </button>
-        {!hasMatchingData && (
-          <p id="analytics-report-unavailable">
-            Download Report is available after a successful analysis with
-            matching conservation data.
-          </p>
-        )}
-        {reportError && (
-          <FeedbackPanel tone="system" title="Report could not be downloaded">
-            <p>{reportError}</p>
-          </FeedbackPanel>
-        )}
-      </div>
     </section>
   );
 }

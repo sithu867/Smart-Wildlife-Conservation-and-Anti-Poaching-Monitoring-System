@@ -7,7 +7,11 @@ import {
 } from '@testing-library/react';
 import { Browser } from 'leaflet';
 import { AnalyticsPage } from './AnalyticsPage';
-import { AnalyticsResults } from './AnalyticsResults';
+import {
+  AnalyticsResults,
+  hasMeaningfulMatchingData,
+} from './AnalyticsResults';
+import { ReportGeneration } from './ConservationReport';
 import { HotspotMap } from './HotspotMap';
 import { analyticsApi } from './api';
 import { parks, result, validCriteria } from './analyticsTestFixtures';
@@ -31,14 +35,18 @@ afterEach(() => {
 });
 function display(data: AnalyticsResult) {
   return render(
-    <AnalyticsResults
-      data={data}
-      appliedCriteria={data.filters}
-      loading={false}
-      downloading={false}
-      reportError=""
-      onDownload={vi.fn()}
-    />,
+    <>
+      <AnalyticsResults data={data} appliedCriteria={data.filters} />
+      <ReportGeneration
+        canGenerate={hasMeaningfulMatchingData(data)}
+        generating={false}
+        error=""
+        draftChanged={false}
+        hasReport={false}
+        onGenerate={vi.fn()}
+        onPreview={vi.fn()}
+      />
+    </>,
   );
 }
 function categoryResult(categories: AnalysisCriteria['categories']) {
@@ -183,7 +191,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       ).toBeInTheDocument();
     }
     expect(
-      screen.getByRole('button', { name: 'Download report' }),
+      screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeEnabled();
     expect(
       screen.queryByRole('region', { name: 'Incident Statistics results' }),
@@ -209,7 +217,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.getByRole('img', { name: 'Conflict Responses Over Time chart' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Download report' }),
+      screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeEnabled();
   });
   test('a mixed analysis displays only selected categories and exposes category-specific no-data', () => {
@@ -247,7 +255,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Download report' }),
+      screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeDisabled();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
@@ -315,14 +323,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       },
     };
     view.rerender(
-      <AnalyticsResults
-        data={next}
-        appliedCriteria={next.filters}
-        loading={false}
-        downloading={false}
-        reportError=""
-        onDownload={vi.fn()}
-      />,
+      <AnalyticsResults data={next} appliedCriteria={next.filters} />,
     );
     expect(
       document.querySelectorAll('.leaflet-overlay-pane path'),

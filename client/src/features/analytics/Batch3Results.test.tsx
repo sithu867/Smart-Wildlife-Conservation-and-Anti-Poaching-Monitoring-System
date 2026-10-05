@@ -6,7 +6,11 @@ import {
   screen,
   within,
 } from '@testing-library/react';
-import { AnalyticsResults } from './AnalyticsResults';
+import {
+  AnalyticsResults,
+  hasMeaningfulMatchingData,
+} from './AnalyticsResults';
+import { ReportGeneration } from './ConservationReport';
 import { AnalyticsPage } from './AnalyticsPage';
 import { AnalysisProcessing } from './AnalyticsExperience';
 import { PatrolCoverageResults } from './PatrolCoverageResults';
@@ -29,14 +33,18 @@ afterEach(() => {
 
 function display(data: AnalyticsResult) {
   return render(
-    <AnalyticsResults
-      data={data}
-      appliedCriteria={data.filters}
-      loading={false}
-      downloading={false}
-      reportError=""
-      onDownload={vi.fn()}
-    />,
+    <>
+      <AnalyticsResults data={data} appliedCriteria={data.filters} />
+      <ReportGeneration
+        canGenerate={hasMeaningfulMatchingData(data)}
+        generating={false}
+        error=""
+        draftChanged={false}
+        hasReport={false}
+        onGenerate={vi.fn()}
+        onPreview={vi.fn()}
+      />
+    </>,
   );
 }
 
@@ -193,7 +201,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
       screen.getByText(/All registered routes are classified as neglected/),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Download report' }),
+      screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeDisabled();
   });
   test('applied categories control coverage visibility even when the response contains other category data', () => {
