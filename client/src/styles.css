@@ -61,3 +61,7 @@ nav {
   border-radius: 0.75rem;
   z-index: 10;
 }
+
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin: 2rem 0; }
+.card { background: #10231c; border: 1px solid #1d4b39; border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
+.card small, .card strong { display: block; } .card strong { font-size: 2rem; color: #34d399; margin-top: .5rem; }

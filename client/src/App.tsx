@@ -8,6 +8,7 @@ import { ReportIncidentPage } from './features/incidents/pages/ReportIncidentPag
 import { IncidentHistoryPage } from './features/incidents/pages/IncidentHistoryPage';
 import { ConflictAlertsPage } from './features/conflict-alerts/pages/ConflictAlertsPage';
 import { ConflictAlertDetailPage } from './features/conflict-alerts/pages/ConflictAlertDetailPage';
+import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 
 const Placeholder = ({ title, description }: { title: string; description: string }) => (
   <main className="page">
@@ -45,7 +46,7 @@ export default function App() {
         <Route path="/ranger/alerts/:alertId" element={<ConflictAlertDetailPage />} />
 
         <Route path="/manager" element={<Placeholder title="Park manager" description="Central online manager route group." />} />
-        <Route path="/manager/analytics" element={<Placeholder title="Analytics" description="UC-D placeholder for synchronized conservation analytics." />} />
+        <Route path="/manager/analytics" element={<AnalyticsPage />} />
         <Route path="/dev/collar-simulator" element={<ConflictAlertsPage />} />
         <Route path="/community-report" element={<ConflictAlertsPage />} />
         <Route path="*" element={<Placeholder title="Page not found" description="The requested route is not registered." />} />

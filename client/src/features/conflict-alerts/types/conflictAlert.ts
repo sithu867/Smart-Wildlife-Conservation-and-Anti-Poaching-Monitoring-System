@@ -10,6 +10,7 @@ import {
 
 export interface ConflictResponse {
   responseId: string;
+  clientResponseId?: string;
   responderId: string;
   responderName: string;
   action: ResponseAction;
