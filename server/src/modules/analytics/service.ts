@@ -1,13 +1,18 @@
 import { PatrolSessionModel } from '../patrols/models.js';
 import { ConservationIncidentModel } from '../incidents/models.js';
 import { WildlifeConflictAlertModel } from '../conflict-alerts/models.js';
+import { getCriteriaAnalytics, listAnalyticsParks } from './criteriaService.js';
 
 export type AnalyticsFilters = { start?: Date; end?: Date; rangerId?: string; incidentType?: string; incidentStatus?: string; severity?: string; conflictStatus?: string; conflictSource?: string; conflictType?: string };
 const range = (field: string, filters: AnalyticsFilters) => filters.start || filters.end ? { [field]: { ...(filters.start ? { $gte: filters.start } : {}), ...(filters.end ? { $lte: filters.end } : {}) } } : {};
 const group = (rows: Array<Record<string, unknown>>, key: string) => Object.entries(rows.reduce<Record<string, number>>((a, r) => { const k = String(r[key] ?? 'UNKNOWN'); a[k] = (a[k] ?? 0) + 1; return a; }, {})).map(([name, count]) => ({ name, count }));
 
 export const analyticsService = {
-  async getAnalytics(filters: AnalyticsFilters = {}) {
+  getAnalytics: getCriteriaAnalytics,
+  listParks: listAnalyticsParks,
+  // Preserve the pre-existing report endpoint for legacy callers. New criteria
+  // always use the park-scoped path; this method is not used by Analyze.
+  async getLegacyAnalytics(filters: AnalyticsFilters = {}) {
     const [patrols, incidents, alerts] = await Promise.all([
       PatrolSessionModel.find({ ...range('startTime', filters), ...(filters.rangerId ? { rangerId: filters.rangerId } : {}) }).lean(),
       ConservationIncidentModel.find({ ...range('reportedAt', filters), ...(filters.rangerId ? { reportedBy: filters.rangerId } : {}), ...(filters.incidentType ? { incidentType: filters.incidentType } : {}), ...(filters.incidentStatus ? { status: filters.incidentStatus } : {}) }).lean(),
