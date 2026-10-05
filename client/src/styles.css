@@ -64,4 +64,5 @@ nav {
 
 .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin: 2rem 0; }
 .card { background: #10231c; border: 1px solid #1d4b39; border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
+.analytics-filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; } .analytics-filters label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; } .analytics-filters input, .analytics-filters select { min-height: 2.3rem; }
 .card small, .card strong { display: block; } .card strong { font-size: 2rem; color: #34d399; margin-top: .5rem; }
