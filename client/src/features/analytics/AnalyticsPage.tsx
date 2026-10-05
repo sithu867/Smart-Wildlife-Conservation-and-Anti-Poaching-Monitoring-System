@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { isAxiosError } from 'axios';
 import {
   ANALYSIS_CATEGORIES,
@@ -16,7 +23,8 @@ import { analyticsApi } from './api';
 import {
   copyCriteria,
   createDraftCriteria,
-  validateDraftCriteria,
+  validateDraftCriteriaIssues,
+  type CriteriaValidationIssue,
 } from './criteria';
 import './analytics.css';
 
@@ -25,19 +33,48 @@ type ReviewedAnalysis = {
   data: AnalyticsResult;
 };
 
-function requestMessage(error: unknown): string {
+type AnalysisRequestError = { kind: 'validation' | 'system'; message: string };
+
+function FeedbackPanel({
+  tone,
+  title,
+  children,
+}: {
+  tone: 'validation' | 'system' | 'info';
+  title: string;
+  children: ReactNode;
+}) {
+  const titleId = useId();
+  return (
+    <div
+      className={`analytics-feedback analytics-feedback--${tone}`}
+      role={tone === 'info' ? 'status' : 'alert'}
+      aria-labelledby={titleId}
+    >
+      <h3 id={titleId}>{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function requestMessage(error: unknown): AnalysisRequestError {
   // Surface intentional API validation messages; other failures use a stable
   // message rather than exposing raw database or network exceptions.
   if (
     isAxiosError<{ error?: { message?: string } }>(error) &&
     error.response?.status === 400
   ) {
-    return (
-      error.response.data?.error?.message ||
-      'Please check the analysis criteria.'
-    );
+    return {
+      kind: 'validation',
+      message:
+        error.response.data?.error?.message ||
+        'Please check the analysis criteria.',
+    };
   }
-  return 'Unable to analyze conservation data. Please try again.';
+  return {
+    kind: 'system',
+    message: 'Unable to analyze conservation data. Please try again.',
+  };
 }
 
 export function AnalyticsPage() {
@@ -50,8 +87,12 @@ export function AnalyticsPage() {
   const [parksLoading, setParksLoading] = useState(true);
   const [parksError, setParksError] = useState('');
   const [parkRetry, setParkRetry] = useState(0);
-  const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [requestError, setRequestError] = useState('');
+  const [validationErrors, setValidationErrors] = useState<
+    CriteriaValidationIssue[]
+  >([]);
+  const [requestError, setRequestError] = useState<AnalysisRequestError | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [reportError, setReportError] = useState('');
@@ -90,8 +131,15 @@ export function AnalyticsPage() {
     key: K,
     value: AnalysisCriteria[K],
   ) {
-    setDraftCriteria((current) => ({ ...current, [key]: value }));
-    setValidationErrors([]);
+    const nextCriteria = { ...draftCriteria, [key]: value };
+    setDraftCriteria(nextCriteria);
+    // Once validation is shown, recheck edits so correcting one field does not
+    // hide outstanding errors elsewhere or discard the manager's draft.
+    setValidationErrors((current) =>
+      current.length
+        ? validateDraftCriteriaIssues(nextCriteria, parks)
+        : current,
+    );
   }
 
   async function analyze(criteria: AnalysisCriteria) {
@@ -99,7 +147,12 @@ export function AnalyticsPage() {
     // button. The sequence check protects Reset/unmount even if a transport
     // ignores cancellation and completes an older request later.
     if (pendingRequest.current) return;
-    const errors = validateDraftCriteria(criteria, parks);
+    // A new attempt replaces earlier failure feedback even if local validation
+    // stops it. Keep the reviewed results and their applied scope intact.
+    setRequestError(null);
+    setReportError('');
+    failedCriteria.current = null;
+    const errors = validateDraftCriteriaIssues(criteria, parks);
     setValidationErrors(errors);
     if (errors.length) return;
     const appliedSnapshot = copyCriteria(criteria);
@@ -107,9 +160,6 @@ export function AnalyticsPage() {
     pendingRequest.current = controller;
     const sequence = ++requestId.current;
     setLoading(true);
-    setRequestError('');
-    setReportError('');
-    failedCriteria.current = null;
     try {
       const data = await analyticsApi.analyze(
         appliedSnapshot,
@@ -143,13 +193,15 @@ export function AnalyticsPage() {
     setDraftCriteria(createDraftCriteria());
     setReviewedAnalysis(null);
     setValidationErrors([]);
-    setRequestError('');
+    setRequestError(null);
     setReportError('');
     setLoading(false);
   }
 
   async function downloadReport() {
-    if (!reviewedAnalysis || downloading) return;
+    // Guard the handler too, so an empty result cannot trigger a download even
+    // if the button's disabled state is bypassed. Use reviewed data, not draft.
+    if (!reviewedAnalysis || !hasMatchingData || loading || downloading) return;
     setDownloading(true);
     setReportError('');
     try {
@@ -172,6 +224,29 @@ export function AnalyticsPage() {
     'INCIDENT_STATISTICS',
   );
 
+  const hasMatchingData =
+    data?.status === 'DATA' &&
+    (data.matchedRecords.incidents > 0 || data.matchedRecords.patrols > 0);
+
+  function fieldAccessibility(field: keyof AnalysisCriteria) {
+    const invalid = validationErrors.some((issue) => issue.field === field);
+    return {
+      'aria-invalid': invalid,
+      'aria-describedby': invalid ? `analytics-error-${field}` : undefined,
+    };
+  }
+
+  function fieldFeedback(field: keyof AnalysisCriteria) {
+    const messages = validationErrors
+      .filter((issue) => issue.field === field)
+      .map((issue) => issue.message);
+    return messages.length ? (
+      <p className="analytics-field-error" id={`analytics-error-${field}`}>
+        {messages.join(' ')}
+      </p>
+    ) : null;
+  }
+
   return (
     <main className="page">
       <p className="eyebrow">Park manager</p>
@@ -184,44 +259,60 @@ export function AnalyticsPage() {
         aria-label="Analysis criteria"
       >
         <div className="analytics-filters">
-          <label>
-            Park / Conservation Area
-            <select
-              value={draftCriteria.parkId}
-              onChange={(event) => editCriteria('parkId', event.target.value)}
-              disabled={parksLoading || !!parksError}
-            >
-              <option value="">Select a park</option>
-              {parks.map((park) => (
-                <option key={park.id} value={park.id}>
-                  {park.name} ({park.code})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Start Date
-            <input
-              type="date"
-              value={draftCriteria.start}
-              onChange={(event) => editCriteria('start', event.target.value)}
-            />
-          </label>
-          <label>
-            End Date
-            <input
-              type="date"
-              value={draftCriteria.end}
-              onChange={(event) => editCriteria('end', event.target.value)}
-            />
-          </label>
+          <div className="analytics-field">
+            <label>
+              Park / Conservation Area
+              <select
+                {...fieldAccessibility('parkId')}
+                value={draftCriteria.parkId}
+                onChange={(event) => editCriteria('parkId', event.target.value)}
+                disabled={parksLoading || !!parksError}
+              >
+                <option value="">Select a park</option>
+                {parks.map((park) => (
+                  <option key={park.id} value={park.id}>
+                    {park.name} ({park.code})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {fieldFeedback('parkId')}
+          </div>
+          <div className="analytics-field">
+            <label>
+              Start Date
+              <input
+                type="date"
+                {...fieldAccessibility('start')}
+                value={draftCriteria.start}
+                onChange={(event) => editCriteria('start', event.target.value)}
+              />
+            </label>
+            {fieldFeedback('start')}
+          </div>
+          <div className="analytics-field">
+            <label>
+              End Date
+              <input
+                type="date"
+                {...fieldAccessibility('end')}
+                value={draftCriteria.end}
+                onChange={(event) => editCriteria('end', event.target.value)}
+              />
+            </label>
+            {fieldFeedback('end')}
+          </div>
         </div>
-        <fieldset className="analytics-categories">
+        <fieldset
+          className="analytics-categories"
+          {...fieldAccessibility('categories')}
+        >
           <legend>Analysis Categories (select one or more)</legend>
           {ANALYSIS_CATEGORIES.map((category) => (
             <label key={category}>
               <input
                 type="checkbox"
+                {...fieldAccessibility('categories')}
                 checked={draftCriteria.categories.includes(category)}
                 onChange={(event) =>
                   editCriteria(
@@ -237,56 +328,77 @@ export function AnalyticsPage() {
               {CATEGORY_LABELS[category]}
             </label>
           ))}
+          {fieldFeedback('categories')}
         </fieldset>
         <div className="analytics-filters">
-          <label>
-            Ranger ID
-            <input
-              placeholder="All rangers"
-              value={draftCriteria.rangerId}
-              onChange={(event) => editCriteria('rangerId', event.target.value)}
-            />
-          </label>
-          <label>
-            Incident type
-            <select
-              value={draftCriteria.incidentType}
-              onChange={(event) =>
-                editCriteria('incidentType', event.target.value)
-              }
-            >
-              <option value="">All types</option>
-              {Object.values(IncidentType).map((type) => (
-                <option key={type}>{type}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Severity
-            <select
-              value={draftCriteria.severity}
-              onChange={(event) => editCriteria('severity', event.target.value)}
-            >
-              <option value="">All severities</option>
-              {Object.values(AlertSeverity).map((severity) => (
-                <option key={severity}>{severity}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Conflict status
-            <select
-              value={draftCriteria.conflictStatus}
-              onChange={(event) =>
-                editCriteria('conflictStatus', event.target.value)
-              }
-            >
-              <option value="">All statuses</option>
-              {Object.values(AlertStatus).map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-          </label>
+          <div className="analytics-field">
+            <label>
+              Ranger ID
+              <input
+                placeholder="All rangers"
+                {...fieldAccessibility('rangerId')}
+                value={draftCriteria.rangerId}
+                onChange={(event) =>
+                  editCriteria('rangerId', event.target.value)
+                }
+              />
+            </label>
+            {fieldFeedback('rangerId')}
+          </div>
+          <div className="analytics-field">
+            <label>
+              Incident type
+              <select
+                {...fieldAccessibility('incidentType')}
+                value={draftCriteria.incidentType}
+                onChange={(event) =>
+                  editCriteria('incidentType', event.target.value)
+                }
+              >
+                <option value="">All types</option>
+                {Object.values(IncidentType).map((type) => (
+                  <option key={type}>{type}</option>
+                ))}
+              </select>
+            </label>
+            {fieldFeedback('incidentType')}
+          </div>
+          <div className="analytics-field">
+            <label>
+              Severity
+              <select
+                {...fieldAccessibility('severity')}
+                value={draftCriteria.severity}
+                onChange={(event) =>
+                  editCriteria('severity', event.target.value)
+                }
+              >
+                <option value="">All severities</option>
+                {Object.values(AlertSeverity).map((severity) => (
+                  <option key={severity}>{severity}</option>
+                ))}
+              </select>
+            </label>
+            {fieldFeedback('severity')}
+          </div>
+          <div className="analytics-field">
+            <label>
+              Conflict status
+              <select
+                {...fieldAccessibility('conflictStatus')}
+                value={draftCriteria.conflictStatus}
+                onChange={(event) =>
+                  editCriteria('conflictStatus', event.target.value)
+                }
+              >
+                <option value="">All statuses</option>
+                {Object.values(AlertStatus).map((status) => (
+                  <option key={status}>{status}</option>
+                ))}
+              </select>
+            </label>
+            {fieldFeedback('conflictStatus')}
+          </div>
         </div>
         <p>
           End Date includes the entire selected day. Hotspots, patrol coverage,
@@ -295,15 +407,15 @@ export function AnalyticsPage() {
         </p>
         {parksLoading && <p role="status">Loading parks...</p>}
         {parksError && (
-          <p role="alert">
-            {parksError}{' '}
+          <FeedbackPanel tone="system" title="Parks could not be loaded">
+            <p>{parksError}</p>
             <button
               type="button"
               onClick={() => setParkRetry((value) => value + 1)}
             >
               Retry loading parks
             </button>
-          </p>
+          </FeedbackPanel>
         )}
         {!parksLoading && !parksError && !parks.length && (
           <p role="status">
@@ -311,13 +423,14 @@ export function AnalyticsPage() {
           </p>
         )}
         {!!validationErrors.length && (
-          <div role="alert">
+          <FeedbackPanel tone="validation" title="Check the analysis criteria">
+            <p>Correct the highlighted fields, then select Analyze.</p>
             <ul>
-              {validationErrors.map((message) => (
-                <li key={message}>{message}</li>
+              {validationErrors.map((issue) => (
+                <li key={`${issue.field}-${issue.message}`}>{issue.message}</li>
               ))}
             </ul>
-          </div>
+          </FeedbackPanel>
         )}
         <div className="analytics-actions">
           <button
@@ -338,8 +451,15 @@ export function AnalyticsPage() {
         </p>
       )}
       {requestError && (
-        <p role="alert">
-          {requestError}{' '}
+        <FeedbackPanel
+          tone={requestError.kind}
+          title={
+            requestError.kind === 'validation'
+              ? 'Check the analysis criteria'
+              : 'Analysis could not be completed'
+          }
+        >
+          <p>{requestError.message}</p>
           <button
             type="button"
             disabled={loading}
@@ -349,7 +469,7 @@ export function AnalyticsPage() {
           >
             Retry analysis
           </button>
-        </p>
+        </FeedbackPanel>
       )}
       {draftChanged && (
         <p>
@@ -384,7 +504,13 @@ export function AnalyticsPage() {
             <p>Analyzed at {data.generatedAt}</p>
           </section>
           {data.status === 'NO_MATCHING_DATA' ? (
-            <p role="status">No matching conservation data</p>
+            <FeedbackPanel tone="info" title="No matching conservation data">
+              <p>
+                Analysis completed successfully, but no park-linked records
+                matched the applied criteria. Refine the criteria and Analyze
+                again.
+              </p>
+            </FeedbackPanel>
           ) : (
             <>
               <p>
@@ -439,14 +565,25 @@ export function AnalyticsPage() {
           <button
             className="button"
             type="button"
-            disabled={
-              loading || downloading || data.status === 'NO_MATCHING_DATA'
+            disabled={loading || downloading || !hasMatchingData}
+            aria-describedby={
+              !hasMatchingData ? 'analytics-report-unavailable' : undefined
             }
             onClick={() => void downloadReport()}
           >
             {downloading ? 'Downloading...' : 'Download report'}
           </button>
-          {reportError && <p role="alert">{reportError}</p>}
+          {!hasMatchingData && (
+            <p id="analytics-report-unavailable">
+              Download Report is available after a successful analysis with
+              matching conservation data.
+            </p>
+          )}
+          {reportError && (
+            <FeedbackPanel tone="system" title="Report could not be downloaded">
+              <p>{reportError}</p>
+            </FeedbackPanel>
+          )}
         </section>
       )}
     </main>

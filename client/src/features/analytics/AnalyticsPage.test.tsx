@@ -170,6 +170,73 @@ describe('UC-D criteria and Analyze workflow', () => {
     );
     expect(analyticsApi.analyze).not.toHaveBeenCalled();
   });
+  test('validation banner and inline descriptions stay visible until the invalid fields are corrected', async () => {
+    render(<AnalyticsPage />);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Analyze' })).toBeEnabled(),
+    );
+    fireEvent.change(screen.getByLabelText('Ranger ID'), {
+      target: { value: 'R-102' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    const banner = screen.getByRole('alert', {
+      name: 'Check the analysis criteria',
+    });
+    expect(banner).toHaveClass('analytics-feedback--validation');
+    const park = screen.getByLabelText('Park / Conservation Area');
+    const start = screen.getByLabelText('Start Date');
+    const end = screen.getByLabelText('End Date');
+    expect(park).toHaveAttribute('aria-invalid', 'true');
+    expect(park).toHaveAccessibleDescription(
+      'Select a valid Park / Conservation Area.',
+    );
+    expect(start).toHaveAccessibleDescription('Enter a valid Start Date.');
+    expect(end).toHaveAccessibleDescription('Enter a valid End Date.');
+    fireEvent.change(start, { target: { value: validCriteria.start } });
+    expect(start).toHaveAttribute('aria-invalid', 'false');
+    expect(start).not.toHaveAttribute('aria-describedby');
+    expect(end).toHaveAttribute('aria-invalid', 'true');
+    expect(banner).toHaveTextContent('Enter a valid End Date.');
+    expect(banner).not.toHaveTextContent('Enter a valid Start Date.');
+    expect(screen.getByLabelText('Ranger ID')).toHaveValue('R-102');
+    expect(start).toHaveValue(validCriteria.start);
+    expect(analyticsApi.analyze).not.toHaveBeenCalled();
+  });
+  test('category and date-range errors describe the affected controls and clear after correction', async () => {
+    render(<AnalyticsPage />);
+    await enterValidCriteria();
+    fireEvent.click(screen.getByLabelText('Incident Statistics'));
+    fireEvent.change(screen.getByLabelText('End Date'), {
+      target: { value: '2026-08-31' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    const categories = screen.getByRole('group', {
+      name: 'Analysis Categories (select one or more)',
+    });
+    expect(categories).toHaveAttribute('aria-invalid', 'true');
+    expect(categories).toHaveAccessibleDescription(
+      'Select at least one analysis category.',
+    );
+    expect(
+      screen.getByLabelText('Incident Statistics'),
+    ).toHaveAccessibleDescription('Select at least one analysis category.');
+    expect(screen.getByLabelText('End Date')).toHaveAccessibleDescription(
+      'Start Date must be on or before End Date.',
+    );
+    fireEvent.click(screen.getByLabelText('Incident Statistics'));
+    expect(categories).toHaveAttribute('aria-invalid', 'false');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Start Date must be on or before End Date.',
+    );
+    fireEvent.change(screen.getByLabelText('End Date'), {
+      target: { value: validCriteria.end },
+    });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('End Date')).toHaveAttribute(
+      'aria-invalid',
+      'false',
+    );
+  });
   test('draft park/date/category/filter edits preserve applied criteria until re-analysis succeeds', async () => {
     render(<AnalyticsPage />);
     const scope = await analyzeValidCriteria();
@@ -197,6 +264,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     expect(screen.queryByText(/Criteria have changed/)).not.toBeInTheDocument();
   });
   test('shows no matching data without fake statistics and permits refinement', async () => {
+    const download = vi
+      .spyOn(analyticsApi, 'downloadExistingReport')
+      .mockResolvedValue();
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce(
       result(validCriteria, 'NO_MATCHING_DATA'),
     );
@@ -205,6 +275,18 @@ describe('UC-D criteria and Analyze workflow', () => {
     expect(
       screen.getByText('No matching conservation data'),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole('status', { name: 'No matching conservation data' }),
+    ).toHaveClass('analytics-feedback--info');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    const downloadButton = screen.getByRole('button', {
+      name: 'Download report',
+    });
+    expect(downloadButton).toHaveAccessibleDescription(
+      'Download Report is available after a successful analysis with matching conservation data.',
+    );
+    fireEvent.click(downloadButton);
+    expect(download).not.toHaveBeenCalled();
     expect(
       screen.queryByRole('heading', { name: 'Incidents by type' }),
     ).not.toBeInTheDocument();
@@ -250,6 +332,9 @@ describe('UC-D criteria and Analyze workflow', () => {
       'Unable to analyze conservation data',
     );
     expect(screen.getByRole('alert')).not.toHaveTextContent('internal secret');
+    expect(
+      screen.getByRole('alert', { name: 'Analysis could not be completed' }),
+    ).toHaveClass('analytics-feedback--system');
     expect(scope).toHaveTextContent('2026-09-30');
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
@@ -258,6 +343,27 @@ describe('UC-D criteria and Analyze workflow', () => {
     await waitFor(() => expect(scope).toHaveTextContent('2026-10-04'));
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
     expect(screen.getByText(/Criteria have changed/)).toBeInTheDocument();
+  });
+  test('a new invalid attempt replaces old API feedback without clearing reviewed results', async () => {
+    render(<AnalyticsPage />);
+    const scope = await analyzeValidCriteria();
+    vi.mocked(analyticsApi.analyze).mockRejectedValueOnce(
+      new Error('Network failure'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    await screen.findByRole('alert', {
+      name: 'Analysis could not be completed',
+    });
+    fireEvent.change(screen.getByLabelText('End Date'), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(
+      screen.getByRole('alert', { name: 'Check the analysis criteria' }),
+    ).toHaveTextContent('Enter a valid End Date.');
+    expect(scope).toHaveTextContent('2026-09-30');
+    expect(analyticsApi.analyze).toHaveBeenCalledTimes(2);
   });
   test('shows backend validation messages without treating failures as no-data', async () => {
     vi.mocked(analyticsApi.analyze).mockRejectedValueOnce({
@@ -273,6 +379,9 @@ describe('UC-D criteria and Analyze workflow', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'The selected park does not exist.',
     );
+    expect(
+      screen.getByRole('alert', { name: 'Check the analysis criteria' }),
+    ).toHaveClass('analytics-feedback--validation');
     expect(
       screen.queryByText('No matching conservation data'),
     ).not.toBeInTheDocument();
@@ -319,10 +428,29 @@ describe('UC-D criteria and Analyze workflow', () => {
     ).toHaveTextContent('2026-09-30');
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
   });
+  test('Download Report requires meaningful matching records even for a DATA response', async () => {
+    const download = vi
+      .spyOn(analyticsApi, 'downloadExistingReport')
+      .mockResolvedValue();
+    vi.mocked(analyticsApi.analyze).mockResolvedValueOnce({
+      ...result(),
+      matchedRecords: { incidents: 0, patrols: 0 },
+    });
+    render(<AnalyticsPage />);
+    await analyzeValidCriteria();
+    const button = screen.getByRole('button', { name: 'Download report' });
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(download).not.toHaveBeenCalled();
+  });
   test('existing report download uses applied criteria after draft edits', async () => {
     vi.spyOn(analyticsApi, 'downloadExistingReport').mockResolvedValue();
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Download report' }),
+    ).toBeEnabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
     });

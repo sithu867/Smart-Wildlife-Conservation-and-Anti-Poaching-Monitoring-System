@@ -29,10 +29,15 @@ export function copyCriteria(criteria: AnalysisCriteria): AnalysisCriteria {
   return { ...criteria, categories: [...criteria.categories] };
 }
 
-export function validateDraftCriteria(
+export interface CriteriaValidationIssue {
+  field: keyof AnalysisCriteria | 'form';
+  message: string;
+}
+
+export function validateDraftCriteriaIssues(
   criteria: AnalysisCriteria,
   parks: ParkOption[],
-): string[] {
+): CriteriaValidationIssue[] {
   // Typed form controls normally guarantee this shape. Still reject corrupted
   // runtime criteria before performing date or category-array operations.
   if (
@@ -44,46 +49,63 @@ export function validateDraftCriteria(
     (criteria.rangerId !== undefined && typeof criteria.rangerId !== 'string')
   ) {
     return [
-      'Malformed analysis criteria. Please check the criteria and try again.',
+      {
+        field: 'form',
+        message:
+          'Malformed analysis criteria. Please check the criteria and try again.',
+      },
     ];
   }
-  const errors: string[] = [];
+  const errors: CriteriaValidationIssue[] = [];
+  const addIssue = (field: CriteriaValidationIssue['field'], message: string) =>
+    errors.push({ field, message });
   if (!parks.some((park) => park.id === criteria.parkId))
-    errors.push('Select a valid Park / Conservation Area.');
+    addIssue('parkId', 'Select a valid Park / Conservation Area.');
   const startValid = isValidAnalysisDate(criteria.start);
   const endValid = isValidAnalysisDate(criteria.end);
-  if (!startValid) errors.push('Enter a valid Start Date.');
-  if (!endValid) errors.push('Enter a valid End Date.');
+  if (!startValid) addIssue('start', 'Enter a valid Start Date.');
+  if (!endValid) addIssue('end', 'Enter a valid End Date.');
   if (startValid && endValid && criteria.start > criteria.end)
-    errors.push('Start Date must be on or before End Date.');
+    addIssue('end', 'Start Date must be on or before End Date.');
   if (!criteria.categories.length)
-    errors.push('Select at least one analysis category.');
+    addIssue('categories', 'Select at least one analysis category.');
   if (
     criteria.categories.some(
       (category) => !ANALYSIS_CATEGORIES.includes(category),
     )
   )
-    errors.push('Unsupported analysis category.');
+    addIssue('categories', 'Unsupported analysis category.');
   if (
     criteria.incidentType &&
     !Object.values(IncidentType).some(
       (value) => value === criteria.incidentType,
     )
   )
-    errors.push('Select a valid incident type.');
+    addIssue('incidentType', 'Select a valid incident type.');
   if (
     criteria.severity &&
     !Object.values(AlertSeverity).some((value) => value === criteria.severity)
   )
-    errors.push('Select a valid severity.');
+    addIssue('severity', 'Select a valid severity.');
   if (
     criteria.conflictStatus &&
     !Object.values(AlertStatus).some(
       (value) => value === criteria.conflictStatus,
     )
   )
-    errors.push('Select a valid conflict status.');
+    addIssue('conflictStatus', 'Select a valid conflict status.');
   return errors;
+}
+
+// Preserve the existing message-only validator for callers; both the summary
+// and inline field feedback come from the same validation rules.
+export function validateDraftCriteria(
+  criteria: AnalysisCriteria,
+  parks: ParkOption[],
+): string[] {
+  return validateDraftCriteriaIssues(criteria, parks).map(
+    (issue) => issue.message,
+  );
 }
 
 export function criteriaParams(criteria: AnalysisCriteria) {
