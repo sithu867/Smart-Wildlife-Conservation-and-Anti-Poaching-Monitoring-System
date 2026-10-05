@@ -20,6 +20,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resolutionInput, setResolutionInput] = useState('');
   const [showResolveModal, setShowResolveModal] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const fetchAlert = async () => {
     if (!alertId) return;
@@ -44,9 +45,15 @@ export const ConflictAlertDetailPage: React.FC = () => {
     if (!alertId) return;
     setIsSubmitting(true);
     setError(null);
+    setFeedbackMessage(null);
     try {
       const updated = await conflictAlertApi.acknowledgeAlert(alertId);
       setAlert(updated);
+      setFeedbackMessage(
+        updated.syncStatus === 'PENDING'
+          ? 'Alert acknowledged locally. Action queued for synchronization.'
+          : 'Alert acknowledged and synchronized with central server.'
+      );
     } catch (err: any) {
       setError(err.message || 'Failed to acknowledge alert.');
     } finally {
@@ -58,10 +65,18 @@ export const ConflictAlertDetailPage: React.FC = () => {
     if (!alertId) return;
     setIsSubmitting(true);
     setError(null);
+    setFeedbackMessage(null);
     try {
       const updated = await conflictAlertApi.addResponse(alertId, input);
       setAlert(updated);
       setShowResponseForm(false);
+      setFeedbackMessage(
+        updated.syncStatus === 'PENDING'
+          ? 'Response saved locally. Action queued for synchronization.'
+          : input.markResolved
+          ? 'Response recorded and alert resolved successfully on central server.'
+          : 'Response recorded and synchronized with central server.'
+      );
     } catch (err: any) {
       setError(err.message || 'Failed to record response.');
     } finally {
@@ -79,6 +94,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
 
     setIsSubmitting(true);
     setError(null);
+    setFeedbackMessage(null);
     try {
       const updated = await conflictAlertApi.resolveAlert(alertId, {
         resolutionNotes: resolutionInput.trim()
@@ -86,6 +102,11 @@ export const ConflictAlertDetailPage: React.FC = () => {
       setAlert(updated);
       setShowResolveModal(false);
       setResolutionInput('');
+      setFeedbackMessage(
+        updated.syncStatus === 'PENDING'
+          ? 'Alert resolved locally — Pending synchronization.'
+          : 'Alert successfully resolved and synchronized centrally.'
+      );
     } catch (err: any) {
       setError(err.message || 'Failed to resolve alert.');
     } finally {
@@ -124,12 +145,30 @@ export const ConflictAlertDetailPage: React.FC = () => {
         </Link>
       </div>
 
+      {feedbackMessage && (
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 p-3.5 rounded-xl text-xs font-semibold flex items-center justify-between">
+          <span>ℹ️ {feedbackMessage}</span>
+          <button onClick={() => setFeedbackMessage(null)} className="text-emerald-700 hover:text-emerald-900 font-bold ml-2">✕</button>
+        </div>
+      )}
+
       {/* Header Banner */}
       <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
           <div className="flex items-center gap-2">
             <AlertSeverityBadge severity={alert.severity} />
             <AlertStatusBadge status={alert.status} />
+            <span
+              className={`text-xs px-2.5 py-0.5 rounded font-bold font-mono ${
+                alert.syncStatus === 'PENDING'
+                  ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                  : alert.syncStatus === 'FAILED'
+                  ? 'bg-red-100 text-red-800 border border-red-300'
+                  : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+              }`}
+            >
+              Sync: {alert.syncStatus || 'SYNCED'}
+            </span>
           </div>
           <span className="text-xs font-mono text-gray-500">ID: {alert._id}</span>
         </div>
@@ -197,14 +236,29 @@ export const ConflictAlertDetailPage: React.FC = () => {
           </div>
         )}
 
-        {(alert.status === AlertStatus.ACKNOWLEDGED || alert.status === AlertStatus.RESPONDING) && (
-          <div className="flex flex-wrap items-center gap-3">
+        {alert.status === AlertStatus.ACKNOWLEDGED && (
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-800 p-3 rounded-lg border border-slate-700">
+            <p className="text-xs text-slate-300">
+              Alert is <span className="font-bold text-blue-400">ACKNOWLEDGED</span>. Record an initial response action before resolving.
+            </p>
             <button
               onClick={() => setShowResponseForm(!showResponseForm)}
               disabled={isSubmitting}
               className="button button-primary text-xs px-4 py-2"
             >
               🟡 {showResponseForm ? 'Close Response Form' : 'Record Action Taken'}
+            </button>
+          </div>
+        )}
+
+        {alert.status === AlertStatus.RESPONDING && (
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setShowResponseForm(!showResponseForm)}
+              disabled={isSubmitting}
+              className="button button-primary text-xs px-4 py-2"
+            >
+              🟡 {showResponseForm ? 'Close Response Form' : 'Record Additional Action'}
             </button>
 
             <button

@@ -63,13 +63,25 @@ const DEFAULT_SEED_ALERTS: WildlifeConflictAlert[] = [
 async function safeDexiePut(alert: WildlifeConflictAlert, syncStatus: SyncStatus) {
   if (typeof indexedDB === 'undefined') return;
   try {
-    await offlineDb.conflictAlerts.put({
-      remoteId: alert._id,
-      syncStatus,
-      createdAt: alert.createdAt,
-      updatedAt: alert.updatedAt,
-      payload: alert
-    });
+    const alertWithSync = { ...alert, syncStatus };
+    const existing = await offlineDb.conflictAlerts
+      .filter(item => item.remoteId === alert._id || (item.payload as any)?._id === alert._id)
+      .first();
+    if (existing && existing.id) {
+      await offlineDb.conflictAlerts.update(existing.id, {
+        syncStatus,
+        updatedAt: alert.updatedAt || new Date().toISOString(),
+        payload: alertWithSync
+      });
+    } else {
+      await offlineDb.conflictAlerts.add({
+        remoteId: alert._id,
+        syncStatus,
+        createdAt: alert.createdAt || new Date().toISOString(),
+        updatedAt: alert.updatedAt || new Date().toISOString(),
+        payload: alertWithSync
+      });
+    }
   } catch (err) {
     console.warn('Dexie put ignored in test/unsupported environment:', err);
   }
@@ -78,6 +90,7 @@ async function safeDexiePut(alert: WildlifeConflictAlert, syncStatus: SyncStatus
 async function safeDexieUpdate(alertId: string, alert: WildlifeConflictAlert, syncStatus: SyncStatus) {
   if (typeof indexedDB === 'undefined') return;
   try {
+    const alertWithSync = { ...alert, syncStatus };
     const cached = await offlineDb.conflictAlerts
       .filter(item => item.remoteId === alertId || (item.payload as any)?._id === alertId)
       .first();
@@ -85,15 +98,15 @@ async function safeDexieUpdate(alertId: string, alert: WildlifeConflictAlert, sy
       await offlineDb.conflictAlerts.update(cached.id, {
         syncStatus,
         updatedAt: new Date().toISOString(),
-        payload: alert
+        payload: alertWithSync
       });
     } else {
-      await offlineDb.conflictAlerts.put({
+      await offlineDb.conflictAlerts.add({
         remoteId: alertId,
         syncStatus,
-        createdAt: alert.createdAt,
-        updatedAt: alert.updatedAt,
-        payload: alert
+        createdAt: alert.createdAt || new Date().toISOString(),
+        updatedAt: alert.updatedAt || new Date().toISOString(),
+        payload: alertWithSync
       });
     }
   } catch (err) {
@@ -105,7 +118,14 @@ async function safeDexieGetArray(): Promise<WildlifeConflictAlert[]> {
   if (typeof indexedDB === 'undefined') return [];
   try {
     const cached = await offlineDb.conflictAlerts.toArray();
-    return cached.map(c => c.payload as WildlifeConflictAlert);
+    const map = new Map<string, WildlifeConflictAlert>();
+    for (const c of cached) {
+      const alert = c.payload as WildlifeConflictAlert;
+      if (alert && alert._id) {
+        map.set(alert._id, { ...alert, syncStatus: c.syncStatus });
+      }
+    }
+    return Array.from(map.values());
   } catch (err) {
     return [];
   }
@@ -285,7 +305,15 @@ async function enqueueAction(operation: 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | '
 
 syncService.registerTransport('conflict-alerts', async item => {
   const payload = item.payload as { alertId: string; input?: AddResponseInput | ResolveAlertInput };
-  if (item.operation === 'ACKNOWLEDGE_ALERT') await http.post(`/conflict-alerts/${payload.alertId}/acknowledge`, payload);
-  if (item.operation === 'ADD_RESPONSE') await http.post(`/conflict-alerts/${payload.alertId}/responses`, payload.input);
-  if (item.operation === 'RESOLVE_ALERT') await http.post(`/conflict-alerts/${payload.alertId}/resolve`, payload.input);
+  let response: any;
+  if (item.operation === 'ACKNOWLEDGE_ALERT') {
+    response = await http.post(`/conflict-alerts/${payload.alertId}/acknowledge`, payload);
+  } else if (item.operation === 'ADD_RESPONSE') {
+    response = await http.post(`/conflict-alerts/${payload.alertId}/responses`, payload.input);
+  } else if (item.operation === 'RESOLVE_ALERT') {
+    response = await http.post(`/conflict-alerts/${payload.alertId}/resolve`, payload.input);
+  }
+  if (response?.data?.data) {
+    await safeDexieUpdate(payload.alertId, response.data.data, SyncStatus.SYNCED);
+  }
 });

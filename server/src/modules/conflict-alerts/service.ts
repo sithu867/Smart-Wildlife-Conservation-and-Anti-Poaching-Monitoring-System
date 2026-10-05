@@ -197,7 +197,13 @@ export class ConflictAlertService {
       return alert;
     }
 
-    const alert = await WildlifeConflictAlertModel.findById(alertId);
+    let alert: any = null;
+    if (mongoose.isValidObjectId(alertId)) {
+      alert = await WildlifeConflictAlertModel.findById(alertId);
+    }
+    if (!alert) {
+      alert = await WildlifeConflictAlertModel.findOne({ clientAlertId: alertId });
+    }
     if (!alert) throw new Error('Wildlife conflict alert not found.');
     return alert;
   }
@@ -228,7 +234,13 @@ export class ConflictAlertService {
       return alert;
     }
 
-    const alert = await WildlifeConflictAlertModel.findById(alertId);
+    let alert: any = null;
+    if (mongoose.isValidObjectId(alertId)) {
+      alert = await WildlifeConflictAlertModel.findById(alertId);
+    }
+    if (!alert) {
+      alert = await WildlifeConflictAlertModel.findOne({ clientAlertId: alertId });
+    }
     if (!alert) throw new Error('Wildlife conflict alert not found.');
 
     if (clientAcknowledgementId && alert.clientAcknowledgementId === clientAcknowledgementId) return alert;
@@ -267,12 +279,12 @@ export class ConflictAlertService {
       const alert = memoryAlertsStore.get(alertId);
       if (!alert) throw new Error('Wildlife conflict alert not found.');
 
-      if (alert.status === AlertStatus.RESOLVED) {
-        throw new Error('Invalid state transition: Resolved alert cannot accept new responses.');
-      }
       if (clientResponseId) {
         const existing = alert.responses.find((response: IConflictResponse) => response.clientResponseId === clientResponseId);
         if (existing) return alert;
+      }
+      if (alert.status === AlertStatus.RESOLVED) {
+        throw new Error('Invalid state transition: Resolved alert cannot accept new responses.');
       }
       if (alert.status !== AlertStatus.ACKNOWLEDGED && alert.status !== AlertStatus.RESPONDING) {
         // Must acknowledge first
@@ -296,24 +308,29 @@ export class ConflictAlertService {
       return alert;
     }
 
-    const alert = await WildlifeConflictAlertModel.findById(alertId);
+    let alert: any = null;
+    if (mongoose.isValidObjectId(alertId)) {
+      alert = await WildlifeConflictAlertModel.findById(alertId);
+    }
+    if (!alert) {
+      alert = await WildlifeConflictAlertModel.findOne({ clientAlertId: alertId });
+    }
     if (!alert) throw new Error('Wildlife conflict alert not found.');
 
+    if (clientResponseId) {
+      const existing = alert.responses.find((response: IConflictResponse) => response.clientResponseId === clientResponseId);
+      if (existing) return alert;
+    }
     if (alert.status === AlertStatus.RESOLVED) {
       throw new Error('Invalid state transition: Resolved alert cannot accept new responses.');
     }
     if (alert.status !== AlertStatus.ACKNOWLEDGED && alert.status !== AlertStatus.RESPONDING) {
       throw new Error('Invalid state transition: Alert must be acknowledged before recording response.');
     }
-    if (clientResponseId) {
-      const existing = alert.responses.find((response: IConflictResponse) => response.clientResponseId === clientResponseId);
-      if (existing) return alert;
-    }
 
     alert.responses.push(newResponse);
 
     if (markResolved) {
-      if (alert.status !== AlertStatus.RESPONDING) throw new Error(`Invalid state transition: ${alert.status} alert cannot be resolved.`);
       alert.status = AlertStatus.RESOLVED;
       alert.resolvedBy = rangerId;
       alert.resolvedName = rangerName;
@@ -338,12 +355,19 @@ export class ConflictAlertService {
       const alert = memoryAlertsStore.get(alertId);
       if (!alert) throw new Error('Wildlife conflict alert not found.');
 
+      if (input.clientActionId && alert.clientResolutionId === input.clientActionId) return alert;
+
       if (alert.status === AlertStatus.RESOLVED) {
         throw new Error('Invalid state transition: Alert is already resolved.');
       }
 
+      if (alert.status !== AlertStatus.RESPONDING) {
+        throw new Error(`Invalid state transition: ${alert.status} alert cannot be resolved.`);
+      }
+
       alert.status = AlertStatus.RESOLVED;
       alert.resolvedBy = rangerId;
+      alert.clientResolutionId = input.clientActionId;
       alert.resolvedName = rangerName;
       alert.resolvedAt = resolvedAt;
       alert.resolutionNotes = resolutionNotes;
@@ -353,15 +377,23 @@ export class ConflictAlertService {
       return alert;
     }
 
-    const alert = await WildlifeConflictAlertModel.findById(alertId);
+    let alert: any = null;
+    if (mongoose.isValidObjectId(alertId)) {
+      alert = await WildlifeConflictAlertModel.findById(alertId);
+    }
+    if (!alert) {
+      alert = await WildlifeConflictAlertModel.findOne({ clientAlertId: alertId });
+    }
     if (!alert) throw new Error('Wildlife conflict alert not found.');
+
+    if (input.clientActionId && alert.clientResolutionId === input.clientActionId) return alert;
 
     if (alert.status === AlertStatus.RESOLVED) {
       throw new Error('Invalid state transition: Alert is already resolved.');
     }
 
     if (alert.status !== AlertStatus.RESPONDING) throw new Error(`Invalid state transition: ${alert.status} alert cannot be resolved.`);
-    if (input.clientActionId && alert.clientResolutionId === input.clientActionId) return alert;
+
     alert.status = AlertStatus.RESOLVED;
     alert.resolvedBy = rangerId;
     alert.clientResolutionId = input.clientActionId;
