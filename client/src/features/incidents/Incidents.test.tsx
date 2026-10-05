@@ -129,6 +129,27 @@ describe('UC-B Conservation Incident Reporting Frontend Tests', () => {
     expect(result.evidence[0].evidenceId).toContain('inc-offline-999');
   });
 
+  test('incidentApi.createIncident surfaces server errors instead of saving them as pending', async () => {
+    vi.spyOn(http, 'post').mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 413,
+        data: { success: false, error: { message: 'Request body exceeds the 8 MB limit.' } }
+      }
+    });
+
+    await expect(
+      incidentApi.createIncident({
+        incidentType: IncidentType.SNARE,
+        description: 'A snare was found in Sector 9',
+        latitude: -2.18,
+        longitude: 34.85,
+        locationSource: LocationSource.MANUAL,
+        evidence: [{ imageUrl: 'data:image/jpeg;base64,sample...' }]
+      })
+    ).rejects.toThrow('Request body exceeds the 8 MB limit.');
+  });
+
   test('incidentApi.syncIncidentPayload syncs offline payload and updates remote incident', async () => {
     const mockSynced = {
       _id: 'inc-synced-123',

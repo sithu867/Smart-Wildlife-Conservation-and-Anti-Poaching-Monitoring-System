@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { http } from '../../../shared/api/http';
 import { offlineDb, type OfflineRecord } from '../../../offline/db';
 import { syncService } from '../../../offline/syncService';
@@ -44,6 +45,13 @@ export const incidentApi = {
 
       return incident;
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        const responseData = error.response.data as { error?: { message?: string } } | undefined;
+        throw new Error(
+          responseData?.error?.message || `Incident submission failed (${error.response.status}).`
+        );
+      }
+
       console.warn('Network request failed for createIncident, storing locally with PENDING sync status:', error);
 
       const offlineIncident: ConservationIncident = {
@@ -111,6 +119,10 @@ export const incidentApi = {
 
   async getMyIncidents(): Promise<ConservationIncident[]> {
     let remoteIncidents: ConservationIncident[] = [];
+    if (syncService.getIsOnline()) {
+      await syncService.processAll();
+    }
+
     try {
       const response = await http.get('/incidents/my');
       if (response.data?.success) {
@@ -185,35 +197,46 @@ export const incidentApi = {
 
   async syncIncidentPayload(payload: unknown): Promise<ConservationIncident> {
     const inc = payload as ConservationIncident;
-    const response = await http.post('/incidents', {
-      clientIncidentId: inc.clientIncidentId || inc._id,
-      incidentType: inc.incidentType,
-      otherTypeDescription: inc.otherTypeDescription,
-      description: inc.description,
-      latitude: inc.location.latitude,
-      longitude: inc.location.longitude,
-      locationSource: inc.location.source,
-      patrolSessionId: typeof inc.patrolSession === 'object' ? inc.patrolSession?._id : inc.patrolSession,
-      evidence: inc.evidence.map(ev => ({
-        imageUrl: ev.imageUrl,
-        capturedAt: ev.capturedAt,
-        fileSize: ev.fileSize,
-        mimeType: ev.mimeType
-      }))
-    });
-
-    const synced: ConservationIncident = response.data.data;
-
     const local = await findLocalIncidentByRemoteId(inc._id);
-    if (local && local.id) {
-      await offlineDb.incidents.update(local.id, {
-        syncStatus: SyncStatus.SYNCED,
-        updatedAt: new Date().toISOString(),
-        payload: synced
+    try {
+      const response = await http.post('/incidents', {
+        clientIncidentId: inc.clientIncidentId || inc._id,
+        incidentType: inc.incidentType,
+        otherTypeDescription: inc.otherTypeDescription,
+        description: inc.description,
+        latitude: inc.location.latitude,
+        longitude: inc.location.longitude,
+        locationSource: inc.location.source,
+        patrolSessionId: typeof inc.patrolSession === 'object' ? inc.patrolSession?._id : inc.patrolSession,
+        evidence: inc.evidence.map(ev => ({
+          imageUrl: ev.imageUrl,
+          capturedAt: ev.capturedAt,
+          fileSize: ev.fileSize,
+          mimeType: ev.mimeType
+        }))
       });
-    }
 
-    return synced;
+      const synced: ConservationIncident = response.data.data;
+      if (local && local.id) {
+        await offlineDb.incidents.update(local.id, {
+          remoteId: synced._id,
+          syncStatus: SyncStatus.SYNCED,
+          updatedAt: new Date().toISOString(),
+          payload: { ...synced, syncStatus: SyncStatus.SYNCED }
+        });
+      }
+
+      return synced;
+    } catch (error) {
+      if (local && local.id) {
+        await offlineDb.incidents.update(local.id, {
+          syncStatus: SyncStatus.FAILED,
+          updatedAt: new Date().toISOString(),
+          payload: { ...inc, syncStatus: SyncStatus.FAILED }
+        });
+      }
+      throw error;
+    }
   },
 
   async retrySyncIncident(clientIncidentId: string): Promise<ConservationIncident> {
@@ -221,7 +244,41 @@ export const incidentApi = {
     if (!localRecord || !localRecord.payload) {
       throw new Error('Local incident record not found for sync retry.');
     }
-    return await this.syncIncidentPayload(localRecord.payload);
+
+    const queueItems = localRecord.id
+      ? await offlineDb.syncQueue
+          .where('entity')
+          .equals('INCIDENT')
+          .filter(item => item.recordId === localRecord.id)
+          .toArray()
+      : [];
+
+    for (const item of queueItems) {
+      if (item.id !== undefined) {
+        await offlineDb.syncQueue.update(item.id, { status: SyncStatus.SYNCING });
+      }
+    }
+
+    try {
+      const synced = await this.syncIncidentPayload(localRecord.payload);
+      for (const item of queueItems) {
+        if (item.id !== undefined) {
+          await offlineDb.syncQueue.update(item.id, { status: SyncStatus.SYNCED, lastError: undefined });
+        }
+      }
+      return synced;
+    } catch (error) {
+      for (const item of queueItems) {
+        if (item.id !== undefined) {
+          await offlineDb.syncQueue.update(item.id, {
+            status: SyncStatus.FAILED,
+            attempts: item.attempts + 1,
+            lastError: error instanceof Error ? error.message : 'Incident sync failed'
+          });
+        }
+      }
+      throw error;
+    }
   }
 };
 

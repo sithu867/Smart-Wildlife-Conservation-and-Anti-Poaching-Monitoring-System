@@ -49,7 +49,7 @@ A team member must manually: create a MongoDB Atlas project/cluster; create a da
 
 ## Environment variables
 
-`client/.env.example` contains `VITE_API_URL=http://localhost:5000/api`. `server/.env.example` contains `PORT`, `MONGODB_URI`, `CLIENT_URL`, and `NODE_ENV`. Real `.env` files are ignored by Git; never commit credentials.
+`client/.env.example` contains `VITE_API_URL=http://localhost:5001/api`. `server/.env.example` contains `PORT` (default `5001`), `MONGODB_URI`, `CLIENT_URL`, and `NODE_ENV`. Real `.env` files are ignored by Git; never commit credentials.
 
 ## PWA and offline architecture
 

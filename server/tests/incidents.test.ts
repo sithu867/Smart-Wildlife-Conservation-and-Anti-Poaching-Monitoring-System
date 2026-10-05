@@ -35,6 +35,19 @@ describe('UC-B Conservation Incidents API Endpoints', () => {
     expect(res.body.data.evidence[0].evidenceId).toBeDefined();
   });
 
+  test('POST /api/incidents accepts an image payload larger than the default JSON body limit', async () => {
+    const res = await request(app)
+      .post('/api/incidents')
+      .set('x-ranger-id', 'R-101')
+      .send({
+        ...sampleIncidentPayload,
+        evidence: [{ ...sampleIncidentPayload.evidence[0], imageUrl: `data:image/jpeg;base64,${'A'.repeat(150 * 1024)}` }]
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+  });
+
   test('POST /api/incidents rejects invalid incidentType', async () => {
     const res = await request(app)
       .post('/api/incidents')
