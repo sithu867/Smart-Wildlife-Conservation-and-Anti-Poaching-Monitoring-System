@@ -1,0 +1,77 @@
+import React from 'react';
+import { Link } from 'react-router-dom';
+import type { WildlifeConflictAlert } from '../types/conflictAlert';
+import { AlertSeverityBadge } from './AlertSeverityBadge';
+import { AlertStatusBadge } from './AlertStatusBadge';
+import { AlertSource } from '../../../shared/types/enums';
+
+interface Props {
+  alert: WildlifeConflictAlert;
+}
+
+export const ConflictAlertCard: React.FC<Props> = ({ alert }) => {
+  const isUrgent = alert.severity === 'CRITICAL' || alert.severity === 'HIGH';
+
+  const formattedTime = new Date(alert.createdAt).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  return (
+    <div
+      className={`card rounded-lg border p-4 shadow-sm transition-all hover:shadow-md ${
+        isUrgent ? 'border-l-4 border-l-orange-500 bg-orange-50/20' : 'border-gray-200 bg-white'
+      }`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <AlertSeverityBadge severity={alert.severity} />
+          <AlertStatusBadge status={alert.status} />
+        </div>
+        <span className="text-xs text-gray-500">{formattedTime}</span>
+      </div>
+
+      <h3 className="text-base font-bold text-gray-900 mb-1">
+        {alert.alertType.replace(/_/g, ' ')}
+      </h3>
+
+      <p className="text-sm text-gray-700 mb-3 line-clamp-2">{alert.description}</p>
+
+      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-3 bg-gray-50 p-2 rounded border border-gray-100">
+        <div>
+          <span className="font-semibold text-gray-500">Source: </span>
+          <span className="font-mono text-gray-800">
+            {alert.source === AlertSource.COLLAR
+              ? `🛰️ Collar (${alert.animalId || 'Tracked'})`
+              : `👥 Community (${alert.reporterName || 'Member'})`}
+          </span>
+        </div>
+        <div>
+          <span className="font-semibold text-gray-500">Location: </span>
+          <span className="font-mono text-gray-800">
+            {alert.location.latitude.toFixed(3)}, {alert.location.longitude.toFixed(3)}
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+        <span className="text-xs text-gray-500">
+          {alert.responses?.length > 0
+            ? `💬 ${alert.responses.length} response(s)`
+            : 'No responses yet'}
+        </span>
+        <span className={`text-[10px] font-semibold ${alert.syncStatus === 'FAILED' ? 'text-red-600' : alert.syncStatus === 'PENDING' ? 'text-amber-600' : 'text-emerald-600'}`}>
+          {alert.syncStatus === 'PENDING' ? 'PENDING SYNC' : alert.syncStatus === 'FAILED' ? 'SYNC FAILED' : 'SYNCED'}
+        </span>
+        <Link
+          to={`/ranger/alerts/${alert._id}`}
+          className="button button-secondary text-xs px-3 py-1.5 rounded"
+        >
+          View Alert Details →
+        </Link>
+      </div>
+    </div>
+  );
+};

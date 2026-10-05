@@ -6,6 +6,8 @@ import { ActivePatrolPage } from './features/patrols/pages/ActivePatrolPage';
 import { PatrolCompletionPage } from './features/patrols/pages/PatrolCompletionPage';
 import { ReportIncidentPage } from './features/incidents/pages/ReportIncidentPage';
 import { IncidentHistoryPage } from './features/incidents/pages/IncidentHistoryPage';
+import { ConflictAlertsPage } from './features/conflict-alerts/pages/ConflictAlertsPage';
+import { ConflictAlertDetailPage } from './features/conflict-alerts/pages/ConflictAlertDetailPage';
 
 const Placeholder = ({ title, description }: { title: string; description: string }) => (
   <main className="page">
@@ -24,6 +26,7 @@ export default function App() {
         <nav>
           <Link to="/ranger/patrol">Patrols</Link>
           <Link to="/ranger/incidents">Incidents</Link>
+          <Link to="/ranger/alerts">Conflict Alerts</Link>
           <Link to="/manager/analytics">Manager</Link>
         </nav>
       </header>
@@ -37,11 +40,14 @@ export default function App() {
 
         <Route path="/ranger/incidents" element={<IncidentHistoryPage />} />
         <Route path="/ranger/incidents/new" element={<ReportIncidentPage />} />
-        <Route path="/ranger/alerts" element={<Placeholder title="Conflict alerts" description="UC-C field-response placeholder." />} />
+
+        <Route path="/ranger/alerts" element={<ConflictAlertsPage />} />
+        <Route path="/ranger/alerts/:alertId" element={<ConflictAlertDetailPage />} />
+
         <Route path="/manager" element={<Placeholder title="Park manager" description="Central online manager route group." />} />
         <Route path="/manager/analytics" element={<Placeholder title="Analytics" description="UC-D placeholder for synchronized conservation analytics." />} />
-        <Route path="/dev/collar-simulator" element={<Placeholder title="Collar simulator" description="Development-only simulator placeholder." />} />
-        <Route path="/community-report" element={<Placeholder title="Community report" description="Community report entry placeholder." />} />
+        <Route path="/dev/collar-simulator" element={<ConflictAlertsPage />} />
+        <Route path="/community-report" element={<ConflictAlertsPage />} />
         <Route path="*" element={<Placeholder title="Page not found" description="The requested route is not registered." />} />
       </Routes>
     </div>

@@ -2,7 +2,7 @@
 
 :root {
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  color-scheme: dark;
+  color-scheme: light dark;
   background-color: #0b1320;
   color: #f8fafc;
 }
@@ -17,6 +17,16 @@ body {
   color: #f8fafc;
   min-height: 100vh;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Fix input contrast inside modals and light form containers */
+input, select, textarea {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #64748b !important;
 }
 
 header {

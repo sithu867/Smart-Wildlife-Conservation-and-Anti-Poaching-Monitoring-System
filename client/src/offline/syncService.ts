@@ -29,6 +29,25 @@ export class SyncService {
     return this.online;
   }
 
+  public async retryFailed(): Promise<void> {
+    await offlineDb.syncQueue
+      .where('status')
+      .equals(SyncStatus.FAILED)
+      .modify({ status: SyncStatus.PENDING, lastError: undefined });
+    await this.processAll();
+  }
+
+  public async getQueueCounts(entity?: string): Promise<{ pending: number; syncing: number; failed: number }> {
+    const items = entity
+      ? await offlineDb.syncQueue.where('entity').equals(entity).toArray()
+      : await offlineDb.syncQueue.toArray();
+    return {
+      pending: items.filter(item => item.status === SyncStatus.PENDING).length,
+      syncing: items.filter(item => item.status === SyncStatus.SYNCING).length,
+      failed: items.filter(item => item.status === SyncStatus.FAILED).length
+    };
+  }
+
   async enqueue(item: Omit<SyncQueueItem, 'status' | 'attempts' | 'createdAt'>) {
     const id = await offlineDb.syncQueue.add({
       ...item,
