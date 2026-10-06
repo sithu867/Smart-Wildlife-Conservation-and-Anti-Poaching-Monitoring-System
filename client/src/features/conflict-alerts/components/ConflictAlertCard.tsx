@@ -7,9 +7,10 @@ import { AlertSource } from '../../../shared/types/enums';
 
 interface Props {
   alert: WildlifeConflictAlert;
+  onDelete?: (alert: WildlifeConflictAlert) => void;
 }
 
-export const ConflictAlertCard: React.FC<Props> = ({ alert }) => {
+export const ConflictAlertCard: React.FC<Props> = ({ alert, onDelete }) => {
   const isUrgent = alert.severity === 'CRITICAL' || alert.severity === 'HIGH';
 
   const formattedTime = new Date(alert.createdAt).toLocaleString([], {
@@ -31,6 +32,8 @@ export const ConflictAlertCard: React.FC<Props> = ({ alert }) => {
           <AlertStatusBadge status={alert.status} />
         </div>
         <span className="text-xs text-gray-500">{formattedTime}</span>
+        <Link to={`/ranger/alerts/${alert._id}`} className="text-xs text-emerald-700 underline">Edit</Link>
+        {onDelete && <button onClick={() => onDelete(alert)} className="text-xs text-red-700 underline">Delete</button>}
       </div>
 
       <h3 className="text-base font-bold text-gray-900 mb-1">

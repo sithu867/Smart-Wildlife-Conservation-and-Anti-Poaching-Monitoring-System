@@ -2,9 +2,12 @@ import { prisma } from '../../config/prisma.js';
 import { AlertSource, ConflictAlertType, AlertSeverity, AlertStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import type { AddResponseInput, CommunityReportInput, CreateAlertInput, ResolveAlertInput, SimulateCollarInput } from './validation.js';
 
-const alertInclude = { responses: { orderBy: { respondedAt: 'asc' as const } } } as const;
+const alertInclude = { responses: { where: { isDeleted: false }, orderBy: { respondedAt: 'asc' as const } } } as const;
 function shapeAlert(alert: any): any { if (!alert) return alert; const { id, ...rest } = alert; return { _id: id, ...rest }; }
-async function findAlert(alertId: string) { return prisma.wildlifeConflictAlert.findFirst({ where: { OR: [{ id: alertId }, { clientAlertId: alertId }] }, include: alertInclude }); }
+async function findAlert(alertId: string, includeDeleted = false) { return prisma.wildlifeConflictAlert.findFirst({ where: { OR: [{ id: alertId }, { clientAlertId: alertId }], ...(includeDeleted ? {} : { isDeleted: false }) }, include: alertInclude }); }
+async function audit(data: { alertId: string; responseId?: string; action: string; performedBy: string; performedName?: string; oldValue?: unknown; newValue?: unknown; reason?: string }) {
+  await prisma.conflictAuditEntry.create({ data: { ...data, oldValue: data.oldValue as any, newValue: data.newValue as any } });
+}
 
 export interface RiskZone {
   id: string;
@@ -122,6 +125,7 @@ export class ConflictAlertService {
     });
 
     const shaped = shapeAlert(alert);
+    await audit({ alertId: alert.id, action: 'CREATE', performedBy: 'SYSTEM', performedName: 'Alert ingestion', newValue: shaped });
     this.notifyResponders(shaped);
     return shaped;
   }
@@ -192,12 +196,13 @@ export class ConflictAlertService {
     });
   }
 
-  async getAlerts(filters?: { status?: string; severity?: string; alertType?: string }): Promise<any[]> {
+  async getAlerts(filters?: { status?: string; severity?: string; alertType?: string; includeDeleted?: boolean }): Promise<any[]> {
     const alerts = await prisma.wildlifeConflictAlert.findMany({
       where: {
         status: filters?.status as any,
         severity: filters?.severity as any,
         alertType: filters?.alertType as any
+        , isDeleted: filters?.includeDeleted ? undefined : false
       },
       include: alertInclude,
       orderBy: { createdAt: 'desc' }
@@ -205,8 +210,8 @@ export class ConflictAlertService {
     return alerts.map(shapeAlert);
   }
 
-  async getAlertById(alertId: string): Promise<any> {
-    const alert = await findAlert(alertId);
+  async getAlertById(alertId: string, includeDeleted = false): Promise<any> {
+    const alert = await findAlert(alertId, includeDeleted);
     if (!alert) throw new Error('Wildlife conflict alert not found.');
     return shapeAlert(alert);
   }
@@ -228,6 +233,7 @@ export class ConflictAlertService {
       },
       include: alertInclude
     });
+    await audit({ alertId: alert.id, action: 'ACKNOWLEDGE', performedBy: rangerId, performedName: rangerName, oldValue: { status: alert.status }, newValue: { status: AlertStatus.ACKNOWLEDGED } });
     return shapeAlert(updated);
   }
 
@@ -261,6 +267,9 @@ export class ConflictAlertService {
       },
       include: alertInclude
     });
+    const createdResponse = updated.responses[updated.responses.length - 1];
+    await audit({ alertId: alert.id, responseId: createdResponse?.id, action: 'ADD_RESPONSE', performedBy: rangerId, performedName: rangerName, newValue: input });
+    if (input.markResolved) await audit({ alertId: alert.id, action: 'RESOLVE', performedBy: rangerId, performedName: rangerName, oldValue: { status: alert.status }, newValue: { status: AlertStatus.RESOLVED }, reason: input.resolutionNotes });
     return shapeAlert(updated);
   }
 
@@ -282,8 +291,47 @@ export class ConflictAlertService {
       },
       include: alertInclude
     });
+    await audit({ alertId: alert.id, action: 'RESOLVE', performedBy: rangerId, performedName: rangerName, oldValue: { status: alert.status }, newValue: { status: AlertStatus.RESOLVED }, reason: input.resolutionNotes });
     return shapeAlert(updated);
   }
+
+  async updateAlert(rangerId: string, rangerName: string, alertId: string, input: any): Promise<any> {
+    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const oldValue = { alertType: alert.alertType, description: alert.description, severity: alert.severity, location: alert.location, animalId: alert.animalId, reporterName: alert.reporterName };
+    const location = input.latitude !== undefined || input.longitude !== undefined || input.locationSource !== undefined ? { ...(alert.location as any), latitude: input.latitude ?? (alert.location as any).latitude, longitude: input.longitude ?? (alert.location as any).longitude, source: input.locationSource ?? (alert.location as any).source } : undefined;
+    const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { alertType: input.alertType, description: input.description, severity: input.severity, location: location as any, animalId: input.animalId, reporterName: input.reporterName }, include: alertInclude });
+    await audit({ alertId: alert.id, action: 'UPDATE', performedBy: rangerId, performedName: rangerName, oldValue, newValue: input }); return shapeAlert(updated);
+  }
+
+  async deleteAlert(rangerId: string, rangerName: string, alertId: string, reason?: string): Promise<any> {
+    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { isDeleted: true, deletedAt: new Date(), deletedBy: rangerId, deletionReason: reason || 'Deleted by ranger' }, include: alertInclude });
+    await audit({ alertId: alert.id, action: 'DELETE', performedBy: rangerId, performedName: rangerName, reason, oldValue: { isDeleted: false }, newValue: { isDeleted: true } }); return shapeAlert(updated);
+  }
+
+  async cancelAlert(rangerId: string, rangerName: string, alertId: string, reason: string): Promise<any> {
+    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    if (![AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED, AlertStatus.RESPONDING].includes(alert.status as any)) throw new Error(`Invalid state transition: ${alert.status} alert cannot be cancelled.`);
+    const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { status: AlertStatus.CANCELLED as any }, include: alertInclude });
+    await audit({ alertId: alert.id, action: 'CANCEL', performedBy: rangerId, performedName: rangerName, reason, oldValue: { status: alert.status }, newValue: { status: AlertStatus.CANCELLED } }); return shapeAlert(updated);
+  }
+
+  async getResponses(alertId: string): Promise<any[]> { const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.'); return alert.responses; }
+  async updateResponse(rangerId: string, rangerName: string, alertId: string, responseId: string, input: any): Promise<any> {
+    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const response = await prisma.conflictResponse.findFirst({ where: { alertId: alert.id, isDeleted: false, OR: [{ id: responseId }, { responseId }] } }); if (!response) throw new Error('Conflict response not found.');
+    if (response.responderId !== rangerId) throw new Error('Unauthorized: only the original responder can update this response.');
+    const updated = await prisma.conflictResponse.update({ where: { id: response.id }, data: { action: input.action, notes: input.notes, outcome: input.outcome } });
+    await audit({ alertId: alert.id, responseId: response.id, action: 'UPDATE_RESPONSE', performedBy: rangerId, performedName: rangerName, oldValue: response, newValue: input }); return shapeAlert(await findAlert(alert.id));
+  }
+  async deleteResponse(rangerId: string, rangerName: string, alertId: string, responseId: string, reason?: string): Promise<any> {
+    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const response = await prisma.conflictResponse.findFirst({ where: { alertId: alert.id, isDeleted: false, OR: [{ id: responseId }, { responseId }] } }); if (!response) throw new Error('Conflict response not found.');
+    if (response.responderId !== rangerId) throw new Error('Unauthorized: only the original responder can delete this response.');
+    await prisma.conflictResponse.update({ where: { id: response.id }, data: { isDeleted: true, deletedAt: new Date(), deletedBy: rangerId, deletionReason: reason } });
+    await audit({ alertId: alert.id, responseId: response.id, action: 'DELETE_RESPONSE', performedBy: rangerId, performedName: rangerName, reason }); return shapeAlert(await findAlert(alert.id));
+  }
+  async getHistory(alertId: string): Promise<any[]> { const alert = await findAlert(alertId, true); if (!alert) throw new Error('Wildlife conflict alert not found.'); return prisma.conflictAuditEntry.findMany({ where: { alertId: alert.id }, orderBy: { timestamp: 'asc' } }); }
 }
 
 export const conflictAlertService = new ConflictAlertService();

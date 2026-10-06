@@ -11,6 +11,10 @@ import { analyticsRoutes } from './modules/analytics/routes.js';
 
 export function createApp() {
   const app = express();
+  // API responses should be explicit 200 responses. Conditional GET/ETag
+  // caching is useful for static assets, but it makes API logs show 304 and
+  // can confuse the offline-first client while data is being synchronized.
+  app.disable('etag');
   app.use(helmet());
   app.use(cors({ origin: env.CLIENT_URL }));
   app.use(express.json({ limit: '8mb' }));

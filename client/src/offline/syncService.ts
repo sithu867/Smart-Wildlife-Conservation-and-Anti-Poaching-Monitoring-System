@@ -49,6 +49,11 @@ export class SyncService {
   }
 
   async enqueue(item: Omit<SyncQueueItem, 'status' | 'attempts' | 'createdAt'>) {
+    const existing = await offlineDb.syncQueue
+      .where('entity').equals(item.entity)
+      .filter(queueItem => queueItem.operation === item.operation && queueItem.clientId === item.clientId && queueItem.status !== SyncStatus.SYNCED)
+      .first();
+    if (existing?.id !== undefined) return existing.id;
     const id = await offlineDb.syncQueue.add({
       ...item,
       status: SyncStatus.PENDING,

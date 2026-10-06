@@ -495,3 +495,57 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
     expect(emptyResolve.status).toBe(400);
   });
 });
+
+describe('UC03 CRUD, cancellation and audit extensions', () => {
+  const createAlert = async () => {
+    const res = await request(app).post('/api/conflict-alerts').send({ source: AlertSource.COMMUNITY_REPORT, alertType: ConflictAlertType.CROP_RAID, severity: AlertSeverity.MEDIUM, latitude: -2.189, longitude: 34.841, description: `CRUD alert ${Date.now()}`, reporterName: 'Test reporter', locationSource: LocationSource.MANUAL });
+    return res.body.data;
+  };
+
+  test('supports controlled alert update and audit history', async () => {
+    const alert = await createAlert();
+    const updated = await request(app).put(`/api/conflict-alerts/${alert._id}`).set('x-ranger-id', 'R-CRUD').send({ description: 'Updated conservation description', severity: AlertSeverity.HIGH });
+    expect(updated.status).toBe(200); expect(updated.body.data.description).toBe('Updated conservation description');
+    const history = await request(app).get(`/api/conflict-alerts/${alert._id}/history`);
+    expect(history.status).toBe(200); expect(history.body.data.some((entry: any) => entry.action === 'UPDATE')).toBe(true);
+  });
+
+  test('soft-deletes an alert and hides it from normal list', async () => {
+    const alert = await createAlert();
+    const deleted = await request(app).delete(`/api/conflict-alerts/${alert._id}`).send({ reason: 'Duplicate test alert' });
+    expect(deleted.status).toBe(200); expect(deleted.body.data.isDeleted).toBe(true);
+    const list = await request(app).get('/api/conflict-alerts');
+    expect(list.body.data.some((item: any) => item._id === alert._id)).toBe(false);
+    const included = await request(app).get(`/api/conflict-alerts?includeDeleted=true`);
+    expect(included.body.data.some((item: any) => item._id === alert._id)).toBe(true);
+  });
+
+  test('supports response read/update/delete without changing lifecycle', async () => {
+    const alert = await createAlert();
+    await request(app).post(`/api/conflict-alerts/${alert._id}/acknowledge`).set('x-ranger-id', 'R-RESP');
+    const created = await request(app).post(`/api/conflict-alerts/${alert._id}/responses`).set('x-ranger-id', 'R-RESP').send({ action: ResponseAction.INVESTIGATED_AREA, notes: 'Initial response notes' });
+    const responseId = created.body.data.responses[0].responseId;
+    expect((await request(app).get(`/api/conflict-alerts/${alert._id}/responses`)).body.data).toHaveLength(1);
+    const updated = await request(app).put(`/api/conflict-alerts/${alert._id}/responses/${responseId}`).set('x-ranger-id', 'R-RESP').send({ notes: 'Edited response notes' });
+    expect(updated.status).toBe(200); expect(updated.body.data.responses[0].notes).toBe('Edited response notes');
+    const deleted = await request(app).delete(`/api/conflict-alerts/${alert._id}/responses/${responseId}`).set('x-ranger-id', 'R-RESP');
+    expect(deleted.status).toBe(200); expect(deleted.body.data.responses).toHaveLength(0);
+  });
+
+  test('requires cancellation reason and rejects cancelled lifecycle actions', async () => {
+    const alert = await createAlert();
+    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/cancel`).send({})).status).toBe(400);
+    const cancelled = await request(app).post(`/api/conflict-alerts/${alert._id}/cancel`).send({ reason: 'No longer an active conflict' });
+    expect(cancelled.status).toBe(200); expect(cancelled.body.data.status).toBe(AlertStatus.CANCELLED);
+    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/acknowledge`)).status).toBe(500);
+    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/responses`).send({ action: ResponseAction.INVESTIGATED_AREA, notes: 'Late response' })).status).toBe(500);
+  });
+
+  test('rejects response changes by a different ranger', async () => {
+    const alert = await createAlert(); await request(app).post(`/api/conflict-alerts/${alert._id}/acknowledge`).set('x-ranger-id', 'R-OWNER');
+    const created = await request(app).post(`/api/conflict-alerts/${alert._id}/responses`).set('x-ranger-id', 'R-OWNER').send({ action: ResponseAction.INVESTIGATED_AREA, notes: 'Owner response' });
+    const responseId = created.body.data.responses[0].responseId;
+    const result = await request(app).put(`/api/conflict-alerts/${alert._id}/responses/${responseId}`).set('x-ranger-id', 'R-OTHER').send({ notes: 'Unauthorized edit' });
+    expect(result.status).toBe(403); expect(result.body.error.message).toContain('Unauthorized');
+  });
+});

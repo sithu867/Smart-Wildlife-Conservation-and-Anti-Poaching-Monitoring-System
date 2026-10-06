@@ -14,6 +14,7 @@ import type {
   CommunityReportInput,
   AddResponseInput,
   ResolveAlertInput
+  , UpdateAlertInput, UpdateResponseInput, ConflictAuditEntry
 } from '../types/conflictAlert';
 
 const DEFAULT_SEED_ALERTS: WildlifeConflictAlert[] = [
@@ -173,6 +174,22 @@ export const conflictAlertApi = {
     throw new Error('Wildlife conflict alert not found.');
   },
 
+  async getHistory(alertId: string): Promise<ConflictAuditEntry[]> { const response = await http.get(`/conflict-alerts/${alertId}/history`); return response.data.data; },
+  async updateAlert(alertId: string, input: UpdateAlertInput): Promise<WildlifeConflictAlert> {
+    try { const response = await http.put(`/conflict-alerts/${alertId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
+    catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, ...input, location: { ...alert.location, latitude: input.latitude ?? alert.location.latitude, longitude: input.longitude ?? alert.location.longitude, source: input.locationSource ?? alert.location.source }, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_ALERT', alertId, { alertId, input }); return updated; }
+  },
+  async deleteAlert(alertId: string, reason?: string): Promise<WildlifeConflictAlert> {
+    try { const response = await http.delete(`/conflict-alerts/${alertId}`, { data: { reason } }); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
+    catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, isDeleted: true, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_ALERT', alertId, { alertId, reason }); return updated; }
+  },
+  async cancelAlert(alertId: string, reason: string): Promise<WildlifeConflictAlert> {
+    try { const response = await http.post(`/conflict-alerts/${alertId}/cancel`, { reason }); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
+    catch { const alert = await this.getAlertById(alertId); if (alert.status === AlertStatus.RESOLVED || alert.status === AlertStatus.CANCELLED) throw new Error('Alert cannot be cancelled from its current state.'); const updated = { ...alert, status: AlertStatus.CANCELLED, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('CANCEL_ALERT', alertId, { alertId, reason }); return updated; }
+  },
+  async updateResponse(alertId: string, responseId: string, input: UpdateResponseInput): Promise<WildlifeConflictAlert> { try { const response = await http.put(`/conflict-alerts/${alertId}/responses/${responseId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.map(r => r.responseId === responseId ? { ...r, ...input } : r), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_RESPONSE', alertId, { alertId, responseId, input }); return updated; } },
+  async deleteResponse(alertId: string, responseId: string): Promise<WildlifeConflictAlert> { try { const response = await http.delete(`/conflict-alerts/${alertId}/responses/${responseId}`); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.filter(r => r.responseId !== responseId), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_RESPONSE', alertId, { alertId, responseId }); return updated; } },
+
   async acknowledgeAlert(alertId: string): Promise<WildlifeConflictAlert> {
     const clientAcknowledgementId = crypto.randomUUID();
     try {
@@ -299,12 +316,12 @@ export const conflictAlertApi = {
   }
 };
 
-async function enqueueAction(operation: 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT', alertId: string, payload: unknown) {
+async function enqueueAction(operation: 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT' | 'UPDATE_ALERT' | 'DELETE_ALERT' | 'CANCEL_ALERT' | 'UPDATE_RESPONSE' | 'DELETE_RESPONSE', alertId: string, payload: unknown) {
   await syncService.enqueue({ entity: 'conflict-alerts', operation, recordId: 0, clientId: typeof payload === 'object' && payload !== null && 'input' in payload ? String((payload as { input?: { clientResponseId?: string } }).input?.clientResponseId ?? alertId) : alertId, payload });
 }
 
 syncService.registerTransport('conflict-alerts', async item => {
-  const payload = item.payload as { alertId: string; input?: AddResponseInput | ResolveAlertInput };
+  const payload = item.payload as { alertId: string; responseId?: string; reason?: string; input?: AddResponseInput | ResolveAlertInput | UpdateAlertInput | UpdateResponseInput };
   let response: any;
   if (item.operation === 'ACKNOWLEDGE_ALERT') {
     response = await http.post(`/conflict-alerts/${payload.alertId}/acknowledge`, payload);
@@ -312,6 +329,16 @@ syncService.registerTransport('conflict-alerts', async item => {
     response = await http.post(`/conflict-alerts/${payload.alertId}/responses`, payload.input);
   } else if (item.operation === 'RESOLVE_ALERT') {
     response = await http.post(`/conflict-alerts/${payload.alertId}/resolve`, payload.input);
+  } else if (item.operation === 'UPDATE_ALERT') {
+    response = await http.put(`/conflict-alerts/${payload.alertId}`, payload.input);
+  } else if (item.operation === 'DELETE_ALERT') {
+    response = await http.delete(`/conflict-alerts/${payload.alertId}`, { data: { reason: payload.reason } });
+  } else if (item.operation === 'CANCEL_ALERT') {
+    response = await http.post(`/conflict-alerts/${payload.alertId}/cancel`, { reason: payload.reason });
+  } else if (item.operation === 'UPDATE_RESPONSE') {
+    response = await http.put(`/conflict-alerts/${payload.alertId}/responses/${payload.responseId}`, payload.input);
+  } else if (item.operation === 'DELETE_RESPONSE') {
+    response = await http.delete(`/conflict-alerts/${payload.alertId}/responses/${payload.responseId}`);
   }
   if (response?.data?.data) {
     await safeDexieUpdate(payload.alertId, response.data.data, SyncStatus.SYNCED);

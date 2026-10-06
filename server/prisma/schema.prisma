@@ -80,12 +80,12 @@ enum ResponseAction {
 }
 
 model Park {
-  id          String         @id @default(cuid())
+  id          String        @id @default(cuid())
   name        String
-  code        String         @unique
+  code        String        @unique
   description String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
   routes      PatrolRoute[]
 }
 
@@ -102,44 +102,47 @@ model PatrolRoute {
   park                   Park               @relation(fields: [parkId], references: [id])
   assignments            PatrolAssignment[]
   sessions               PatrolSession[]
+
   @@index([parkId])
 }
 
 model PatrolAssignment {
-  id              String        @id @default(cuid())
-  rangerId        String
-  rangerName      String
-  patrolRouteId   String
-  assignedDate    DateTime      @default(now())
-  status          PatrolStatus  @default(ASSIGNED)
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  patrolRoute     PatrolRoute   @relation(fields: [patrolRouteId], references: [id])
-  sessions        PatrolSession[]
+  id            String          @id @default(cuid())
+  rangerId      String
+  rangerName    String
+  patrolRouteId String
+  assignedDate  DateTime        @default(now())
+  status        PatrolStatus    @default(ASSIGNED)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  patrolRoute   PatrolRoute     @relation(fields: [patrolRouteId], references: [id])
+  sessions      PatrolSession[]
+
   @@index([rangerId])
   @@index([status])
 }
 
 model PatrolSession {
-  id                String             @id @default(cuid())
-  clientSessionId   String?
-  rangerId          String
-  rangerName        String
+  id                 String                 @id @default(cuid())
+  clientSessionId    String?
+  rangerId           String
+  rangerName         String
   patrolAssignmentId String
-  patrolRouteId     String
-  startTime         DateTime
-  endTime           DateTime?
-  status            PatrolStatus       @default(ACTIVE)
-  syncStatus        SyncStatus         @default(SYNCED)
-  totalDistanceKm   Float              @default(0)
-  durationSeconds   Int                @default(0)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  patrolAssignment  PatrolAssignment   @relation(fields: [patrolAssignmentId], references: [id])
-  patrolRoute       PatrolRoute        @relation(fields: [patrolRouteId], references: [id])
-  waypoints         Waypoint[]
-  incidents         ConservationIncident[]
+  patrolRouteId      String
+  startTime          DateTime
+  endTime            DateTime?
+  status             PatrolStatus           @default(ACTIVE)
+  syncStatus         SyncStatus             @default(SYNCED)
+  totalDistanceKm    Float                  @default(0)
+  durationSeconds    Int                    @default(0)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  patrolAssignment   PatrolAssignment       @relation(fields: [patrolAssignmentId], references: [id])
+  patrolRoute        PatrolRoute            @relation(fields: [patrolRouteId], references: [id])
+  waypoints          Waypoint[]
+  incidents          ConservationIncident[]
+
   @@index([clientSessionId])
   @@index([rangerId])
   @@index([status])
@@ -156,26 +159,28 @@ model Waypoint {
   accuracy        Float?
   note            String?
   patrolSession   PatrolSession  @relation(fields: [patrolSessionId], references: [id], onDelete: Cascade)
+
   @@index([patrolSessionId, timestamp])
 }
 
 model ConservationIncident {
-  id                  String          @id @default(cuid())
-  clientIncidentId    String?
-  incidentType        IncidentType
+  id                   String             @id @default(cuid())
+  clientIncidentId     String?
+  incidentType         IncidentType
   otherTypeDescription String?
-  description         String
-  location            Json
-  reportedBy          String
-  rangerName          String
-  reportedAt          DateTime
-  patrolSessionId     String?
-  status              IncidentStatus  @default(REPORTED)
-  syncStatus          SyncStatus      @default(SYNCED)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
-  patrolSession       PatrolSession?  @relation(fields: [patrolSessionId], references: [id], onDelete: SetNull)
-  evidence            IncidentEvidence[]
+  description          String
+  location             Json
+  reportedBy           String
+  rangerName           String
+  reportedAt           DateTime
+  patrolSessionId      String?
+  status               IncidentStatus     @default(REPORTED)
+  syncStatus           SyncStatus         @default(SYNCED)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  patrolSession        PatrolSession?     @relation(fields: [patrolSessionId], references: [id], onDelete: SetNull)
+  evidence             IncidentEvidence[]
+
   @@index([clientIncidentId])
   @@index([reportedBy])
   @@index([reportedAt])
@@ -183,45 +188,53 @@ model ConservationIncident {
 }
 
 model IncidentEvidence {
-  id           String                @id @default(cuid())
-  evidenceId   String                @unique
-  incidentId   String
-  imageUrl     String
-  capturedAt   DateTime              @default(now())
-  fileSize     Int?
-  mimeType     String                @default("image/jpeg")
-  incident     ConservationIncident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  id         String               @id @default(cuid())
+  evidenceId String               @unique
+  incidentId String
+  imageUrl   String
+  capturedAt DateTime             @default(now())
+  fileSize   Int?
+  mimeType   String               @default("image/jpeg")
+  incident   ConservationIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
   @@index([incidentId])
 }
 
 model WildlifeConflictAlert {
-  id                      String             @id @default(cuid())
+  id                      String               @id @default(cuid())
   clientAlertId           String?
   sourceEventId           String?
   source                  AlertSource
   alertType               ConflictAlertType
   severity                AlertSeverity
-  status                  AlertStatus        @default(OPEN)
+  status                  AlertStatus          @default(OPEN)
   location                Json
   description             String
   animalId                String?
   reporterName            String?
-  acknowledgedBy         String?
+  acknowledgedBy          String?
   clientAcknowledgementId String?
-  acknowledgedName       String?
-  acknowledgedAt         DateTime?
-  resolvedBy             String?
-  clientResolutionId     String?
-  resolvedName           String?
-  resolvedAt             DateTime?
-  resolutionNotes        String?
-  syncStatus              SyncStatus         @default(SYNCED)
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  acknowledgedName        String?
+  acknowledgedAt          DateTime?
+  resolvedBy              String?
+  clientResolutionId      String?
+  resolvedName            String?
+  resolvedAt              DateTime?
+  resolutionNotes         String?
+  isDeleted               Boolean              @default(false)
+  deletedAt               DateTime?
+  deletedBy               String?
+  deletionReason          String?
+  syncStatus              SyncStatus           @default(SYNCED)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
   responses               ConflictResponse[]
+  auditEntries            ConflictAuditEntry[]
+
   @@index([clientAlertId])
   @@index([sourceEventId])
   @@index([status, severity, createdAt])
+  @@index([isDeleted, createdAt])
 }
 
 model ConflictResponse {
@@ -235,6 +248,31 @@ model ConflictResponse {
   notes            String
   respondedAt      DateTime              @default(now())
   outcome          String?
+  isDeleted        Boolean               @default(false)
+  deletedAt        DateTime?
+  deletedBy        String?
+  deletionReason   String?
   alert            WildlifeConflictAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  auditEntries     ConflictAuditEntry[]
+
   @@index([alertId, respondedAt])
+  @@index([alertId, isDeleted, respondedAt])
+}
+
+model ConflictAuditEntry {
+  id            String                @id @default(cuid())
+  alertId       String
+  responseId    String?
+  action        String
+  performedBy   String
+  performedName String?
+  timestamp     DateTime              @default(now())
+  oldValue      Json?
+  newValue      Json?
+  reason        String?
+  alert         WildlifeConflictAlert @relation(fields: [alertId], references: [id], onDelete: Restrict)
+  response      ConflictResponse?     @relation(fields: [responseId], references: [id], onDelete: SetNull)
+
+  @@index([alertId, timestamp])
+  @@index([responseId])
 }

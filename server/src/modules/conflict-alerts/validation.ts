@@ -69,8 +69,33 @@ export const resolveAlertSchema = z.object({
   outcome: z.string().optional()
 });
 
+export const updateAlertSchema = z.object({
+  alertType: z.nativeEnum(ConflictAlertType).optional(),
+  description: z.string().min(3).optional(),
+  severity: z.nativeEnum(AlertSeverity).optional(),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  locationSource: z.nativeEnum(LocationSource).optional(),
+  animalId: z.string().min(1).optional(),
+  reporterName: z.string().min(1).optional()
+}).refine(value => Object.keys(value).length > 0, 'At least one editable alert field is required');
+
+export const cancelAlertSchema = z.object({
+  reason: z.string().min(3, 'Cancellation reason is required')
+});
+
+export const updateResponseSchema = z.object({
+  action: z.nativeEnum(ResponseAction).optional(),
+  notes: z.string().min(3).optional(),
+  outcome: z.string().optional()
+}).refine(value => Object.keys(value).length > 0, 'At least one editable response field is required');
+
+export const deleteSchema = z.object({ reason: z.string().min(3).optional() });
+
 export type CreateAlertInput = z.infer<typeof createAlertSchema>;
 export type SimulateCollarInput = z.infer<typeof simulateCollarSchema>;
 export type CommunityReportInput = z.infer<typeof communityReportSchema>;
 export type AddResponseInput = z.infer<typeof addResponseSchema>;
 export type ResolveAlertInput = z.infer<typeof resolveAlertSchema>;
+export type UpdateAlertInput = z.infer<typeof updateAlertSchema>;
+export type UpdateResponseInput = z.infer<typeof updateResponseSchema>;

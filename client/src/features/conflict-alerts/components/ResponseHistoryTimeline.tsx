@@ -11,6 +11,8 @@ interface Props {
   resolvedAt?: string;
   resolutionNotes?: string;
   createdAt: string;
+  onEditResponse?: (response: ConflictResponse) => void;
+  onDeleteResponse?: (response: ConflictResponse) => void;
 }
 
 export const ResponseHistoryTimeline: React.FC<Props> = ({
@@ -22,7 +24,7 @@ export const ResponseHistoryTimeline: React.FC<Props> = ({
   resolvedName,
   resolvedAt,
   resolutionNotes,
-  createdAt
+  createdAt, onEditResponse, onDeleteResponse
 }) => {
   return (
     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
@@ -77,6 +79,7 @@ export const ResponseHistoryTimeline: React.FC<Props> = ({
                 </p>
               )}
             </div>
+            {(onEditResponse || onDeleteResponse) && <div className="flex gap-2 mt-2"><button className="text-xs text-emerald-700 underline" onClick={() => onEditResponse?.(resp)}>Edit</button><button className="text-xs text-red-700 underline" onClick={() => onDeleteResponse?.(resp)}>Delete</button></div>}
           </div>
         ))}
 

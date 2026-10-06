@@ -7,6 +7,7 @@ import {
   addResponseSchema,
   resolveAlertSchema,
   acknowledgeAlertSchema
+  , updateAlertSchema, cancelAlertSchema, updateResponseSchema, deleteSchema
 } from './validation.js';
 
 function getAuthenticatedRanger(req: Request): { rangerId: string; rangerName: string } {
@@ -59,11 +60,12 @@ export const conflictAlertController = {
 
   async getAlerts(req: Request, res: Response, next: NextFunction) {
     try {
-      const { status, severity, alertType } = req.query;
+      const { status, severity, alertType, includeDeleted } = req.query;
       const filters = {
         status: status ? String(status) : undefined,
         severity: severity ? String(severity) : undefined,
-        alertType: alertType ? String(alertType) : undefined
+        alertType: alertType ? String(alertType) : undefined,
+        includeDeleted: includeDeleted === 'true'
       };
       const data = await conflictAlertService.getAlerts(filters);
       return res.status(200).json({
@@ -78,7 +80,7 @@ export const conflictAlertController = {
   async getAlertById(req: Request, res: Response, next: NextFunction) {
     try {
       const alertId = String(req.params.alertId);
-      const data = await conflictAlertService.getAlertById(alertId);
+      const data = await conflictAlertService.getAlertById(alertId, req.query.includeDeleted === 'true');
       return res.status(200).json({
         success: true,
         data
@@ -132,4 +134,12 @@ export const conflictAlertController = {
       return next(error);
     }
   }
+  ,
+  async updateAlert(req: Request, res: Response, next: NextFunction) { try { const { rangerId, rangerName } = getAuthenticatedRanger(req); const data = await conflictAlertService.updateAlert(rangerId, rangerName, String(req.params.alertId), updateAlertSchema.parse(req.body)); return res.json({ success: true, data }); } catch (error) { return next(error); } },
+  async deleteAlert(req: Request, res: Response, next: NextFunction) { try { const { rangerId, rangerName } = getAuthenticatedRanger(req); const data = await conflictAlertService.deleteAlert(rangerId, rangerName, String(req.params.alertId), deleteSchema.parse(req.body ?? {}).reason); return res.json({ success: true, data }); } catch (error) { return next(error); } },
+  async cancelAlert(req: Request, res: Response, next: NextFunction) { try { const { rangerId, rangerName } = getAuthenticatedRanger(req); const data = await conflictAlertService.cancelAlert(rangerId, rangerName, String(req.params.alertId), cancelAlertSchema.parse(req.body).reason); return res.json({ success: true, data }); } catch (error) { return next(error); } },
+  async getResponses(req: Request, res: Response, next: NextFunction) { try { const data = await conflictAlertService.getResponses(String(req.params.alertId)); return res.json({ success: true, data }); } catch (error) { return next(error); } },
+  async updateResponse(req: Request, res: Response, next: NextFunction) { try { const { rangerId, rangerName } = getAuthenticatedRanger(req); const data = await conflictAlertService.updateResponse(rangerId, rangerName, String(req.params.alertId), String(req.params.responseId), updateResponseSchema.parse(req.body)); return res.json({ success: true, data }); } catch (error) { return next(error); } },
+  async deleteResponse(req: Request, res: Response, next: NextFunction) { try { const { rangerId, rangerName } = getAuthenticatedRanger(req); const data = await conflictAlertService.deleteResponse(rangerId, rangerName, String(req.params.alertId), String(req.params.responseId), deleteSchema.parse(req.body ?? {}).reason); return res.json({ success: true, data }); } catch (error) { return next(error); } },
+  async getHistory(req: Request, res: Response, next: NextFunction) { try { const data = await conflictAlertService.getHistory(String(req.params.alertId)); return res.json({ success: true, data }); } catch (error) { return next(error); } }
 };
