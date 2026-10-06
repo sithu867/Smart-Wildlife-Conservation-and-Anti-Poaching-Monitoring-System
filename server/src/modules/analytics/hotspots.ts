@@ -8,7 +8,7 @@ import { groupBy } from './calculations.js';
 
 interface LocatedIncident {
   incidentType: string;
-  location?: { latitude?: unknown; longitude?: unknown } | null;
+  location?: unknown;
 }
 interface Cell {
   latitudeSum: number;
@@ -28,8 +28,14 @@ export function calculateIncidentHotspots(
   const cells = new Map<string, Cell>();
   let excludedCoordinateCount = 0;
   for (const row of rows) {
-    const latitude = row.location?.latitude;
-    const longitude = row.location?.longitude;
+    // The shared incident module stores location as Prisma Json. Validate its
+    // shape locally rather than casting arbitrary JSON into geographic data.
+    const location =
+      row.location && typeof row.location === 'object'
+        ? (row.location as Record<string, unknown>)
+        : null;
+    const latitude = location?.latitude;
+    const longitude = location?.longitude;
     if (
       typeof latitude !== 'number' ||
       typeof longitude !== 'number' ||

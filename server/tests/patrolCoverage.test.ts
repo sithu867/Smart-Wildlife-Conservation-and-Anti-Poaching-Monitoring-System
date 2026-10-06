@@ -1,22 +1,16 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
-import { Types } from 'mongoose';
-import { createApp } from '../src/app.js';
+import { prisma, resetAnalyticsPrisma } from './analyticsPrismaMock.js';
+const { createApp } = await import('../src/app.js');
 import { calculatePatrolCoverage } from '../src/modules/analytics/patrolCoverage.js';
-import { analyticsService } from '../src/modules/analytics/service.js';
-import {
-  ParkModel,
-  PatrolRouteModel,
-  PatrolSessionModel,
-} from '../src/modules/patrols/models.js';
-import { ConservationIncidentModel } from '../src/modules/incidents/models.js';
-import { WildlifeConflictAlertModel } from '../src/modules/conflict-alerts/models.js';
+const { analyticsService } =
+  await import('../src/modules/analytics/service.js');
 import type { AnalysisCriteria } from '../src/modules/analytics/contract.js';
 
 const start = new Date('2026-09-01T00:00:00.000Z');
 const end = new Date('2026-09-30T23:59:59.999Z');
 const routes = ['Boundary', 'River', 'Forest'].map((name, index) => ({
-  _id: new Types.ObjectId(`67a00000000000000000000${index + 2}`),
+  id: `c67a00000000000000000000${index + 2}`,
   name,
   geometry: {
     type: 'LineString',
@@ -27,7 +21,7 @@ const routes = ['Boundary', 'River', 'Forest'].map((name, index) => ({
   },
 }));
 const session = {
-  patrolRoute: routes[0]._id,
+  patrolRouteId: routes[0].id,
   startTime: start,
   status: 'COMPLETED',
   endTime: end,
@@ -35,6 +29,20 @@ const session = {
 const waypoint = { latitude: -2.1, longitude: 34.8, timestamp: end };
 
 describe('UC-D route coverage classification', () => {
+  test('Prisma patrolRouteId links establish coverage and repeated session IDs count once', () => {
+    const linked = { ...session, id: 'cmfrg6vkp0000qj04j5a6j8s1' };
+    const result = calculatePatrolCoverage(
+      routes,
+      [linked, linked],
+      start,
+      end,
+    );
+    expect(result.coveredRoutes).toBe(1);
+    expect(result.neglectedRoutes).toBe(2);
+    expect(result.patrolSessionCount).toBe(1);
+    expect(result.completedPatrolCount).toBe(1);
+    expect(result.excludedSessionCount).toBe(0);
+  });
   test('counts every registered route, classifies completed/active/neglected, and calculates rounded route coverage', () => {
     const data = calculatePatrolCoverage(
       routes,
@@ -42,7 +50,7 @@ describe('UC-D route coverage classification', () => {
         session,
         {
           ...session,
-          patrolRoute: routes[1]._id,
+          patrolRouteId: routes[1].id,
           status: 'ACTIVE',
           endTime: null,
         },
@@ -144,7 +152,7 @@ describe('UC-D route coverage classification', () => {
         },
         {
           ...session,
-          patrolRoute: routes[1]._id,
+          patrolRouteId: routes[1].id,
           startTime: '2026-08-01',
           endTime: null,
           status: 'ACTIVE',
@@ -199,7 +207,7 @@ describe('UC-D route coverage classification', () => {
         },
         {
           ...session,
-          patrolRoute: routes[1]._id,
+          patrolRouteId: routes[1].id,
           startTime: '2026-08-01',
           status: 'ASSIGNED',
           waypoints: { invalid: 'array' },
@@ -238,14 +246,14 @@ describe('UC-D route coverage classification', () => {
         { ...session, endTime: 'invalid' },
         {
           ...session,
-          patrolRoute: routes[1]._id,
+          patrolRouteId: routes[1].id,
           startTime: '2026-09-20',
           endTime: '2026-09-10',
           waypoints: [waypoint],
         },
         {
           ...session,
-          patrolRoute: routes[2]._id,
+          patrolRouteId: routes[2].id,
           startTime: '2026-10-01',
           endTime: '2026-09-20',
           waypoints: [waypoint],
@@ -264,11 +272,11 @@ describe('UC-D route coverage classification', () => {
       routes,
       [
         session,
-        { ...session, patrolRoute: undefined },
-        { ...session, patrolRoute: 'bad-reference' },
+        { ...session, patrolRouteId: undefined },
+        { ...session, patrolRouteId: 'bad-reference' },
         {
           ...session,
-          patrolRoute: new Types.ObjectId(),
+          patrolRouteId: 'c000000000000000000000099',
           waypoints: [waypoint],
         },
       ],
@@ -306,35 +314,26 @@ describe('UC-D route coverage classification', () => {
   });
 });
 
-function queryResult<T>(value: T) {
-  const chain = { select: (_fields: string) => chain, lean: async () => value };
-  return chain;
-}
 const criteria: AnalysisCriteria = {
-  parkId: '67a000000000000000000001',
+  parkId: 'c67a000000000000000000001',
   start: '2026-09-01',
   end: '2026-09-30',
   categories: ['PATROL_COVERAGE'],
 };
 describe('UC-D patrol coverage query integration', () => {
   beforeEach(() => {
-    jest.spyOn(ParkModel, 'findById').mockReturnValue(
-      queryResult({
-        _id: new Types.ObjectId(criteria.parkId),
-        name: 'Park',
-        code: 'P',
-      }),
-    );
-    jest.spyOn(PatrolRouteModel, 'find').mockReturnValue(queryResult(routes));
+    resetAnalyticsPrisma();
+    jest.mocked(prisma.park.findUnique).mockResolvedValue({
+      id: criteria.parkId,
+      name: 'Park',
+      code: 'P',
+    });
+    jest.mocked(prisma.patrolRoute.findMany).mockResolvedValue(routes);
     jest
-      .spyOn(PatrolSessionModel, 'find')
-      .mockReturnValue(queryResult([session]));
-    jest
-      .spyOn(ConservationIncidentModel, 'find')
-      .mockReturnValue(queryResult([]));
-    jest
-      .spyOn(WildlifeConflictAlertModel, 'find')
-      .mockReturnValue(queryResult([]));
+      .mocked(prisma.patrolSession.findMany)
+      .mockResolvedValue([{ id: 'c67a000000000000000000005', ...session }]);
+    jest.mocked(prisma.conservationIncident.findMany).mockResolvedValue([]);
+    jest.mocked(prisma.wildlifeConflictAlert.findMany).mockResolvedValue([]);
   });
   afterEach(() => jest.restoreAllMocks());
   test('queries the selected park and its route IDs with all activity dates and ranger filtering', async () => {
@@ -342,18 +341,26 @@ describe('UC-D patrol coverage query integration', () => {
       ...criteria,
       rangerId: 'R-101',
     });
-    expect(PatrolRouteModel.find).toHaveBeenCalledWith({
-      park: new Types.ObjectId(criteria.parkId),
-    });
-    expect(PatrolSessionModel.find).toHaveBeenCalledWith({
-      patrolRoute: { $in: routes.map((route) => route._id) },
-      rangerId: 'R-101',
-      $or: [
-        { startTime: { $gte: start, $lte: end } },
-        { endTime: { $gte: start, $lte: end } },
-        { 'waypoints.timestamp': { $gte: start, $lte: end } },
-      ],
-    });
+    expect(prisma.patrolRoute.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          parkId: criteria.parkId,
+        },
+      }),
+    );
+    expect(prisma.patrolSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          patrolRouteId: { in: routes.map((route) => route.id) },
+          rangerId: 'R-101',
+          OR: [
+            { startTime: { gte: start, lte: end } },
+            { endTime: { gte: start, lte: end } },
+            { waypoints: { some: { timestamp: { gte: start, lte: end } } } },
+          ],
+        },
+      }),
+    );
     expect(data.patrolCoverage).toMatchObject({
       totalRoutes: 3,
       coveredRoutes: 1,
@@ -362,28 +369,28 @@ describe('UC-D patrol coverage query integration', () => {
     expect(data.categoryAvailability).toEqual([
       { category: 'PATROL_COVERAGE', status: 'AVAILABLE' },
     ]);
-    expect(ConservationIncidentModel.find).not.toHaveBeenCalled();
-    expect(WildlifeConflictAlertModel.find).not.toHaveBeenCalled();
+    expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
+    expect(prisma.wildlifeConflictAlert.findMany).not.toHaveBeenCalled();
   });
   test('changing park changes the route set and excludes another park session even if the database boundary returns it', async () => {
-    const otherParkId = '67a000000000000000000099';
-    jest.mocked(ParkModel.findById).mockReturnValueOnce(
-      queryResult({
-        _id: new Types.ObjectId(otherParkId),
-        name: 'Other',
-        code: 'O',
-      }),
-    );
-    jest
-      .mocked(PatrolRouteModel.find)
-      .mockReturnValueOnce(queryResult([routes[2]]));
+    const otherParkId = 'c67a000000000000000000099';
+    jest.mocked(prisma.park.findUnique).mockResolvedValueOnce({
+      id: otherParkId,
+      name: 'Other',
+      code: 'O',
+    });
+    jest.mocked(prisma.patrolRoute.findMany).mockResolvedValueOnce([routes[2]]);
     const data = await analyticsService.getAnalytics({
       ...criteria,
       parkId: otherParkId,
     });
-    expect(PatrolRouteModel.find).toHaveBeenCalledWith({
-      park: new Types.ObjectId(otherParkId),
-    });
+    expect(prisma.patrolRoute.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          parkId: otherParkId,
+        },
+      }),
+    );
     expect(data.patrolCoverage).toMatchObject({
       totalRoutes: 1,
       coveredRoutes: 0,
@@ -393,7 +400,7 @@ describe('UC-D patrol coverage query integration', () => {
     expect(data.matchedRecords.patrols).toBe(0);
   });
   test('no activity yields meaningful neglected-route results rather than hiding registered routes', async () => {
-    jest.mocked(PatrolSessionModel.find).mockReturnValueOnce(queryResult([]));
+    jest.mocked(prisma.patrolSession.findMany).mockResolvedValueOnce([]);
     const data = await analyticsService.getAnalytics(criteria);
     expect(data.status).toBe('DATA');
     expect(data.patrolCoverage).toMatchObject({
@@ -403,7 +410,7 @@ describe('UC-D patrol coverage query integration', () => {
     });
   });
   test('neglected-route results do not bypass the existing basic report source-record guard', async () => {
-    jest.mocked(PatrolSessionModel.find).mockReturnValueOnce(queryResult([]));
+    jest.mocked(prisma.patrolSession.findMany).mockResolvedValueOnce([]);
     const response = await request(createApp())
       .get('/api/analytics/report')
       .set('x-user-role', 'MANAGER')
@@ -419,8 +426,8 @@ describe('UC-D patrol coverage query integration', () => {
     );
   });
   test('a park with no routes returns successful no-data and a zero coverage section', async () => {
-    jest.mocked(PatrolRouteModel.find).mockReturnValueOnce(queryResult([]));
-    jest.mocked(PatrolSessionModel.find).mockReturnValueOnce(queryResult([]));
+    jest.mocked(prisma.patrolRoute.findMany).mockResolvedValueOnce([]);
+    jest.mocked(prisma.patrolSession.findMany).mockResolvedValueOnce([]);
     const data = await analyticsService.getAnalytics(criteria);
     expect(data.status).toBe('NO_MATCHING_DATA');
     expect(data.patrolCoverage).toMatchObject({
@@ -434,7 +441,7 @@ describe('UC-D patrol coverage query integration', () => {
       categories: ['HWC_TRENDS'],
     });
     expect(data.patrolCoverage).toBeUndefined();
-    expect(PatrolRouteModel.find).not.toHaveBeenCalled();
-    expect(PatrolSessionModel.find).not.toHaveBeenCalled();
+    expect(prisma.patrolRoute.findMany).not.toHaveBeenCalled();
+    expect(prisma.patrolSession.findMany).not.toHaveBeenCalled();
   });
 });

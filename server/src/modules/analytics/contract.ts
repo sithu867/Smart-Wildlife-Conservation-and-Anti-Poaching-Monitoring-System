@@ -172,3 +172,42 @@ export function isValidAnalysisDate(value: string): boolean {
     new Date(value).toISOString().slice(0, 10) === value
   );
 }
+
+export function isValidAnalysisId(value: string): boolean {
+  // Park.id uses Prisma cuid(), not cuid2(), UUIDs or the former ObjectIDs.
+  // Existence is checked separately against the central database before analysis.
+  return /^c[a-z0-9]{24}$/.test(value);
+}
+
+export function isAnalysisDateRangeOrdered(
+  start: string,
+  end: string,
+): boolean {
+  // Individual date errors take priority over comparison of malformed strings.
+  return (
+    !isValidAnalysisDate(start) || !isValidAnalysisDate(end) || start <= end
+  );
+}
+
+export const OPTIONAL_ANALYSIS_FILTERS = [
+  'rangerId',
+  'incidentType',
+  'incidentStatus',
+  'severity',
+  'conflictStatus',
+  'conflictSource',
+  'conflictType',
+] as const;
+
+export function normalizeAnalysisControls(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  // Only empty optional form controls mean "all". Required fields and malformed
+  // values must reach validation instead of being silently discarded.
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, entry]) =>
+        !OPTIONAL_ANALYSIS_FILTERS.some((field) => field === key) ||
+        (entry !== '' && entry !== undefined),
+    ),
+  );
+}

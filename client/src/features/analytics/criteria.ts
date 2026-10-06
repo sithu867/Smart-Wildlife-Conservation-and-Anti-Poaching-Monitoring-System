@@ -1,14 +1,10 @@
 import {
-  ANALYSIS_CATEGORIES,
-  isValidAnalysisDate,
+  normalizeAnalysisControls,
+  isAnalysisDateRangeOrdered,
   type AnalysisCriteria,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
-import {
-  AlertSeverity,
-  AlertStatus,
-  IncidentType,
-} from '../../shared/types/enums';
+import { analysisCriteriaSchema } from '../../../../server/src/modules/analytics/validation';
 
 export function createDraftCriteria(): AnalysisCriteria {
   return {
@@ -56,44 +52,44 @@ export function validateDraftCriteriaIssues(
       },
     ];
   }
-  const errors: CriteriaValidationIssue[] = [];
-  const addIssue = (field: CriteriaValidationIssue['field'], message: string) =>
-    errors.push({ field, message });
-  if (!parks.some((park) => park.id === criteria.parkId))
-    addIssue('parkId', 'Select a valid Park / Conservation Area.');
-  const startValid = isValidAnalysisDate(criteria.start);
-  const endValid = isValidAnalysisDate(criteria.end);
-  if (!startValid) addIssue('start', 'Enter a valid Start Date.');
-  if (!endValid) addIssue('end', 'Enter a valid End Date.');
-  if (startValid && endValid && criteria.start > criteria.end)
-    addIssue('end', 'Start Date must be on or before End Date.');
-  if (!criteria.categories.length)
-    addIssue('categories', 'Select at least one analysis category.');
+  const parsed = analysisCriteriaSchema.safeParse(
+    normalizeAnalysisControls(criteria),
+  );
+  const errors: CriteriaValidationIssue[] = parsed.success
+    ? []
+    : parsed.error.issues.map((issue) => {
+        const field = (issue.path[0] ??
+          'form') as CriteriaValidationIssue['field'];
+        // Keep the existing inline date wording while sharing all validation rules.
+        const message =
+          (field === 'start' || field === 'end') &&
+          !issue.message.includes('on or before')
+            ? `Enter a valid ${field === 'start' ? 'Start' : 'End'} Date.`
+            : issue.message;
+        return { field, message };
+      });
   if (
-    criteria.categories.some(
-      (category) => !ANALYSIS_CATEGORIES.includes(category),
+    !errors.some((issue) => issue.field === 'parkId') &&
+    !parks.some((park) => park.id === criteria.parkId)
+  ) {
+    errors.push({
+      field: 'parkId',
+      message: 'Select a valid Park / Conservation Area.',
+    });
+  }
+  // Zod can abort object refinements on malformed filters/categories. Still show
+  // the independent date-range error so managers can correct both fields at once.
+  if (
+    !isAnalysisDateRangeOrdered(criteria.start, criteria.end) &&
+    !errors.some(
+      (issue) => issue.message === 'Start Date must be on or before End Date.',
     )
-  )
-    addIssue('categories', 'Unsupported analysis category.');
-  if (
-    criteria.incidentType &&
-    !Object.values(IncidentType).some(
-      (value) => value === criteria.incidentType,
-    )
-  )
-    addIssue('incidentType', 'Select a valid incident type.');
-  if (
-    criteria.severity &&
-    !Object.values(AlertSeverity).some((value) => value === criteria.severity)
-  )
-    addIssue('severity', 'Select a valid severity.');
-  if (
-    criteria.conflictStatus &&
-    !Object.values(AlertStatus).some(
-      (value) => value === criteria.conflictStatus,
-    )
-  )
-    addIssue('conflictStatus', 'Select a valid conflict status.');
+  ) {
+    errors.push({
+      field: 'end',
+      message: 'Start Date must be on or before End Date.',
+    });
+  }
   return errors;
 }
 
@@ -109,9 +105,5 @@ export function validateDraftCriteria(
 }
 
 export function criteriaParams(criteria: AnalysisCriteria) {
-  return Object.fromEntries(
-    Object.entries(criteria).filter(
-      ([, value]) => value !== '' && value !== undefined,
-    ),
-  );
+  return normalizeAnalysisControls(criteria);
 }

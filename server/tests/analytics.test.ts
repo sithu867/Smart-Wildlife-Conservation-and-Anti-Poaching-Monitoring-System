@@ -1,22 +1,24 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
-import { Types } from 'mongoose';
-import { createApp } from '../src/app.js';
 import {
-  ParkModel,
-  PatrolRouteModel,
-  PatrolSessionModel,
-} from '../src/modules/patrols/models.js';
-import { ConservationIncidentModel } from '../src/modules/incidents/models.js';
-import { WildlifeConflictAlertModel } from '../src/modules/conflict-alerts/models.js';
-import { analyticsService } from '../src/modules/analytics/service.js';
+  IncidentType,
+  IncidentStatus,
+  AlertSeverity,
+  AlertStatus,
+  AlertSource,
+  ConflictAlertType,
+} from '@prisma/client';
+import { prisma, resetAnalyticsPrisma } from './analyticsPrismaMock.js';
+const { createApp } = await import('../src/app.js');
+const { analyticsService } =
+  await import('../src/modules/analytics/service.js');
 import { analysisCriteriaSchema } from '../src/modules/analytics/validation.js';
 import type { AnalysisCriteria } from '../src/modules/analytics/contract.js';
 
 const app = createApp();
-const parkId = '67a000000000000000000001';
-const routeId = new Types.ObjectId('67a000000000000000000002');
-const sessionId = new Types.ObjectId('67a000000000000000000004');
+const parkId = 'c67a000000000000000000001';
+const routeId = 'c67a000000000000000000002';
+const sessionId = 'c67a000000000000000000004';
 const criteria: AnalysisCriteria = {
   parkId,
   start: '2026-09-01',
@@ -24,21 +26,13 @@ const criteria: AnalysisCriteria = {
   categories: ['INCIDENT_STATISTICS'],
 };
 const park = {
-  _id: new Types.ObjectId(parkId),
+  id: parkId,
   name: 'Real database park',
   code: 'REAL',
 };
 
 // Mock only the database boundary. HTTP parsing, Zod, controllers and UC-D
 // business logic remain real, including the single-category query encoding.
-function queryResult<T>(value: T) {
-  const chain = {
-    select: (_fields: string) => chain,
-    sort: (_order: object) => chain,
-    lean: jest.fn(async () => value),
-  };
-  return chain;
-}
 function analyzeQuery(overrides: Record<string, unknown> = {}) {
   return request(app)
     .get('/api/analytics')
@@ -53,38 +47,55 @@ function analyzeQuery(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  jest
-    .spyOn(WildlifeConflictAlertModel, 'find')
-    .mockReturnValue(queryResult([]));
-  jest.spyOn(ParkModel, 'findById').mockReturnValue(queryResult(park));
-  jest
-    .spyOn(PatrolRouteModel, 'find')
-    .mockReturnValue(queryResult([{ _id: routeId }]));
-  jest.spyOn(PatrolSessionModel, 'find').mockReturnValue(
-    queryResult([
-      {
-        _id: sessionId,
-        patrolRoute: routeId,
-        startTime: new Date('2026-09-02'),
-        status: 'COMPLETED',
-        rangerName: 'Ranger',
-      },
-    ]),
-  );
-  jest.spyOn(ConservationIncidentModel, 'find').mockReturnValue(
-    queryResult([
-      {
-        incidentType: 'SNARE',
-        status: 'REPORTED',
-        reportedAt: new Date('2026-09-02'),
-        location: { latitude: -2.1523, longitude: 34.8214 },
-      },
-    ]),
-  );
+  resetAnalyticsPrisma();
+  jest.mocked(prisma.wildlifeConflictAlert.findMany).mockResolvedValue([]);
+  jest.mocked(prisma.park.findUnique).mockResolvedValue(park);
+  jest.mocked(prisma.patrolRoute.findMany).mockResolvedValue([{ id: routeId }]);
+  jest.mocked(prisma.patrolSession.findMany).mockResolvedValue([
+    {
+      id: sessionId,
+      patrolRouteId: routeId,
+      startTime: new Date('2026-09-02'),
+      status: 'COMPLETED',
+      rangerName: 'Ranger',
+    },
+  ]);
+  jest.mocked(prisma.conservationIncident.findMany).mockResolvedValue([
+    {
+      incidentType: 'SNARE',
+      status: 'REPORTED',
+      reportedAt: new Date('2026-09-02'),
+      location: { latitude: -2.1523, longitude: 34.8214 },
+    },
+  ]);
 });
 afterEach(() => jest.restoreAllMocks());
 
 describe('UC-D Batch 1 criteria contract', () => {
+  test('supported filter values match the generated Prisma enums', () => {
+    for (const [field, values] of Object.entries({
+      incidentType: IncidentType,
+      incidentStatus: IncidentStatus,
+      severity: AlertSeverity,
+      conflictStatus: AlertStatus,
+      conflictSource: AlertSource,
+      conflictType: ConflictAlertType,
+    })) {
+      for (const value of Object.values(values))
+        expect(
+          analysisCriteriaSchema.safeParse({ ...criteria, [field]: value })
+            .success,
+        ).toBe(true);
+    }
+  });
+  test('accepts a current CUID containing letters beyond hexadecimal', () => {
+    expect(
+      analysisCriteriaSchema.safeParse({
+        ...criteria,
+        parkId: 'cmfrg6vkp0000qj04j5a6j8s1',
+      }).success,
+    ).toBe(true);
+  });
   test('accepts valid criteria and deduplicates categories', () => {
     expect(
       analysisCriteriaSchema.parse({
@@ -104,6 +115,9 @@ describe('UC-D Batch 1 criteria contract', () => {
     ['unsupported category', { categories: ['UNSUPPORTED'] }],
     ['malformed categories', { categories: { key: 'INCIDENT_STATISTICS' } }],
     ['invalid park', { parkId: 'invalid' }],
+    ['old ObjectID', { parkId: '67a000000000000000000001' }],
+    ['blank park', { parkId: '' }],
+    ['non-string park', { parkId: 123 }],
     ['missing park', { parkId: undefined }],
     ['unsupported field', { unexpected: 'value' }],
     ['invalid optional filter', { severity: 'EXTREME' }],
@@ -118,6 +132,45 @@ describe('UC-D Batch 1 criteria contract', () => {
         .success,
     ).toBe(true);
   });
+  test.each([
+    ['incidentType', 'POACHING'],
+    ['incidentStatus', 'CLOSED'],
+    ['severity', 'EXTREME'],
+    ['conflictStatus', 'CLOSED'],
+    ['conflictSource', 'RANGER'],
+    ['conflictType', 'POACHING'],
+    ['rangerId', '   '],
+    ['rangerId', 'R\n101'],
+    ['severity', false],
+    ['conflictSource', null],
+    ['incidentType[]', ['SNARE']],
+  ])(
+    'rejects malformed %s at the API before querying any data',
+    async (field, value) => {
+      const response = await analyzeQuery({ [field]: value });
+      expect(response.status).toBe(400);
+      expect(response.body.error.message).not.toContain('Invalid enum');
+      expect(prisma.park.findUnique).not.toHaveBeenCalled();
+    },
+  );
+  test('rejects non-string Ranger IDs before HTTP serialization', () => {
+    expect(
+      analysisCriteriaSchema.safeParse({ ...criteria, rangerId: 123 }).success,
+    ).toBe(false);
+  });
+  test('accepts every supported optional filter and normalizes Ranger ID', () => {
+    const parsed = analysisCriteriaSchema.parse({
+      ...criteria,
+      rangerId: ' R-101 ',
+      incidentType: 'SNARE',
+      incidentStatus: 'REPORTED',
+      severity: 'HIGH',
+      conflictStatus: 'OPEN',
+      conflictSource: 'COLLAR',
+      conflictType: 'CROP_RAID',
+    });
+    expect(parsed.rangerId).toBe('R-101');
+  });
 });
 
 describe('UC-D analytics HTTP validation and authorization', () => {
@@ -129,7 +182,7 @@ describe('UC-D analytics HTTP validation and authorization', () => {
       const response = await pending;
       expect(response.status).toBe(403);
       expect(response.body.error.message).toContain('manager');
-      expect(ParkModel.findById).not.toHaveBeenCalled();
+      expect(prisma.park.findUnique).not.toHaveBeenCalled();
     },
   );
   test.each([
@@ -140,20 +193,20 @@ describe('UC-D analytics HTTP validation and authorization', () => {
     [{ 'categories[]': ['INVALID'] }, 'Unsupported'],
     [{ unexpected: 'value' }, 'Malformed'],
   ])(
-    'rejects invalid criteria before querying MongoDB',
+    'rejects invalid criteria before querying Prisma',
     async (overrides, message) => {
       const response = await analyzeQuery(overrides);
       expect(response.status).toBe(400);
       expect(response.body.error.message).toContain(message);
-      expect(ParkModel.findById).not.toHaveBeenCalled();
+      expect(prisma.park.findUnique).not.toHaveBeenCalled();
     },
   );
   test('rejects a well-formed but nonexistent park', async () => {
-    jest.mocked(ParkModel.findById).mockReturnValueOnce(queryResult(null));
+    jest.mocked(prisma.park.findUnique).mockResolvedValueOnce(null);
     const response = await analyzeQuery();
     expect(response.status).toBe(400);
     expect(response.body.error.message).toContain('does not exist');
-    expect(ConservationIncidentModel.find).not.toHaveBeenCalled();
+    expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
   });
   test('passes park and categories through the real analytics logic', async () => {
     const response = await analyzeQuery();
@@ -161,23 +214,33 @@ describe('UC-D analytics HTTP validation and authorization', () => {
     expect(response.body.data.filters).toEqual(criteria);
     expect(response.body.data.status).toBe('DATA');
     expect(response.body.data.summary.incidents.total).toBe(1);
-    expect(ParkModel.findById).toHaveBeenCalledWith(parkId);
-    expect(PatrolRouteModel.find).toHaveBeenCalledWith({ park: park._id });
-    expect(PatrolSessionModel.find).toHaveBeenCalledWith({
-      patrolRoute: { $in: [routeId] },
-    });
-    expect(ConservationIncidentModel.find).toHaveBeenCalledWith({
-      patrolSession: { $in: [sessionId] },
-      reportedAt: {
-        $gte: new Date('2026-09-01T00:00:00.000Z'),
-        $lte: new Date('2026-09-30T23:59:59.999Z'),
-      },
-    });
+    expect(prisma.park.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: parkId } }),
+    );
+    expect(prisma.patrolRoute.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { parkId: park.id } }),
+    );
+    expect(prisma.patrolSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          patrolRouteId: { in: [routeId] },
+        },
+      }),
+    );
+    expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          patrolSessionId: { in: [sessionId] },
+          reportedAt: {
+            gte: new Date('2026-09-01T00:00:00.000Z'),
+            lte: new Date('2026-09-30T23:59:59.999Z'),
+          },
+        },
+      }),
+    );
   });
   test('returns a legitimate no-data success with empty results', async () => {
-    jest
-      .mocked(ConservationIncidentModel.find)
-      .mockReturnValueOnce(queryResult([]));
+    jest.mocked(prisma.conservationIncident.findMany).mockResolvedValueOnce([]);
     const response = await analyzeQuery();
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
@@ -189,13 +252,9 @@ describe('UC-D analytics HTTP validation and authorization', () => {
     expect(response.body.data.incidents.byType).toEqual([]);
   });
   test('masks internal failures and distinguishes them from no-data', async () => {
-    jest.mocked(ParkModel.findById).mockReturnValueOnce({
-      select: () => ({
-        lean: async () => {
-          throw new Error('secret MongoDB connection string');
-        },
-      }),
-    });
+    jest
+      .mocked(prisma.park.findUnique)
+      .mockRejectedValueOnce(new Error('secret database connection string'));
     const response = await analyzeQuery();
     expect(response.status).toBe(500);
     expect(response.body.success).toBe(false);
@@ -203,7 +262,7 @@ describe('UC-D analytics HTTP validation and authorization', () => {
     expect(response.body.error.message).not.toContain('secret');
   });
   test('lists actual park records without seeding', async () => {
-    jest.spyOn(ParkModel, 'find').mockReturnValue(queryResult([park]));
+    jest.mocked(prisma.park.findMany).mockResolvedValue([park]);
     const response = await request(app)
       .get('/api/analytics/parks')
       .set('x-user-role', 'MANAGER');
@@ -211,10 +270,15 @@ describe('UC-D analytics HTTP validation and authorization', () => {
     expect(response.body.data).toEqual([
       { id: parkId, name: park.name, code: park.code },
     ]);
-    expect(ParkModel.find).toHaveBeenCalledWith({});
+    expect(prisma.park.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: { id: true, name: true, code: true },
+        orderBy: { name: 'asc' },
+      }),
+    );
   });
   test('an empty park collection does not produce demo options', async () => {
-    jest.spyOn(ParkModel, 'find').mockReturnValue(queryResult([]));
+    jest.mocked(prisma.park.findMany).mockResolvedValue([]);
     const response = await request(app)
       .get('/api/analytics/parks')
       .set('x-user-role', 'MANAGER');
@@ -231,13 +295,13 @@ describe('UC-D analytics HTTP validation and authorization', () => {
 
 describe('UC-D category and park-scoping boundaries', () => {
   test('does not silently include other parks or unlinked incidents when no sessions exist', async () => {
-    jest.mocked(PatrolSessionModel.find).mockReturnValueOnce(queryResult([]));
-    jest
-      .mocked(ConservationIncidentModel.find)
-      .mockReturnValueOnce(queryResult([]));
+    jest.mocked(prisma.patrolSession.findMany).mockResolvedValueOnce([]);
+    jest.mocked(prisma.conservationIncident.findMany).mockResolvedValueOnce([]);
     const result = await analyticsService.getAnalytics(criteria);
-    expect(ConservationIncidentModel.find).toHaveBeenCalledWith(
-      expect.objectContaining({ patrolSession: { $in: [] } }),
+    expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ patrolSessionId: { in: [] } }),
+      }),
     );
     expect(result.status).toBe('NO_MATCHING_DATA');
   });
@@ -247,17 +311,39 @@ describe('UC-D category and park-scoping boundaries', () => {
       categories: ['PATROL_COVERAGE'],
       rangerId: 'R-101',
     });
-    expect(PatrolSessionModel.find).toHaveBeenCalledWith({
-      patrolRoute: { $in: [routeId] },
-      $or: ['startTime', 'endTime', 'waypoints.timestamp'].map((field) => ({
-        [field]: {
-          $gte: new Date('2026-09-01T00:00:00.000Z'),
-          $lte: new Date('2026-09-30T23:59:59.999Z'),
+    expect(prisma.patrolSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          patrolRouteId: { in: [routeId] },
+          OR: [
+            {
+              startTime: {
+                gte: new Date('2026-09-01'),
+                lte: new Date('2026-09-30T23:59:59.999Z'),
+              },
+            },
+            {
+              endTime: {
+                gte: new Date('2026-09-01'),
+                lte: new Date('2026-09-30T23:59:59.999Z'),
+              },
+            },
+            {
+              waypoints: {
+                some: {
+                  timestamp: {
+                    gte: new Date('2026-09-01'),
+                    lte: new Date('2026-09-30T23:59:59.999Z'),
+                  },
+                },
+              },
+            },
+          ],
+          rangerId: 'R-101',
         },
-      })),
-      rangerId: 'R-101',
-    });
-    expect(ConservationIncidentModel.find).not.toHaveBeenCalled();
+      }),
+    );
+    expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
     expect(result.matchedRecords.patrols).toBe(1);
     expect(result.categoryAvailability).toEqual([
       { category: 'PATROL_COVERAGE', status: 'AVAILABLE' },
@@ -270,8 +356,13 @@ describe('UC-D category and park-scoping boundaries', () => {
       incidentType: 'SNARE',
       rangerId: 'R-101',
     });
-    expect(ConservationIncidentModel.find).toHaveBeenCalledWith(
-      expect.objectContaining({ incidentType: 'SNARE', reportedBy: 'R-101' }),
+    expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          incidentType: 'SNARE',
+          reportedBy: 'R-101',
+        }),
+      }),
     );
     expect(result.matchedRecords.incidents).toBe(1);
     expect(result.incidents.byType).toEqual([]);
@@ -280,23 +371,27 @@ describe('UC-D category and park-scoping boundaries', () => {
     expect(result.incidentHotspots?.hotspots).toEqual([]);
   });
   test('HWC-only criteria explicitly query all-parks conflicts without unrelated categories', async () => {
-    const conflictFind = jest.spyOn(WildlifeConflictAlertModel, 'find');
+    const conflictFind = jest.mocked(prisma.wildlifeConflictAlert.findMany);
     const result = await analyticsService.getAnalytics({
       ...criteria,
       categories: ['HWC_TRENDS'],
       severity: 'HIGH',
     });
     expect(conflictFind).toHaveBeenCalledTimes(2);
-    expect(conflictFind).toHaveBeenCalledWith({
-      severity: 'HIGH',
-      createdAt: {
-        $gte: new Date('2026-09-01T00:00:00Z'),
-        $lte: new Date('2026-09-30T23:59:59.999Z'),
-      },
-    });
+    expect(conflictFind).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          severity: 'HIGH',
+          createdAt: {
+            gte: new Date('2026-09-01T00:00:00Z'),
+            lte: new Date('2026-09-30T23:59:59.999Z'),
+          },
+        }),
+      }),
+    );
     expect(result.conflictTrends?.scope).toBe('ALL_PARKS_UNASSIGNED');
-    expect(ConservationIncidentModel.find).not.toHaveBeenCalled();
-    expect(PatrolSessionModel.find).not.toHaveBeenCalled();
+    expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
+    expect(prisma.patrolSession.findMany).not.toHaveBeenCalled();
     expect(result.status).toBe('NO_MATCHING_DATA');
     expect(result.categoryAvailability[0].status).toBe('AVAILABLE_UNSCOPED');
     expect(result.limitations.join(' ')).toContain('no boundary geometry');

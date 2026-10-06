@@ -26,7 +26,7 @@ import {
 const app = createApp();
 function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
   const criteria = {
-    parkId: '67a000000000000000000001',
+    parkId: 'c67a000000000000000000001',
     start: '2026-09-01',
     end: '2026-09-30',
     categories,
@@ -88,12 +88,12 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
       ? {
           patrolCoverage: calculatePatrolCoverage(
             [
-              { _id: 'route-1', name: 'Reviewed covered route' },
-              { _id: 'route-2', name: 'Reviewed neglected route' },
+              { id: 'route-1', name: 'Reviewed covered route' },
+              { id: 'route-2', name: 'Reviewed neglected route' },
             ],
             [
               {
-                patrolRoute: 'route-1',
+                patrolRouteId: 'route-1',
                 status: 'COMPLETED',
                 startTime: '2026-09-02',
                 endTime: '2026-09-03',
@@ -132,7 +132,7 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
     analyticsResult: data,
   };
 }
-function post(path: string, snapshot: unknown) {
+function post(path: string, snapshot: object) {
   return request(app)
     .post(`/api/analytics/reports${path}`)
     .set('x-user-role', 'MANAGER')
@@ -150,6 +150,13 @@ describe('UC-D report payload validation', () => {
     expect(response.headers['cache-control']).toBe('no-store');
   });
   test.each([
+    [
+      'obsolete ObjectID park',
+      (value: ReturnType<typeof fixture>) => {
+        value.park.id = '67a000000000000000000001';
+        value.appliedCriteria.parkId = value.park.id;
+      },
+    ],
     [
       'missing scope',
       (value: ReturnType<typeof fixture>) => {
@@ -228,7 +235,7 @@ describe('UC-D report payload validation', () => {
     [
       'string count',
       (value: ReturnType<typeof fixture>) => {
-        Object.assign(value.analyticsResult.incidentStatistics, { total: '7' });
+        Object.assign(value.analyticsResult.incidentStatistics!, { total: '7' });
       },
     ],
     [

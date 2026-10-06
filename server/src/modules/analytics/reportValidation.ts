@@ -4,8 +4,9 @@ import {
   HWC_SCOPE_NOTICE,
   isValidAnalysisDate,
   PATROL_COVERAGE_STATUSES,
+  normalizeAnalysisControls,
 } from './contract.js';
-import { analysisCriteriaSchema } from './validation.js';
+import { analysisCriteriaSchema, analysisParkIdSchema } from './validation.js';
 import type { ConservationReportSnapshot } from './reportContract.js';
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -31,18 +32,11 @@ const series = z
 // The form retains empty optional controls. Validate their normalized meaning
 // while retaining the original payload verbatim after successful validation.
 const criteria = z.preprocess(
-  (value) =>
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? Object.fromEntries(
-          Object.entries(value).filter(
-            ([, entry]) => entry !== '' && entry !== undefined,
-          ),
-        )
-      : value,
+  normalizeAnalysisControls,
   analysisCriteriaSchema,
 );
 const park = z
-  .object({ id: z.string().regex(/^[a-f\d]{24}$/i), name: text, code: text })
+  .object({ id: analysisParkIdSchema, name: text, code: text })
   .strict();
 const statistics = z
   .object({ total: count, byType: groups, byStatus: groups, overTime: series })

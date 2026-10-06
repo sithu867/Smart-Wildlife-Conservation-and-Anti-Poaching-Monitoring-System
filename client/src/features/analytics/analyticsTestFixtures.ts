@@ -10,8 +10,8 @@ import {
 } from '../../../../server/src/modules/analytics/contract';
 
 export const parks: ParkOption[] = [
-  { id: '67a000000000000000000001', name: 'Alpha park', code: 'ALPHA' },
-  { id: '67a000000000000000000002', name: 'Beta park', code: 'BETA' },
+  { id: 'c67a000000000000000000001', name: 'Alpha park', code: 'ALPHA' },
+  { id: 'c67a000000000000000000002', name: 'Beta park', code: 'BETA' },
 ];
 export const validCriteria: AnalysisCriteria = {
   ...createDraftCriteria(),

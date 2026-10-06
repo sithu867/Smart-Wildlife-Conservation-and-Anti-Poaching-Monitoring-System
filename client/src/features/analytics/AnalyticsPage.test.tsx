@@ -532,6 +532,30 @@ describe('park loading and recovery', () => {
 });
 
 describe('criteria validation and API serialization', () => {
+  test.each([
+    ['rangerId', '   '],
+    ['rangerId', 'R\n101'],
+    ['rangerId', 123],
+    ['incidentType', 'POACHING'],
+    ['incidentStatus', 'CLOSED'],
+    ['severity', false],
+    ['conflictStatus', 'CLOSED'],
+    ['conflictSource', 'RANGER'],
+    ['conflictType', 'POACHING'],
+  ])('rejects malformed optional %s using shared API rules', (field, value) => {
+    const issues = validateDraftCriteria(
+      { ...validCriteria, [field]: value },
+      parks,
+    );
+    expect(issues.length).toBeGreaterThan(0);
+  });
+  test('rejects malformed IDs even if they appear in a corrupted park list', () => {
+    expect(
+      validateDraftCriteria({ ...validCriteria, parkId: 'bad-id' }, [
+        { ...parks[0], id: 'bad-id' },
+      ]),
+    ).toContain('Select a valid Park / Conservation Area.');
+  });
   test('rejects impossible dates and unsupported categories in frontend validation', () => {
     expect(
       validateDraftCriteria({ ...validCriteria, start: '2026-02-30' }, parks),
