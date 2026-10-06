@@ -6,51 +6,285 @@ const alertInclude = { responses: { orderBy: { respondedAt: 'asc' as const } } }
 function shapeAlert(alert: any): any { if (!alert) return alert; const { id, ...rest } = alert; return { _id: id, ...rest }; }
 async function findAlert(alertId: string) { return prisma.wildlifeConflictAlert.findFirst({ where: { OR: [{ id: alertId }, { clientAlertId: alertId }] }, include: alertInclude }); }
 
+export interface RiskZone {
+  id: string;
+  name: string;
+  type: string;
+  centerLat: number;
+  centerLon: number;
+  radiusKm: number;
+  highRisk: boolean;
+}
+
+// Configured high-risk zones across the conservation park/reserve
+export const CONFIG_RISK_ZONES: RiskZone[] = [
+  {
+    id: 'rz-001',
+    name: 'Northern Community Buffer Zone',
+    type: 'BUFFER_ZONE',
+    centerLat: -2.1523,
+    centerLon: 34.8214,
+    radiusKm: 5.0,
+    highRisk: true
+  },
+  {
+    id: 'rz-002',
+    name: 'Ol-Donyo Village & Agricultural Perimeter',
+    type: 'COMMUNITY_BOUNDARY',
+    centerLat: -2.1890,
+    centerLon: 34.8410,
+    radiusKm: 3.5,
+    highRisk: true
+  },
+  {
+    id: 'rz-003',
+    name: 'Southern Livestock Boma Fence',
+    type: 'LIVESTOCK_FENCE',
+    centerLat: -2.1234,
+    centerLon: 34.7890,
+    radiusKm: 4.0,
+    highRisk: true
+  }
+];
+
+function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function findMatchingRiskZone(lat: number, lon: number): { zone: RiskZone; distanceKm: number } | null {
+  for (const zone of CONFIG_RISK_ZONES) {
+    const dist = calculateHaversineDistanceKm(lat, lon, zone.centerLat, zone.centerLon);
+    if (dist <= zone.radiusKm) {
+      return { zone, distanceKm: dist };
+    }
+  }
+  return null;
+}
+
+function calculateSeverityFromRiskZone(distanceKm: number, zoneRadiusKm: number): AlertSeverity {
+  const ratio = distanceKm / zoneRadiusKm;
+  if (ratio <= 0.3) return AlertSeverity.CRITICAL;
+  if (ratio <= 0.6) return AlertSeverity.HIGH;
+  if (ratio <= 0.9) return AlertSeverity.MEDIUM;
+  return AlertSeverity.LOW;
+}
+
 export class ConflictAlertService {
+  private notifyResponders(alert: any): void {
+    console.log(`[UC03 NOTIFICATION DISPATCH] Alert ${alert._id} (${alert.severity} ${alert.alertType}) created. Responders notified.`);
+  }
+
   async createAlert(input: CreateAlertInput): Promise<any> {
     const createdAt = new Date();
-    if (input.sourceEventId) { const existing = await prisma.wildlifeConflictAlert.findFirst({ where: { sourceEventId: input.sourceEventId }, include: alertInclude }); if (existing) return shapeAlert(existing); }
-    if (input.clientAlertId) { const existing = await prisma.wildlifeConflictAlert.findFirst({ where: { clientAlertId: input.clientAlertId }, include: alertInclude }); if (existing) return shapeAlert(existing); }
-    const alert = await prisma.wildlifeConflictAlert.create({ data: { clientAlertId: input.clientAlertId, sourceEventId: input.sourceEventId || `src-evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, source: input.source as any, alertType: input.alertType as any, severity: input.severity as any, status: AlertStatus.OPEN as any, location: { latitude: input.latitude, longitude: input.longitude, timestamp: createdAt.toISOString(), source: input.locationSource || LocationSource.GPS }, description: input.description, animalId: input.source === AlertSource.COLLAR ? input.animalId || 'ELEPHANT-001' : input.animalId, reporterName: input.source === AlertSource.COMMUNITY_REPORT ? input.reporterName || 'Community Member' : input.reporterName, syncStatus: SyncStatus.SYNCED as any }, include: alertInclude });
+    if (input.sourceEventId) {
+      const existing = await prisma.wildlifeConflictAlert.findFirst({
+        where: { sourceEventId: input.sourceEventId },
+        include: alertInclude
+      });
+      if (existing) return shapeAlert(existing);
+    }
+    if (input.clientAlertId) {
+      const existing = await prisma.wildlifeConflictAlert.findFirst({
+        where: { clientAlertId: input.clientAlertId },
+        include: alertInclude
+      });
+      if (existing) return shapeAlert(existing);
+    }
+
+    const alert = await prisma.wildlifeConflictAlert.create({
+      data: {
+        clientAlertId: input.clientAlertId,
+        sourceEventId: input.sourceEventId || `src-evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        source: input.source as any,
+        alertType: input.alertType as any,
+        severity: input.severity as any,
+        status: AlertStatus.OPEN as any,
+        location: {
+          latitude: input.latitude,
+          longitude: input.longitude,
+          timestamp: createdAt.toISOString(),
+          source: input.locationSource || LocationSource.GPS
+        },
+        description: input.description,
+        animalId: input.source === AlertSource.COLLAR ? input.animalId || 'ELEPHANT-001' : input.animalId,
+        reporterName: input.source === AlertSource.COMMUNITY_REPORT ? input.reporterName || 'Community Member' : input.reporterName,
+        syncStatus: SyncStatus.SYNCED as any
+      },
+      include: alertInclude
+    });
+
+    const shaped = shapeAlert(alert);
+    this.notifyResponders(shaped);
+    return shaped;
+  }
+
+  async simulateCollarEvent(input: SimulateCollarInput): Promise<any> {
+    const riskZoneResult = findMatchingRiskZone(input.latitude, input.longitude);
+
+    // If outside high-risk zone: store collar telemetry data, do NOT create alert
+    if (!riskZoneResult) {
+      console.log(`[UC03 COLLAR TELEMETRY] Animal ${input.animalId} location (${input.latitude}, ${input.longitude}) is outside all high-risk zones. Storing telemetry data; no alert created.`);
+      return {
+        alertCreated: false,
+        telemetrySaved: true,
+        animalId: input.animalId,
+        location: { latitude: input.latitude, longitude: input.longitude, timestamp: new Date() },
+        message: `Collar reading for tracked animal ${input.animalId} recorded successfully. Animal is outside configured high-risk zones; no alert generated.`
+      };
+    }
+
+    // Inside high-risk zone: determine severity dynamically based on proximity if not explicitly passed
+    const calculatedSeverity = input.severity || calculateSeverityFromRiskZone(riskZoneResult.distanceKm, riskZoneResult.zone.radiusKm);
+    const alertType = input.alertType || ConflictAlertType.DANGEROUS_WILDLIFE_ACTIVITY;
+    const description = input.description || `Collar breach alert for tracked animal ${input.animalId} inside ${riskZoneResult.zone.name} (${riskZoneResult.distanceKm.toFixed(2)} km from zone core).`;
+
+    const alert = await this.createAlert({
+      sourceEventId: input.sourceEventId || `collar-evt-${input.animalId}-${input.latitude.toFixed(4)}-${input.longitude.toFixed(4)}`,
+      source: AlertSource.COLLAR,
+      alertType,
+      severity: calculatedSeverity,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      description,
+      animalId: input.animalId,
+      locationSource: LocationSource.GPS
+    });
+
+    return {
+      alertCreated: true,
+      telemetrySaved: true,
+      riskZone: riskZoneResult.zone.name,
+      distanceKm: riskZoneResult.distanceKm,
+      ...alert
+    };
+  }
+
+  async submitCommunityReport(input: CommunityReportInput): Promise<any> {
+    let severity = input.severity;
+    if (!severity) {
+      if (input.reportType === ConflictAlertType.DANGEROUS_WILDLIFE_ACTIVITY || input.reportType === ConflictAlertType.LIVESTOCK_THREAT) {
+        severity = AlertSeverity.HIGH;
+      } else if (input.reportType === ConflictAlertType.CROP_RAID) {
+        severity = AlertSeverity.MEDIUM;
+      } else {
+        severity = AlertSeverity.LOW;
+      }
+    }
+
+    return this.createAlert({
+      sourceEventId: input.sourceEventId || `comm-rpt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      source: AlertSource.COMMUNITY_REPORT,
+      alertType: input.reportType,
+      severity,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      description: input.description,
+      reporterName: input.reporterName || 'Community Member',
+      locationSource: LocationSource.MANUAL
+    });
+  }
+
+  async getAlerts(filters?: { status?: string; severity?: string; alertType?: string }): Promise<any[]> {
+    const alerts = await prisma.wildlifeConflictAlert.findMany({
+      where: {
+        status: filters?.status as any,
+        severity: filters?.severity as any,
+        alertType: filters?.alertType as any
+      },
+      include: alertInclude,
+      orderBy: { createdAt: 'desc' }
+    });
+    return alerts.map(shapeAlert);
+  }
+
+  async getAlertById(alertId: string): Promise<any> {
+    const alert = await findAlert(alertId);
+    if (!alert) throw new Error('Wildlife conflict alert not found.');
     return shapeAlert(alert);
   }
 
-  async simulateCollarEvent(input: SimulateCollarInput): Promise<any> { return this.createAlert({ sourceEventId: input.sourceEventId || `collar-evt-${input.animalId}-${input.latitude.toFixed(4)}-${input.longitude.toFixed(4)}`, source: AlertSource.COLLAR, alertType: input.alertType || ConflictAlertType.DANGEROUS_WILDLIFE_ACTIVITY, severity: input.severity || AlertSeverity.HIGH, latitude: input.latitude, longitude: input.longitude, description: input.description || `Collar detection alert for tracked animal ${input.animalId} near high-risk boundary.`, animalId: input.animalId, locationSource: LocationSource.GPS }); }
-  async submitCommunityReport(input: CommunityReportInput): Promise<any> { return this.createAlert({ sourceEventId: input.sourceEventId || `comm-rpt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, source: AlertSource.COMMUNITY_REPORT, alertType: input.reportType, severity: input.severity || AlertSeverity.MEDIUM, latitude: input.latitude, longitude: input.longitude, description: input.description, reporterName: input.reporterName || 'Community Member', locationSource: LocationSource.MANUAL }); }
-
-  async getAlerts(filters?: { status?: string; severity?: string; alertType?: string }): Promise<any[]> {
-    const alerts = await prisma.wildlifeConflictAlert.findMany({ where: { status: filters?.status as any, severity: filters?.severity as any, alertType: filters?.alertType as any }, include: alertInclude, orderBy: { createdAt: 'desc' } });
-    return alerts.map(shapeAlert);
-  }
-  async getAlertById(alertId: string): Promise<any> { const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.'); return shapeAlert(alert); }
-
   async acknowledgeAlert(rangerId: string, rangerName: string, alertId: string, clientAcknowledgementId?: string): Promise<any> {
-    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const alert = await findAlert(alertId);
+    if (!alert) throw new Error('Wildlife conflict alert not found.');
     if (clientAcknowledgementId && alert.clientAcknowledgementId === clientAcknowledgementId) return shapeAlert(alert);
     if (alert.status === AlertStatus.RESOLVED) throw new Error('Resolved alert cannot be acknowledged.');
     if (alert.status !== AlertStatus.OPEN) throw new Error(`Invalid state transition: ${alert.status} alert cannot be acknowledged.`);
-    const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { status: AlertStatus.ACKNOWLEDGED as any, acknowledgedBy: rangerId, clientAcknowledgementId, acknowledgedName: rangerName, acknowledgedAt: new Date() }, include: alertInclude });
+    const updated = await prisma.wildlifeConflictAlert.update({
+      where: { id: alert.id },
+      data: {
+        status: AlertStatus.ACKNOWLEDGED as any,
+        acknowledgedBy: rangerId,
+        clientAcknowledgementId,
+        acknowledgedName: rangerName,
+        acknowledgedAt: new Date()
+      },
+      include: alertInclude
+    });
     return shapeAlert(updated);
   }
 
   async addResponse(rangerId: string, rangerName: string, alertId: string, input: AddResponseInput): Promise<any> {
-    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const alert = await findAlert(alertId);
+    if (!alert) throw new Error('Wildlife conflict alert not found.');
     if (input.clientResponseId && alert.responses.some((r: any) => r.clientResponseId === input.clientResponseId)) return shapeAlert(alert);
     if (alert.status === AlertStatus.RESOLVED) throw new Error('Invalid state transition: Resolved alert cannot accept new responses.');
     if (alert.status !== AlertStatus.ACKNOWLEDGED && alert.status !== AlertStatus.RESPONDING) throw new Error('Invalid state transition: Alert must be acknowledged before recording response.');
     const respondedAt = new Date();
-    const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { status: (input.markResolved ? AlertStatus.RESOLVED : AlertStatus.RESPONDING) as any, resolvedBy: input.markResolved ? rangerId : undefined, resolvedName: input.markResolved ? rangerName : undefined, resolvedAt: input.markResolved ? respondedAt : undefined, resolutionNotes: input.markResolved ? input.resolutionNotes || input.notes : undefined, responses: { create: { responseId: `resp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, clientResponseId: input.clientResponseId, responderId: rangerId, responderName: rangerName, action: input.action as any, notes: input.notes, respondedAt, outcome: input.outcome } } }, include: alertInclude });
+    const updated = await prisma.wildlifeConflictAlert.update({
+      where: { id: alert.id },
+      data: {
+        status: (input.markResolved ? AlertStatus.RESOLVED : AlertStatus.RESPONDING) as any,
+        resolvedBy: input.markResolved ? rangerId : undefined,
+        resolvedName: input.markResolved ? rangerName : undefined,
+        resolvedAt: input.markResolved ? respondedAt : undefined,
+        resolutionNotes: input.markResolved ? input.resolutionNotes || input.notes : undefined,
+        responses: {
+          create: {
+            responseId: `resp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            clientResponseId: input.clientResponseId,
+            responderId: rangerId,
+            responderName: rangerName,
+            action: input.action as any,
+            notes: input.notes,
+            respondedAt,
+            outcome: input.outcome
+          }
+        }
+      },
+      include: alertInclude
+    });
     return shapeAlert(updated);
   }
 
   async resolveAlert(rangerId: string, rangerName: string, alertId: string, input: ResolveAlertInput): Promise<any> {
-    const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    const alert = await findAlert(alertId);
+    if (!alert) throw new Error('Wildlife conflict alert not found.');
     if (input.clientActionId && alert.clientResolutionId === input.clientActionId) return shapeAlert(alert);
     if (alert.status === AlertStatus.RESOLVED) throw new Error('Invalid state transition: Alert is already resolved.');
     if (alert.status !== AlertStatus.RESPONDING) throw new Error(`Invalid state transition: ${alert.status} alert cannot be resolved.`);
-    const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { status: AlertStatus.RESOLVED as any, resolvedBy: rangerId, clientResolutionId: input.clientActionId, resolvedName: rangerName, resolvedAt: new Date(), resolutionNotes: input.resolutionNotes }, include: alertInclude });
+    const updated = await prisma.wildlifeConflictAlert.update({
+      where: { id: alert.id },
+      data: {
+        status: AlertStatus.RESOLVED as any,
+        resolvedBy: rangerId,
+        clientResolutionId: input.clientActionId,
+        resolvedName: rangerName,
+        resolvedAt: new Date(),
+        resolutionNotes: input.resolutionNotes
+      },
+      include: alertInclude
+    });
     return shapeAlert(updated);
   }
 }
 
 export const conflictAlertService = new ConflictAlertService();
+

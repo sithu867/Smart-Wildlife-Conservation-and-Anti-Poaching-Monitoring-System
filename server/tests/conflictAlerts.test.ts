@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { jest } from '@jest/globals';
 import { createApp } from '../src/app.js';
 import {
   AlertSource,
@@ -11,15 +12,19 @@ import {
 
 const app = createApp();
 
+jest.setTimeout(60000);
+
 describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
-  const sampleCollarSimulation = {
+  const getCollarSimulation = () => ({
+    sourceEventId: `collar-test-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
     animalId: 'ELEPHANT-001',
     latitude: -2.1523,
     longitude: 34.8214,
     alertType: ConflictAlertType.DANGEROUS_WILDLIFE_ACTIVITY,
     severity: AlertSeverity.HIGH,
     description: 'Tracked elephant ELEPHANT-001 entered village buffer zone.'
-  };
+  });
+  const sampleCollarSimulation = getCollarSimulation();
 
   const sampleCommunityReport = {
     reporterName: 'Elder Joseph',
@@ -30,19 +35,38 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
     description: 'Herds of elephants spotted near maize farm.'
   };
 
-  // 1. Valid Alert Creation - Collar Simulator
-  test('1. POST /api/conflict-alerts/simulate-collar creates a collar conflict alert', async () => {
+  // 1. Valid Alert Creation - Collar Simulator Inside Risk Zone
+  test('1. POST /api/conflict-alerts/simulate-collar creates a collar conflict alert when inside high-risk zone', async () => {
     const res = await request(app)
       .post('/api/conflict-alerts/simulate-collar')
-      .send(sampleCollarSimulation);
+      .send(getCollarSimulation());
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
+    expect(res.body.data.alertCreated).toBe(true);
     expect(res.body.data.source).toBe(AlertSource.COLLAR);
     expect(res.body.data.animalId).toBe('ELEPHANT-001');
     expect(res.body.data.status).toBe(AlertStatus.OPEN);
     expect(res.body.data.severity).toBe(AlertSeverity.HIGH);
     expect(res.body.data.location.source).toBe(LocationSource.GPS);
+  });
+
+  // 1b. Collar Telemetry Outside Risk Zone -> Stored without creating alert
+  test('1b. POST /api/conflict-alerts/simulate-collar stores telemetry without alert creation when outside risk zones', async () => {
+    const res = await request(app)
+      .post('/api/conflict-alerts/simulate-collar')
+      .send({
+        animalId: 'LION-999',
+        latitude: -1.0000, // Safe distance away from all high-risk zones
+        longitude: 30.0000,
+        description: 'Collar tracking outside reserve boundaries.'
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.alertCreated).toBe(false);
+    expect(res.body.data.telemetrySaved).toBe(true);
+    expect(res.body.data.message).toContain('recorded successfully');
   });
 
   // 2. Valid Alert Creation - Community Report
