@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "workspaces": ["client", "server"],
   "scripts": {
+    "postinstall": "prisma generate --schema server/prisma/schema.prisma",
     "dev": "node scripts/dev.mjs",
     "test:dev": "node --test scripts/dev.test.mjs",
     "build": "npm run build --workspace client && npm run build --workspace server",

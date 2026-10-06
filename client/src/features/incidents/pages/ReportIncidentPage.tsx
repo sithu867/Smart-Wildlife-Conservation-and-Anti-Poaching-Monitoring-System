@@ -212,9 +212,21 @@ export const ReportIncidentPage: React.FC = () => {
           </div>
 
           <div className="flex flex-col gap-2 w-full mt-2">
+            {(() => {
+              const linkedSessId = patrolSessionId || (typeof submittedIncident.patrolSession === 'object' ? submittedIncident.patrolSession?._id : submittedIncident.patrolSession);
+              return linkedSessId ? (
+                <button
+                  onClick={() => navigate(`/ranger/patrol/active/${linkedSessId}`)}
+                  className="w-full py-4 rounded-2xl font-bold bg-emerald-400 text-slate-950 hover:bg-emerald-300 text-sm shadow-xl shadow-emerald-400/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                >
+                  <span>🛡️</span>
+                  <span>Return to Active Patrol Tracking Screen</span>
+                </button>
+              ) : null;
+            })()}
             <button
               onClick={() => navigate('/ranger/incidents')}
-              className="w-full py-4 rounded-2xl font-bold bg-emerald-400 text-slate-950 hover:bg-emerald-300 text-sm shadow-xl shadow-emerald-400/20 active:scale-[0.98] transition-all"
+              className="w-full py-3.5 rounded-2xl font-bold bg-slate-800 text-slate-100 hover:bg-slate-700 text-xs shadow-md active:scale-[0.98] transition-all"
             >
               View My Reported Incidents →
             </button>
@@ -228,7 +240,7 @@ export const ReportIncidentPage: React.FC = () => {
                 setLocationStatus('obtaining');
                 setLocationSource(LocationSource.GPS);
               }}
-              className="w-full py-3 rounded-2xl font-semibold bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs"
+              className="w-full py-2.5 rounded-2xl font-semibold bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-xs"
             >
               Report Another Incident
             </button>

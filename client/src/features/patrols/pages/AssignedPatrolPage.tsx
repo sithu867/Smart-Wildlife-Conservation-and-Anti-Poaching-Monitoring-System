@@ -4,11 +4,11 @@ import { usePatrol } from '../hooks/usePatrol';
 import { patrolApi } from '../api/patrolApi';
 import { PatrolCard } from '../components/PatrolCard';
 import { SyncStatusIndicator } from '../components/SyncStatus';
-import type { PatrolSession } from '../types/patrol';
+import type { PatrolSession, PatrolAssignment } from '../types/patrol';
 
 export const AssignedPatrolPage: React.FC = () => {
   const navigate = useNavigate();
-  const { assignment, session, loading, error, startPatrol } = usePatrol();
+  const { assignment, assignments, session, loading, error, selectAssignment, startPatrol, resumePatrol } = usePatrol();
   const [history, setHistory] = useState<PatrolSession[]>([]);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(true);
 
@@ -26,12 +26,25 @@ export const AssignedPatrolPage: React.FC = () => {
       });
   }, []);
 
-  const handleStartPatrol = async () => {
+  const handleStartSelectedPatrol = async (targetAssignmentId: string) => {
     try {
-      const activeSess = await startPatrol();
+      const activeSess = await startPatrol(targetAssignmentId);
       navigate(`/ranger/patrol/active/${activeSess._id}`);
     } catch (err) {
       console.error('Failed to start patrol:', err);
+    }
+  };
+
+  const handleResumePatrol = async () => {
+    if (!session) return;
+    try {
+      if (session.status === 'PAUSED') {
+        await resumePatrol();
+      }
+      navigate(`/ranger/patrol/active/${session._id}`);
+    } catch (err) {
+      console.error('Failed to resume patrol:', err);
+      navigate(`/ranger/patrol/active/${session._id}`);
     }
   };
 
@@ -39,7 +52,7 @@ export const AssignedPatrolPage: React.FC = () => {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-300 gap-3">
         <div className="w-8 h-8 border-4 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-sm font-medium">Retrieving assigned patrol route...</p>
+        <p className="text-sm font-medium">Retrieving assigned patrol routes...</p>
       </div>
     );
   }
@@ -53,100 +66,142 @@ export const AssignedPatrolPage: React.FC = () => {
     );
   }
 
-  const isSessionActive = session && session.status === 'ACTIVE';
-  const completedPatrols = history.filter(h => h.status === 'COMPLETED');
+  const isSessionActive = session && (session.status === 'ACTIVE' || session.status === 'PAUSED');
+  const finishedPatrols = history.filter(h => h.status === 'COMPLETED' || h.status === 'CANCELLED');
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 text-slate-100 flex flex-col gap-6">
+    <div className="max-w-3xl mx-auto px-4 py-6 text-slate-100 flex flex-col gap-6">
+      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-amber-400">Ranger Patrol Workspace</span>
-          <h1 className="text-2xl font-black text-white mt-1">My Assigned Patrol</h1>
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-400">Ranger Field Workspace</span>
+          <h1 className="text-2xl font-black text-white mt-1">My Assigned Patrol Routes</h1>
         </div>
         <SyncStatusIndicator />
       </div>
 
+      {/* Active/Paused Session Notification Banner */}
       {isSessionActive && (
-        <div className="bg-emerald-950/80 border border-emerald-500/40 p-4 rounded-2xl flex items-center justify-between shadow-lg animate-pulse">
-          <div>
-            <h3 className="font-bold text-emerald-300 text-sm">Active Patrol In Progress</h3>
-            <p className="text-xs text-emerald-200 mt-0.5">GPS tracking is actively recording your route.</p>
+        <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-emerald-900/80 border border-emerald-500/50 p-4 rounded-2xl flex items-center justify-between shadow-xl animate-pulse">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📡</span>
+            <div>
+              <h3 className="font-extrabold text-emerald-300 text-sm flex items-center gap-2">
+                <span>{session.status === 'PAUSED' ? 'Patrol Session Paused' : 'Active Patrol Session in Progress'}</span>
+                <span className="text-[10px] bg-emerald-400 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase">
+                  {session.status}
+                </span>
+              </h3>
+              <p className="text-xs text-emerald-200 mt-0.5">
+                Route: {session.patrolRoute?.name || 'Northern Boundary Patrol'} • {session.waypoints?.length || 0} waypoints recorded
+              </p>
+            </div>
           </div>
           <button
-            onClick={() => navigate(`/ranger/patrol/active/${session._id}`)}
-            className="py-2 px-4 rounded-xl text-xs font-extrabold bg-emerald-400 text-slate-950 hover:bg-emerald-300 shadow-md"
+            onClick={handleResumePatrol}
+            className="py-2.5 px-4 rounded-xl text-xs font-black bg-emerald-400 text-slate-950 hover:bg-emerald-300 shadow-lg shadow-emerald-400/20 active:scale-95 transition-all"
           >
-            Resume Screen
+            {session.status === 'PAUSED' ? 'Resume Patrol' : 'Open Tracking Screen →'}
           </button>
         </div>
       )}
 
-      {assignment ? (
-        <PatrolCard
-          assignment={assignment}
-          activeSession={session}
-          onStartPatrol={handleStartPatrol}
-          onViewRoute={() => navigate(`/ranger/patrol/route/${assignment.patrolRoute._id}`)}
-          onContinuePatrol={() => session && navigate(`/ranger/patrol/active/${session._id}`)}
-        />
-      ) : (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-300 flex flex-col items-center gap-3">
-          <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-amber-400 font-bold text-xl">
-            🛡️
-          </div>
-          <h2 className="text-lg font-bold text-white">No Active Patrol Assignment</h2>
-          <p className="text-sm text-slate-400 max-w-sm">
-            You do not have an active patrol route assigned. Check back with your park administrator.
-          </p>
-        </div>
-      )}
-
-      {/* Finished Ranger Patrols History */}
-      <div className="flex flex-col gap-4 mt-2">
+      {/* Available Assigned Routes Selection Section */}
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>📋</span> Finished Ranger Patrols
+            <span>🗺️</span> Available Assigned Routes
+          </h2>
+          <span className="text-xs font-extrabold bg-slate-800 text-amber-400 px-3 py-1 rounded-full border border-slate-700">
+            {assignments.length} Routes Assigned
+          </span>
+        </div>
+
+        {assignments.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {assignments.map(assign => {
+              const isSelected = assignment?._id === assign._id;
+              return (
+                <div
+                  key={assign._id}
+                  onClick={() => selectAssignment(assign._id)}
+                  className={`cursor-pointer transition-all ${
+                    isSelected ? 'ring-2 ring-amber-400 rounded-2xl scale-[1.01]' : 'opacity-90 hover:opacity-100'
+                  }`}
+                >
+                  <PatrolCard
+                    assignment={assign}
+                    activeSession={session?.patrolAssignment === assign._id ? session : null}
+                    onStartPatrol={() => handleStartSelectedPatrol(assign._id)}
+                    onViewRoute={() => navigate(`/ranger/patrol/route/${assign.patrolRoute._id}`)}
+                    onContinuePatrol={handleResumePatrol}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center text-slate-300 flex flex-col items-center gap-3">
+            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center text-amber-400 font-bold text-xl">
+              🛡️
+            </div>
+            <h2 className="text-lg font-bold text-white">No Active Patrol Assignment</h2>
+            <p className="text-sm text-slate-400 max-w-sm">
+              You do not have an active patrol route assigned. Check back with your park administrator.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Finished / Completed Patrols History */}
+      <div className="flex flex-col gap-4 mt-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <span>📋</span> Patrol History Log
           </h2>
           <span className="text-xs font-extrabold bg-slate-800 text-slate-300 px-3 py-1 rounded-full border border-slate-700">
-            {completedPatrols.length} Total
+            {finishedPatrols.length} Recorded
           </span>
         </div>
 
         {loadingHistory ? (
           <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-center text-xs text-slate-400">
-            Loading finished patrols history...
+            Loading patrol history...
           </div>
-        ) : completedPatrols.length === 0 ? (
+        ) : finishedPatrols.length === 0 ? (
           <div className="p-6 bg-slate-900 border border-slate-800 rounded-2xl text-center text-xs text-slate-400">
-            No completed ranger patrols logged yet. Start and complete a patrol to view it here.
+            No completed or cancelled ranger patrols logged yet. Start and complete a patrol to view it here.
           </div>
         ) : (
-          <div className="flex flex-col gap-3">
-            {completedPatrols.map(p => {
+          <div className="max-h-[380px] overflow-y-auto pr-1 grid grid-cols-1 md:grid-cols-2 gap-3 scrollbar-thin scrollbar-thumb-slate-700">
+            {finishedPatrols.map(p => {
               const waypointsCount = p.waypoints?.length || 0;
               const isSynced = p.syncStatus === 'SYNCED';
+              const isCancelled = p.status === 'CANCELLED';
               return (
                 <div
                   key={p._id}
-                  className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-4 transition-all shadow-md flex flex-col gap-3"
+                  className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 rounded-2xl p-4 transition-all shadow-md flex flex-col justify-between gap-3"
                 >
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                        {p.patrolRoute?.name || 'Northern Boundary Patrol'}
+                        {p.patrolRoute?.name || 'Boundary Patrol'}
                       </span>
-                      <h3 className="text-sm font-black text-white mt-0.5">
-                        Completed on {new Date(p.endTime || p.startTime).toLocaleDateString()} at {new Date(p.endTime || p.startTime).toLocaleTimeString()}
+                      <h3 className="text-xs font-black text-white mt-0.5">
+                        {isCancelled ? 'Cancelled' : 'Completed'} on {new Date(p.endTime || p.startTime).toLocaleDateString()} at {new Date(p.endTime || p.startTime).toLocaleTimeString()}
                       </h3>
                     </div>
                     <span
                       className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                        isSynced
+                        isCancelled
+                          ? 'bg-rose-950 text-rose-300 border-rose-500/40'
+                          : isSynced
                           ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
                           : 'bg-amber-950 text-amber-300 border-amber-500/40'
                       }`}
                     >
-                      {isSynced ? '🟢 SYNCED' : '🟡 PENDING SYNC'}
+                      {isCancelled ? '🛑 CANCELLED' : isSynced ? '🟢 SYNCED' : '🟡 PENDING SYNC'}
                     </span>
                   </div>
 
@@ -169,9 +224,9 @@ export const AssignedPatrolPage: React.FC = () => {
 
                   <button
                     onClick={() => navigate(`/ranger/patrol/summary/${p._id}`)}
-                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition-all text-center"
+                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition-all text-center"
                   >
-                    View Complete Patrol Details & Map Summary →
+                    View Details & Map Summary →
                   </button>
                 </div>
               );
@@ -182,4 +237,3 @@ export const AssignedPatrolPage: React.FC = () => {
     </div>
   );
 };
-

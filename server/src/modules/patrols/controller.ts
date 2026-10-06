@@ -81,6 +81,48 @@ export const patrolController = {
     }
   },
 
+  async pausePatrol(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId } = getAuthenticatedRanger(req);
+      const sessionId = String(req.params.sessionId);
+      const data = await patrolService.pausePatrol(rangerId, sessionId);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
+  async resumePatrol(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId } = getAuthenticatedRanger(req);
+      const sessionId = String(req.params.sessionId);
+      const data = await patrolService.resumePatrol(rangerId, sessionId);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
+  async cancelPatrol(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId } = getAuthenticatedRanger(req);
+      const sessionId = String(req.params.sessionId);
+      const data = await patrolService.cancelPatrol(rangerId, sessionId);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
   async getSessionById(req: Request, res: Response, next: NextFunction) {
     try {
       const { rangerId } = getAuthenticatedRanger(req);

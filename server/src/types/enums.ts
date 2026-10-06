@@ -9,7 +9,9 @@ export enum SyncStatus {
 export enum PatrolStatus {
   ASSIGNED = 'ASSIGNED',
   ACTIVE = 'ACTIVE',
-  COMPLETED = 'COMPLETED'
+  PAUSED = 'PAUSED',
+  COMPLETED = 'COMPLETED',
+  CANCELLED = 'CANCELLED'
 }
 
 export enum LocationSource {

@@ -1,5 +1,5 @@
 export enum SyncStatus { LOCAL = 'LOCAL', PENDING = 'PENDING', SYNCING = 'SYNCING', SYNCED = 'SYNCED', FAILED = 'FAILED' }
-export enum PatrolStatus { ASSIGNED = 'ASSIGNED', ACTIVE = 'ACTIVE', COMPLETED = 'COMPLETED' }
+export enum PatrolStatus { ASSIGNED = 'ASSIGNED', ACTIVE = 'ACTIVE', PAUSED = 'PAUSED', COMPLETED = 'COMPLETED', CANCELLED = 'CANCELLED' }
 export enum LocationSource { GPS = 'GPS', MANUAL = 'MANUAL' }
 export enum IncidentType {
   SNARE = 'SNARE',

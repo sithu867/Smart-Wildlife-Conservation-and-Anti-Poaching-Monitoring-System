@@ -1,6 +1,6 @@
 import { http } from '../../../shared/api/http';
 import { offlineDb, type OfflineRecord } from '../../../offline/db';
-import { syncService, type SyncQueueItem } from '../../../offline/syncService';
+import { syncService } from '../../../offline/syncService';
 import { SyncStatus, PatrolStatus } from '../../../shared/types/enums';
 import type { PatrolAssignment, PatrolSession, PatrolRoute, Waypoint } from '../types/patrol';
 
@@ -41,46 +41,112 @@ export function calculateTotalWaypointsDistanceKm(waypoints: Waypoint[]): number
   return Math.round(total * 1000) / 1000;
 }
 
-const DEFAULT_SEED_ROUTE: PatrolRoute = {
-  _id: 'route-seed-north-01',
-  name: 'Northern Boundary Patrol',
-  park: {
-    _id: 'park-seed-serengeti-01',
-    name: 'Serengeti Northern Sector',
-    code: 'SERENGETI-NORTH',
-    description: 'Northern conservation sector guarding wildlife corridors.'
+const DEFAULT_SEED_ROUTES: PatrolRoute[] = [
+  {
+    _id: 'route-seed-north-01',
+    name: 'Northern Boundary Patrol',
+    park: {
+      _id: 'park-seed-serengeti-01',
+      name: 'Serengeti Northern Sector',
+      code: 'SERENGETI-NORTH',
+      description: 'Northern conservation sector guarding wildlife corridors.'
+    },
+    description: '12km boundary patrol along the northern river sector to prevent poaching.',
+    distanceKm: 12.5,
+    estimatedDurationHours: 3.5,
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [34.8214, -2.1523],
+        [34.8320, -2.1480],
+        [34.8450, -2.1410],
+        [34.8580, -2.1350],
+        [34.8700, -2.1300]
+      ]
+    }
   },
-  description: '12km boundary patrol along the northern river sector to prevent poaching.',
-  distanceKm: 12.5,
-  estimatedDurationHours: 3.5,
-  geometry: {
-    type: 'LineString',
-    coordinates: [
-      [34.8214, -2.1523],
-      [34.8320, -2.1480],
-      [34.8450, -2.1410],
-      [34.8580, -2.1350],
-      [34.8700, -2.1300]
-    ]
+  {
+    _id: 'route-seed-mara-02',
+    name: 'Mara River Savanna Corridor',
+    park: {
+      _id: 'park-seed-serengeti-01',
+      name: 'Serengeti Northern Sector',
+      code: 'SERENGETI-NORTH',
+      description: 'Northern conservation sector guarding wildlife corridors.'
+    },
+    description: '8km high-density wildlife corridor along the Mara river basin.',
+    distanceKm: 8.0,
+    estimatedDurationHours: 2.5,
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [34.8100, -2.1600],
+        [34.8180, -2.1550],
+        [34.8290, -2.1510],
+        [34.8400, -2.1450]
+      ]
+    }
+  },
+  {
+    _id: 'route-seed-rhino-03',
+    name: 'Rhino Sanctuary Perimeter Sweep',
+    park: {
+      _id: 'park-seed-serengeti-01',
+      name: 'Serengeti Northern Sector',
+      code: 'SERENGETI-NORTH',
+      description: 'Northern conservation sector guarding wildlife corridors.'
+    },
+    description: '15km perimeter security check around endangered black rhino protection zone.',
+    distanceKm: 15.2,
+    estimatedDurationHours: 4.5,
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [34.8500, -2.1700],
+        [34.8620, -2.1650],
+        [34.8750, -2.1600],
+        [34.8880, -2.1520]
+      ]
+    }
   }
-};
+];
 
-const DEFAULT_SEED_ASSIGNMENT: PatrolAssignment = {
-  _id: 'assign-seed-01',
-  rangerId: 'R-101',
-  rangerName: 'Ranger John',
-  patrolRoute: DEFAULT_SEED_ROUTE,
-  assignedDate: new Date().toISOString(),
-  status: PatrolStatus.ASSIGNED,
-  notes: 'Scheduled morning anti-poaching patrol.'
-};
+const DEFAULT_SEED_ASSIGNMENTS: PatrolAssignment[] = [
+  {
+    _id: 'assign-seed-01',
+    rangerId: 'R-101',
+    rangerName: 'Ranger John',
+    patrolRoute: DEFAULT_SEED_ROUTES[0],
+    assignedDate: new Date().toISOString(),
+    status: PatrolStatus.ASSIGNED,
+    notes: 'Scheduled morning anti-poaching patrol.'
+  },
+  {
+    _id: 'assign-seed-02',
+    rangerId: 'R-101',
+    rangerName: 'Ranger John',
+    patrolRoute: DEFAULT_SEED_ROUTES[1],
+    assignedDate: new Date().toISOString(),
+    status: PatrolStatus.ASSIGNED,
+    notes: 'River corridor wildlife monitoring sweep.'
+  },
+  {
+    _id: 'assign-seed-03',
+    rangerId: 'R-101',
+    rangerName: 'Ranger John',
+    patrolRoute: DEFAULT_SEED_ROUTES[2],
+    assignedDate: new Date().toISOString(),
+    status: PatrolStatus.ASSIGNED,
+    notes: 'High-priority perimeter defense for Rhino Sanctuary.'
+  }
+];
 
 export const patrolApi = {
-  async getMyAssignment(): Promise<{ assignment: PatrolAssignment | null; activeSession: PatrolSession | null }> {
+  async getMyAssignment(): Promise<{ assignment: PatrolAssignment | null; assignments: PatrolAssignment[]; activeSession: PatrolSession | null }> {
     try {
       const response = await http.get('/patrols/my-assignment');
       if (response.data?.success) {
-        const { assignment, activeSession } = response.data.data;
+        const { assignment, assignments, activeSession } = response.data.data;
         if (activeSession) {
           await offlineDb.patrolSessions.put({
             remoteId: activeSession._id,
@@ -90,7 +156,11 @@ export const patrolApi = {
             payload: activeSession
           });
         }
-        return { assignment, activeSession };
+        return {
+          assignment: assignment || DEFAULT_SEED_ASSIGNMENTS[0],
+          assignments: assignments && assignments.length > 0 ? assignments : DEFAULT_SEED_ASSIGNMENTS,
+          activeSession
+        };
       }
     } catch (error) {
       console.warn('Network request failed, retrieving cached assignment from local storage:', error);
@@ -98,10 +168,13 @@ export const patrolApi = {
 
     // Fallback to offline Dexie storage
     const cachedSessions = await offlineDb.patrolSessions.toArray();
-    const activeCached = cachedSessions.find(s => (s.payload as PatrolSession)?.status === PatrolStatus.ACTIVE);
+    const activeCached = cachedSessions.find(
+      s => (s.payload as PatrolSession)?.status === PatrolStatus.ACTIVE || (s.payload as PatrolSession)?.status === PatrolStatus.PAUSED
+    );
 
     return {
-      assignment: DEFAULT_SEED_ASSIGNMENT,
+      assignment: DEFAULT_SEED_ASSIGNMENTS[0],
+      assignments: DEFAULT_SEED_ASSIGNMENTS,
       activeSession: activeCached ? (activeCached.payload as PatrolSession) : null
     };
   },
@@ -112,15 +185,17 @@ export const patrolApi = {
       return response.data.data;
     } catch (error) {
       console.warn('Network failed for route details, returning offline fallback route:', error);
-      return DEFAULT_SEED_ROUTE;
+      const matched = DEFAULT_SEED_ROUTES.find(r => r._id === routeId);
+      return matched || DEFAULT_SEED_ROUTES[0];
     }
   },
 
   async startPatrol(assignmentId?: string): Promise<PatrolSession> {
     const clientSessionId = `sess-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const selectedAssignment = DEFAULT_SEED_ASSIGNMENTS.find(a => a._id === assignmentId) || DEFAULT_SEED_ASSIGNMENTS[0];
 
     try {
-      const response = await http.post('/patrols/sessions', { assignmentId, clientSessionId });
+      const response = await http.post('/patrols/sessions', { assignmentId: selectedAssignment._id, clientSessionId });
       const session: PatrolSession = response.data.data;
 
       await offlineDb.patrolSessions.put({
@@ -141,8 +216,8 @@ export const patrolApi = {
         clientSessionId,
         rangerId: 'R-101',
         rangerName: 'Ranger John',
-        patrolAssignment: assignmentId || DEFAULT_SEED_ASSIGNMENT._id,
-        patrolRoute: DEFAULT_SEED_ROUTE,
+        patrolAssignment: selectedAssignment._id,
+        patrolRoute: selectedAssignment.patrolRoute,
         startTime: new Date().toISOString(),
         endTime: null,
         status: PatrolStatus.ACTIVE,
@@ -216,8 +291,8 @@ export const patrolApi = {
       }
 
       const session = local.payload as PatrolSession;
-      if (session.status === PatrolStatus.COMPLETED) {
-        throw new Error('Completed patrol cannot accept new waypoints.');
+      if (session.status === PatrolStatus.COMPLETED || session.status === PatrolStatus.CANCELLED) {
+        throw new Error('Completed or cancelled patrol cannot accept new waypoints.');
       }
 
       const updatedWaypoints = [...(session.waypoints || []), waypoint];
@@ -262,11 +337,9 @@ export const patrolApi = {
     }
   },
 
-  async completePatrol(sessionId: string, endTime?: string): Promise<PatrolSession> {
-    const finalEndTime = endTime || new Date().toISOString();
-
+  async pausePatrol(sessionId: string): Promise<PatrolSession> {
     try {
-      const response = await http.post(`/patrols/sessions/${sessionId}/complete`, { endTime: finalEndTime });
+      const response = await http.post(`/patrols/sessions/${sessionId}/pause`);
       const session: PatrolSession = response.data.data;
 
       const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sessionId);
@@ -276,6 +349,99 @@ export const patrolApi = {
           updatedAt: new Date().toISOString(),
           payload: session
         });
+      }
+      return session;
+    } catch (error) {
+      console.warn('Network failed on pausePatrol, pausing locally:', error);
+      const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sessionId);
+      if (!local || !local.id) throw new Error('Active patrol session not found in local storage.');
+
+      const session = local.payload as PatrolSession;
+      const pausedSession: PatrolSession = { ...session, status: PatrolStatus.PAUSED, syncStatus: SyncStatus.PENDING };
+      await offlineDb.patrolSessions.update(local.id, { syncStatus: SyncStatus.PENDING, updatedAt: new Date().toISOString(), payload: pausedSession });
+      return pausedSession;
+    }
+  },
+
+  async resumePatrol(sessionId: string): Promise<PatrolSession> {
+    try {
+      const response = await http.post(`/patrols/sessions/${sessionId}/resume`);
+      const session: PatrolSession = response.data.data;
+
+      const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sessionId);
+      if (local && local.id) {
+        await offlineDb.patrolSessions.update(local.id, {
+          syncStatus: SyncStatus.SYNCED,
+          updatedAt: new Date().toISOString(),
+          payload: session
+        });
+      }
+      return session;
+    } catch (error) {
+      console.warn('Network failed on resumePatrol, resuming locally:', error);
+      const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sessionId);
+      if (!local || !local.id) throw new Error('Active patrol session not found in local storage.');
+
+      const session = local.payload as PatrolSession;
+      const resumedSession: PatrolSession = { ...session, status: PatrolStatus.ACTIVE, syncStatus: SyncStatus.PENDING };
+      await offlineDb.patrolSessions.update(local.id, { syncStatus: SyncStatus.PENDING, updatedAt: new Date().toISOString(), payload: resumedSession });
+      return resumedSession;
+    }
+  },
+
+  async cancelPatrol(sessionId: string, reason?: string): Promise<PatrolSession> {
+    try {
+      const response = await http.post(`/patrols/sessions/${sessionId}/cancel`, { reason });
+      const session: PatrolSession = response.data.data;
+
+      const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sessionId);
+      if (local && local.id) {
+        await offlineDb.patrolSessions.update(local.id, {
+          syncStatus: SyncStatus.SYNCED,
+          updatedAt: new Date().toISOString(),
+          payload: session
+        });
+      }
+      return session;
+    } catch (error) {
+      console.warn('Network failed on cancelPatrol, cancelling locally:', error);
+      const local = await findLocalRecordByRemoteId(offlineDb.patrolSessions, sessionId);
+      if (!local || !local.id) throw new Error('Active patrol session not found in local storage.');
+
+      const session = local.payload as PatrolSession;
+      const cancelledSession: PatrolSession = {
+        ...session,
+        status: PatrolStatus.CANCELLED,
+        endTime: new Date().toISOString(),
+        syncStatus: SyncStatus.PENDING
+      };
+      await offlineDb.patrolSessions.update(local.id, { syncStatus: SyncStatus.PENDING, updatedAt: new Date().toISOString(), payload: cancelledSession });
+      return cancelledSession;
+    }
+  },
+
+  async completePatrol(sessionId: string, endTime?: string): Promise<PatrolSession> {
+    const finalEndTime = endTime || new Date().toISOString();
+
+    try {
+      const response = await http.post(`/patrols/sessions/${sessionId}/complete`, { endTime: finalEndTime });
+      const session: PatrolSession = response.data.data;
+
+      // Update local storage and purge any stale active markers
+      const cached = await offlineDb.patrolSessions.toArray();
+      for (const item of cached) {
+        const payload = item.payload as PatrolSession;
+        if (payload && (item.remoteId === sessionId || payload._id === sessionId || payload.clientSessionId === sessionId)) {
+          await offlineDb.patrolSessions.update(item.id!, {
+            syncStatus: SyncStatus.SYNCED,
+            updatedAt: new Date().toISOString(),
+            payload: session
+          });
+        } else if (payload && (payload.status === PatrolStatus.ACTIVE || payload.status === PatrolStatus.PAUSED)) {
+          await offlineDb.patrolSessions.update(item.id!, {
+            payload: { ...payload, status: PatrolStatus.COMPLETED }
+          });
+        }
       }
 
       return session;

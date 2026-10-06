@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { patrolApi } from '../api/patrolApi';
 import { geolocationService, type GeoLocation, type GeoError } from '../../../shared/geolocation/geolocation';
-import { LocationSource, PatrolStatus, SyncStatus } from '../../../shared/types/enums';
+import { LocationSource, PatrolStatus } from '../../../shared/types/enums';
 import type { PatrolAssignment, PatrolSession, Waypoint } from '../types/patrol';
 
 export function usePatrol(sessionIdParam?: string) {
   const [assignment, setAssignment] = useState<PatrolAssignment | null>(null);
+  const [assignments, setAssignments] = useState<PatrolAssignment[]>([]);
   const [session, setSession] = useState<PatrolSession | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,11 +26,10 @@ export function usePatrol(sessionIdParam?: string) {
         const fetchedSession = await patrolApi.getSessionById(sessionIdParam);
         setSession(fetchedSession);
       } else {
-        const { assignment: fetchedAssignment, activeSession } = await patrolApi.getMyAssignment();
+        const { assignment: fetchedAssignment, assignments: fetchedList, activeSession } = await patrolApi.getMyAssignment();
         setAssignment(fetchedAssignment);
-        if (activeSession) {
-          setSession(activeSession);
-        }
+        setAssignments(fetchedList || []);
+        setSession(activeSession);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load patrol assignment');
@@ -44,8 +44,12 @@ export function usePatrol(sessionIdParam?: string) {
 
   // Timer for active patrol session elapsed time
   useEffect(() => {
-    if (!session || session.status !== PatrolStatus.ACTIVE) {
+    if (!session || (session.status !== PatrolStatus.ACTIVE && session.status !== PatrolStatus.PAUSED)) {
       return;
+    }
+
+    if (session.status === PatrolStatus.PAUSED) {
+      return; // Stop timer increments while paused
     }
 
     const startMs = new Date(session.startTime).getTime();
@@ -130,11 +134,18 @@ export function usePatrol(sessionIdParam?: string) {
     }
   }, [session?.status, handleGpsLocation, handleGpsError, session?._id]);
 
-  const startPatrol = async () => {
+  const selectAssignment = (assignmentId: string) => {
+    const selected = assignments.find(a => a._id === assignmentId);
+    if (selected) {
+      setAssignment(selected);
+    }
+  };
+
+  const startPatrol = async (assignmentId?: string) => {
     setError(null);
     try {
-      const assignmentId = assignment?._id;
-      const newSession = await patrolApi.startPatrol(assignmentId);
+      const targetId = assignmentId || assignment?._id;
+      const newSession = await patrolApi.startPatrol(targetId);
       setSession(newSession);
       return newSession;
     } catch (err) {
@@ -144,9 +155,63 @@ export function usePatrol(sessionIdParam?: string) {
     }
   };
 
+  const pausePatrol = async () => {
+    if (!session || (session.status !== PatrolStatus.ACTIVE && session.status !== PatrolStatus.PAUSED)) {
+      throw new Error('No active patrol session to pause.');
+    }
+
+    try {
+      const pausedSession = await patrolApi.pausePatrol(session._id);
+      setSession(pausedSession);
+      return pausedSession;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to pause patrol session.';
+      setError(msg);
+      throw new Error(msg);
+    }
+  };
+
+  const resumePatrol = async () => {
+    if (!session || session.status !== PatrolStatus.PAUSED) {
+      throw new Error('No paused patrol session to resume.');
+    }
+
+    try {
+      const resumedSession = await patrolApi.resumePatrol(session._id);
+      setSession(resumedSession);
+      return resumedSession;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unable to resume patrol session.';
+      setError(msg);
+      throw new Error(msg);
+    }
+  };
+
+  const cancelPatrol = async (reason?: string) => {
+    if (!session || (session.status !== PatrolStatus.ACTIVE && session.status !== PatrolStatus.PAUSED)) {
+      throw new Error('No active patrol session to cancel.');
+    }
+
+    try {
+      if (watchIdRef.current !== null) {
+        geolocationService.stopTracking(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      setGpsState('idle');
+
+      const cancelledSession = await patrolApi.cancelPatrol(session._id, reason);
+      setSession(cancelledSession);
+      return cancelledSession;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Patrol could not be cancelled.';
+      setError(msg);
+      throw new Error(msg);
+    }
+  };
+
   const addManualWaypoint = async (note?: string, customLat?: number, customLng?: number) => {
     if (!session || session.status !== PatrolStatus.ACTIVE) {
-      throw new Error('No active patrol session to record waypoint.');
+      throw new Error('Patrol must be active to record manual waypoint.');
     }
 
     const lat = customLat ?? currentLocation?.latitude;
@@ -175,8 +240,8 @@ export function usePatrol(sessionIdParam?: string) {
   };
 
   const completePatrol = async () => {
-    if (!session || session.status !== PatrolStatus.ACTIVE) {
-      throw new Error('No active patrol session to complete.');
+    if (!session || (session.status !== PatrolStatus.ACTIVE && session.status !== PatrolStatus.PAUSED)) {
+      throw new Error('No active or paused patrol session to complete.');
     }
 
     try {
@@ -205,6 +270,7 @@ export function usePatrol(sessionIdParam?: string) {
 
   return {
     assignment,
+    assignments,
     session,
     loading,
     error,
@@ -213,7 +279,11 @@ export function usePatrol(sessionIdParam?: string) {
     gpsErrorMsg,
     elapsedSeconds,
     formattedElapsedTime: formatElapsedTime(elapsedSeconds),
+    selectAssignment,
     startPatrol,
+    pausePatrol,
+    resumePatrol,
+    cancelPatrol,
     addManualWaypoint,
     completePatrol,
     refresh: loadData
