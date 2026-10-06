@@ -191,7 +191,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
         <h1 className="text-xl font-bold text-gray-900">
           {alert.alertType.replace(/_/g, ' ')}
         </h1>
-        <div className="flex flex-wrap gap-2"><button className="button button-secondary text-xs px-3 py-1.5" onClick={() => { setEditDescription(alert.description); setEditSeverity(alert.severity); setShowEdit(true); }}>Edit Alert</button>{![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) && <button className="button button-secondary text-xs px-3 py-1.5 text-amber-700" onClick={() => setShowCancel(true)}>Cancel Alert</button>}<button className="button button-secondary text-xs px-3 py-1.5 text-red-700" onClick={handleDelete}>Delete Alert</button></div>
+        <div className="flex flex-wrap gap-2">{![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) && <><button className="button button-secondary text-xs px-3 py-1.5" onClick={() => { setEditDescription(alert.description); setEditSeverity(alert.severity); setShowEdit(true); }}>Edit Alert</button><button className="button button-secondary text-xs px-3 py-1.5 text-amber-700" onClick={() => setShowCancel(true)}>Cancel Alert</button></>}<button className="button button-secondary text-xs px-3 py-1.5 text-red-700" onClick={handleDelete}>Delete Alert</button></div>
 
         <p className="text-sm text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100 italic">
           "{alert.description}"
@@ -362,8 +362,8 @@ export const ConflictAlertDetailPage: React.FC = () => {
         resolvedAt={alert.resolvedAt}
         resolutionNotes={alert.resolutionNotes}
         createdAt={alert.createdAt}
-        onEditResponse={setEditingResponse}
-        onDeleteResponse={handleDeleteResponse}
+        onEditResponse={![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) ? setEditingResponse : undefined}
+        onDeleteResponse={![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) ? handleDeleteResponse : undefined}
         auditEntries={history}
       />
     </main>

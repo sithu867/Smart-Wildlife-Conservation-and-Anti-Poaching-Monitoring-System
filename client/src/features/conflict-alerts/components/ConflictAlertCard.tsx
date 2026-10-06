@@ -4,6 +4,7 @@ import type { WildlifeConflictAlert } from '../types/conflictAlert';
 import { AlertSeverityBadge } from './AlertSeverityBadge';
 import { AlertStatusBadge } from './AlertStatusBadge';
 import { AlertSource } from '../../../shared/types/enums';
+import { AlertStatus } from '../../../shared/types/enums';
 
 interface Props {
   alert: WildlifeConflictAlert;
@@ -12,6 +13,7 @@ interface Props {
 
 export const ConflictAlertCard: React.FC<Props> = ({ alert, onDelete }) => {
   const isUrgent = alert.severity === 'CRITICAL' || alert.severity === 'HIGH';
+  const isReadOnly = alert.status === AlertStatus.RESOLVED || alert.status === AlertStatus.CANCELLED;
 
   const formattedTime = new Date(alert.createdAt).toLocaleString([], {
     month: 'short',
@@ -32,8 +34,8 @@ export const ConflictAlertCard: React.FC<Props> = ({ alert, onDelete }) => {
           <AlertStatusBadge status={alert.status} />
         </div>
         <span className="text-xs text-gray-500">{formattedTime}</span>
-        <Link to={`/ranger/alerts/${alert._id}`} className="text-xs text-emerald-700 underline">Edit</Link>
-        {onDelete && <button onClick={() => onDelete(alert)} className="text-xs text-red-700 underline">Delete</button>}
+        {!isReadOnly && <Link to={`/ranger/alerts/${alert._id}`} className="text-xs text-emerald-700 underline">Edit</Link>}
+        {onDelete && !isReadOnly && <button onClick={() => onDelete(alert)} className="text-xs text-red-700 underline">Delete</button>}
       </div>
 
       <h3 className="text-base font-bold text-gray-900 mb-1">

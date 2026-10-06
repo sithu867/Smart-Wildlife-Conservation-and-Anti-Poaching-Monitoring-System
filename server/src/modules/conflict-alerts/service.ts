@@ -297,6 +297,7 @@ export class ConflictAlertService {
 
   async updateAlert(rangerId: string, rangerName: string, alertId: string, input: any): Promise<any> {
     const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    if ([AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status as any)) throw new Error(`Unauthorized: ${alert.status} alerts are read-only.`);
     const oldValue = { alertType: alert.alertType, description: alert.description, severity: alert.severity, location: alert.location, animalId: alert.animalId, reporterName: alert.reporterName };
     const location = input.latitude !== undefined || input.longitude !== undefined || input.locationSource !== undefined ? { ...(alert.location as any), latitude: input.latitude ?? (alert.location as any).latitude, longitude: input.longitude ?? (alert.location as any).longitude, source: input.locationSource ?? (alert.location as any).source } : undefined;
     const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { alertType: input.alertType, description: input.description, severity: input.severity, location: location as any, animalId: input.animalId, reporterName: input.reporterName }, include: alertInclude });
@@ -319,6 +320,7 @@ export class ConflictAlertService {
   async getResponses(alertId: string): Promise<any[]> { const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.'); return alert.responses; }
   async updateResponse(rangerId: string, rangerName: string, alertId: string, responseId: string, input: any): Promise<any> {
     const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    if ([AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status as any)) throw new Error(`Unauthorized: ${alert.status} alerts are read-only.`);
     const response = await prisma.conflictResponse.findFirst({ where: { alertId: alert.id, isDeleted: false, OR: [{ id: responseId }, { responseId }] } }); if (!response) throw new Error('Conflict response not found.');
     if (response.responderId !== rangerId) throw new Error('Unauthorized: only the original responder can update this response.');
     const updated = await prisma.conflictResponse.update({ where: { id: response.id }, data: { action: input.action, notes: input.notes, outcome: input.outcome } });
@@ -326,6 +328,7 @@ export class ConflictAlertService {
   }
   async deleteResponse(rangerId: string, rangerName: string, alertId: string, responseId: string, reason?: string): Promise<any> {
     const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
+    if ([AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status as any)) throw new Error(`Unauthorized: ${alert.status} alerts are read-only.`);
     const response = await prisma.conflictResponse.findFirst({ where: { alertId: alert.id, isDeleted: false, OR: [{ id: responseId }, { responseId }] } }); if (!response) throw new Error('Conflict response not found.');
     if (response.responderId !== rangerId) throw new Error('Unauthorized: only the original responder can delete this response.');
     await prisma.conflictResponse.update({ where: { id: response.id }, data: { isDeleted: true, deletedAt: new Date(), deletedBy: rangerId, deletionReason: reason } });
