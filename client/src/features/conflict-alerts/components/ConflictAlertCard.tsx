@@ -38,24 +38,24 @@ export const ConflictAlertCard: React.FC<Props> = ({ alert, onDelete }) => {
         {onDelete && !isReadOnly && <button onClick={() => onDelete(alert)} className="text-xs text-red-700 underline">Delete</button>}
       </div>
 
-      <h3 className="text-base font-bold text-gray-900 mb-1">
+      <h3 className="text-base font-bold text-white mb-1 uppercase tracking-wide">
         {alert.alertType.replace(/_/g, ' ')}
       </h3>
 
-      <p className="text-sm text-gray-700 mb-3 line-clamp-2">{alert.description}</p>
+      <p className="text-sm text-slate-300 mb-3 line-clamp-2 leading-relaxed">{alert.description}</p>
 
-      <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mb-3 bg-gray-50 p-2 rounded border border-gray-100">
+      <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 mb-3 bg-slate-950/70 p-2 rounded border border-slate-700">
         <div>
-          <span className="font-semibold text-gray-500">Source: </span>
-          <span className="font-mono text-gray-800">
+          <span className="font-semibold text-slate-400">Source: </span>
+          <span className="font-mono text-slate-200">
             {alert.source === AlertSource.COLLAR
               ? `🛰️ Collar (${alert.animalId || 'Tracked'})`
               : `👥 Community (${alert.reporterName || 'Member'})`}
           </span>
         </div>
         <div>
-          <span className="font-semibold text-gray-500">Location: </span>
-          <span className="font-mono text-gray-800">
+          <span className="font-semibold text-slate-400">Location: </span>
+          <span className="font-mono text-slate-200">
             {alert.location.latitude.toFixed(3)}, {alert.location.longitude.toFixed(3)}
           </span>
         </div>
