@@ -37,6 +37,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
       const data = await conflictAlertApi.getAlertById(alertId);
       setAlert(data);
       setHistory([]);
+      void conflictAlertApi.getHistory(alertId).then(setHistory).catch(() => undefined);
     } catch (err: any) {
       console.error('Failed fetching alert details:', err);
       setError(err.message || 'Wildlife conflict alert not found.');
@@ -50,7 +51,6 @@ export const ConflictAlertDetailPage: React.FC = () => {
   const handleDelete = async () => { if (!alertId || !window.confirm('Soft-delete this alert? It will be hidden from the normal list.')) return; try { await conflictAlertApi.deleteAlert(alertId, 'Deleted from alert detail'); setFeedbackMessage('Alert soft-deleted.'); } catch (err: any) { setError(err.message); } };
   const handleUpdateResponse = async (e: React.FormEvent) => { e.preventDefault(); if (!alertId || !editingResponse) return; try { const updated = await conflictAlertApi.updateResponse(alertId, editingResponse.responseId, { action: editingResponse.action, notes: editingResponse.notes, outcome: editingResponse.outcome }); setAlert(updated); setEditingResponse(null); setFeedbackMessage(updated.syncStatus === 'PENDING' ? 'Response edited locally; pending synchronization.' : 'Response updated.'); } catch (err: any) { setError(err.message); } };
   const handleDeleteResponse = async (response: any) => { if (!alertId || !window.confirm('Soft-delete this response?')) return; try { const updated = await conflictAlertApi.deleteResponse(alertId, response.responseId); setAlert(updated); setFeedbackMessage(updated.syncStatus === 'PENDING' ? 'Response deleted locally; pending synchronization.' : 'Response deleted.'); } catch (err: any) { setError(err.message); } };
-  const loadHistory = async () => { if (!alertId) return; try { setHistory(await conflictAlertApi.getHistory(alertId)); } catch (err: any) { setError(err.message || 'Unable to load audit history.'); } };
 
   useEffect(() => {
     fetchAlert();
@@ -364,8 +364,8 @@ export const ConflictAlertDetailPage: React.FC = () => {
         createdAt={alert.createdAt}
         onEditResponse={setEditingResponse}
         onDeleteResponse={handleDeleteResponse}
+        auditEntries={history}
       />
-      <section className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm"><div className="flex items-center justify-between mb-3"><h3 className="font-bold text-sm">Audit History</h3><button onClick={loadHistory} className="text-xs text-emerald-700 underline">Load history</button></div>{history.length === 0 ? <p className="text-xs text-gray-500">Load the audit history to review alert and response changes.</p> : <div className="space-y-2">{history.map(entry => <div key={entry.id} className="text-xs border-b pb-2"><b>{entry.action}</b> by {entry.performedName || entry.performedBy} <span className="text-gray-500">{new Date(entry.timestamp).toLocaleString()}</span>{entry.reason && <div>Reason: {entry.reason}</div>}</div>)}</div>}</section>
     </main>
   );
 };
