@@ -1,153 +1,37 @@
-import mongoose from 'mongoose';
-import { ConservationIncidentModel, type IConservationIncident, type IIncidentEvidence } from './models.js';
-import { PatrolSessionModel } from '../patrols/models.js';
+import { prisma } from '../../config/prisma.js';
 import { IncidentStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import type { CreateIncidentInput } from './validation.js';
 
-const memoryIncidentsStore = new Map<string, any>();
+const incidentInclude = { patrolSession: true, evidence: { orderBy: { capturedAt: 'asc' as const } } } as const;
+function shapeIncident(incident: any): any { if (!incident) return incident; const { id, patrolSession, evidence, ...rest } = incident; return { _id: id, ...rest, patrolSession, evidence }; }
 
 export class IncidentService {
   async createIncident(rangerId: string, rangerName: string, input: CreateIncidentInput): Promise<any> {
-    const {
-      clientIncidentId,
-      incidentType,
-      otherTypeDescription,
-      description,
-      latitude,
-      longitude,
-      locationSource,
-      patrolSessionId,
-      evidence
-    } = input;
-
-    // Build evidence list with IDs
-    const preparedEvidence: IIncidentEvidence[] = evidence.map((ev, idx) => ({
-      evidenceId: `evid-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-      imageUrl: ev.imageUrl,
-      capturedAt: ev.capturedAt ? new Date(ev.capturedAt) : new Date(),
-      fileSize: ev.fileSize,
-      mimeType: ev.mimeType || 'image/jpeg'
-    }));
-
     const reportedAt = new Date();
-
-    // Validate PatrolSession ownership if patrolSessionId is supplied
-    if (patrolSessionId) {
-      if (mongoose.Types.ObjectId.isValid(patrolSessionId)) {
-        const session = await PatrolSessionModel.findById(patrolSessionId);
-        if (session && session.rangerId !== rangerId) {
-          throw new Error('Unauthorized: Attached patrol session does not belong to this ranger.');
-        }
-      }
+    let patrolSessionId: string | undefined;
+    if (input.patrolSessionId) {
+      const session = await prisma.patrolSession.findUnique({ where: { id: input.patrolSessionId } });
+      if (session && session.rangerId !== rangerId) throw new Error('Unauthorized: Attached patrol session does not belong to this ranger.');
+      if (session) patrolSessionId = session.id;
     }
-
-    if (mongoose.connection.readyState !== 1) {
-      // Memory fallback for tests
-      if (clientIncidentId) {
-        const existing = Array.from(memoryIncidentsStore.values()).find(
-          i => i.clientIncidentId === clientIncidentId && i.reportedBy === rangerId
-        );
-        if (existing) {
-          return existing;
-        }
-      }
-
-      const id = `67b${Date.now().toString(16).padStart(21, '0')}`;
-      const incident = {
-        _id: id,
-        clientIncidentId,
-        incidentType,
-        otherTypeDescription: incidentType === 'OTHER' ? otherTypeDescription : undefined,
-        description,
-        location: {
-          latitude,
-          longitude,
-          timestamp: reportedAt,
-          source: locationSource || LocationSource.GPS
-        },
-        reportedBy: rangerId,
-        rangerName,
-        reportedAt,
-        patrolSession: patrolSessionId || null,
-        evidence: preparedEvidence,
-        status: IncidentStatus.REPORTED,
-        syncStatus: SyncStatus.SYNCED,
-        createdAt: reportedAt,
-        updatedAt: reportedAt
-      };
-
-      memoryIncidentsStore.set(id, incident);
-      return incident;
+    if (input.clientIncidentId) {
+      const existing = await prisma.conservationIncident.findFirst({ where: { clientIncidentId: input.clientIncidentId, reportedBy: rangerId }, include: incidentInclude });
+      if (existing) return shapeIncident(existing);
     }
-
-    // Server-side Idempotency Check
-    if (clientIncidentId) {
-      const existing = await ConservationIncidentModel.findOne({ clientIncidentId, reportedBy: rangerId });
-      if (existing) {
-        return existing;
-      }
-    }
-
-    let verifiedPatrolId: mongoose.Types.ObjectId | undefined;
-    if (patrolSessionId && mongoose.Types.ObjectId.isValid(patrolSessionId)) {
-      const session = await PatrolSessionModel.findById(patrolSessionId);
-      if (session) {
-        verifiedPatrolId = session._id as mongoose.Types.ObjectId;
-      }
-    }
-
-    const incident = await ConservationIncidentModel.create({
-      clientIncidentId,
-      incidentType,
-      otherTypeDescription: incidentType === 'OTHER' ? otherTypeDescription : undefined,
-      description,
-      location: {
-        latitude,
-        longitude,
-        timestamp: reportedAt,
-        source: locationSource || LocationSource.GPS
-      },
-      reportedBy: rangerId,
-      rangerName,
-      reportedAt,
-      patrolSession: verifiedPatrolId,
-      evidence: preparedEvidence,
-      status: IncidentStatus.REPORTED,
-      syncStatus: SyncStatus.SYNCED
-    });
-
-    return incident;
+    const incident = await prisma.conservationIncident.create({ data: { clientIncidentId: input.clientIncidentId, incidentType: input.incidentType as any, otherTypeDescription: input.incidentType === 'OTHER' ? input.otherTypeDescription : undefined, description: input.description, location: { latitude: input.latitude, longitude: input.longitude, timestamp: reportedAt.toISOString(), source: input.locationSource || LocationSource.GPS }, reportedBy: rangerId, rangerName, reportedAt, patrolSessionId, status: IncidentStatus.REPORTED as any, syncStatus: SyncStatus.SYNCED as any, evidence: { create: input.evidence.map((ev, idx) => ({ evidenceId: `evid-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`, imageUrl: ev.imageUrl, capturedAt: ev.capturedAt ? new Date(ev.capturedAt) : reportedAt, fileSize: ev.fileSize, mimeType: ev.mimeType || 'image/jpeg' })) } }, include: incidentInclude });
+    return shapeIncident(incident);
   }
 
   async getRangerIncidents(rangerId: string): Promise<any[]> {
-    if (mongoose.connection.readyState !== 1) {
-      const list = Array.from(memoryIncidentsStore.values()).filter(i => i.reportedBy === rangerId);
-      return list.sort((a, b) => new Date(b.reportedAt).getTime() - new Date(a.reportedAt).getTime());
-    }
-
-    return ConservationIncidentModel.find({ reportedBy: rangerId })
-      .populate('patrolSession')
-      .sort({ reportedAt: -1 });
+    const incidents = await prisma.conservationIncident.findMany({ where: { reportedBy: rangerId }, include: incidentInclude, orderBy: { reportedAt: 'desc' } });
+    return incidents.map(shapeIncident);
   }
 
   async getIncidentById(rangerId: string, incidentId: string): Promise<any> {
-    if (mongoose.connection.readyState !== 1) {
-      const incident = memoryIncidentsStore.get(incidentId);
-      if (!incident) throw new Error('Conservation incident not found.');
-      if (incident.reportedBy !== rangerId) throw new Error('Unauthorized: Incident report does not belong to this ranger.');
-      return incident;
-    }
-
-    const incident = await ConservationIncidentModel.findById(incidentId).populate('patrolSession');
-    if (!incident) {
-      throw new Error('Conservation incident not found.');
-    }
-
-    if (incident.reportedBy !== rangerId) {
-      throw new Error('Unauthorized: Incident report does not belong to this ranger.');
-    }
-
-    return incident;
+    const incident = await prisma.conservationIncident.findUnique({ where: { id: incidentId }, include: incidentInclude });
+    if (!incident) throw new Error('Conservation incident not found.');
+    if (incident.reportedBy !== rangerId) throw new Error('Unauthorized: Incident report does not belong to this ranger.');
+    return shapeIncident(incident);
   }
 }
 

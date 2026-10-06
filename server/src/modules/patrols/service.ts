@@ -1,547 +1,118 @@
-import mongoose from 'mongoose';
-import {
-  ParkModel,
-  PatrolRouteModel,
-  PatrolAssignmentModel,
-  PatrolSessionModel,
-  type IPatrolAssignment,
-  type IPatrolSession,
-  type IWaypoint
-} from './models.js';
+import { prisma } from '../../config/prisma.js';
 import { PatrolStatus, SyncStatus, LocationSource } from '../../types/enums.js';
+import type { IWaypoint } from './models.js';
 
 export function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * (Math.PI / 180);
-  const dLon = (lon2 - lon1) * (Math.PI / 180);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * (Math.PI / 180)) *
-      Math.cos(lat2 * (Math.PI / 180)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export function calculateTotalWaypointsDistanceKm(waypoints: IWaypoint[]): number {
-  if (!waypoints || waypoints.length < 2) return 0;
   let total = 0;
-  for (let i = 1; i < waypoints.length; i++) {
-    total += calculateHaversineDistanceKm(
-      waypoints[i - 1].latitude,
-      waypoints[i - 1].longitude,
-      waypoints[i].latitude,
-      waypoints[i].longitude
-    );
-  }
+  for (let i = 1; i < (waypoints?.length ?? 0); i++) total += calculateHaversineDistanceKm(waypoints[i - 1].latitude, waypoints[i - 1].longitude, waypoints[i].latitude, waypoints[i].longitude);
   return Math.round(total * 1000) / 1000;
 }
 
-const MOCK_PARK = {
-  _id: '67a000000000000000000001',
-  name: 'Serengeti Northern Sector',
-  code: 'SERENGETI-NORTH',
-  description: 'Northern conservation sector guarding wildlife corridors.'
-};
+const routeInclude = { park: true } as const;
+const sessionInclude = { patrolRoute: { include: { park: true } }, patrolAssignment: true, waypoints: { orderBy: { timestamp: 'asc' as const } } } as const;
+function routeShape(route: any): any { return route ? { _id: route.id, ...route, id: undefined, park: route.park ? { _id: route.park.id, ...route.park, id: undefined } : undefined } : route; }
+function sessionShape(session: any): any {
+  if (!session) return session;
+  const { id, patrolRoute, patrolAssignment, waypoints, ...rest } = session;
+  return { _id: id, ...rest, patrolRoute: routeShape(patrolRoute), patrolAssignment: patrolAssignment ? { _id: patrolAssignment.id, ...patrolAssignment, id: undefined } : patrolAssignment, waypoints };
+}
 
-const MOCK_ROUTE = {
-  _id: '67a000000000000000000002',
-  name: 'Northern Boundary Patrol',
-  park: MOCK_PARK,
-  description: '12km boundary patrol along the northern river sector to prevent poaching.',
-  distanceKm: 12.5,
-  estimatedDurationHours: 3.5,
-  geometry: {
-    type: 'LineString',
-    coordinates: [
-      [34.8214, -2.1523],
-      [34.8320, -2.1480],
-      [34.8450, -2.1410],
-      [34.8580, -2.1350],
-      [34.8700, -2.1300]
-    ]
-  }
-};
-
-const memorySessionsStore = new Map<string, any>();
-
-async function ensureSeedData(rangerId: string, rangerName: string = 'Ranger John') {
-  if (mongoose.connection.readyState !== 1) {
-    return {
-      _id: '67a000000000000000000003',
-      rangerId,
-      rangerName,
-      patrolRoute: MOCK_ROUTE,
-      assignedDate: new Date(),
-      status: PatrolStatus.ASSIGNED,
-      notes: 'Scheduled morning anti-poaching patrol.'
-    } as any;
-  }
-
-  let park = await ParkModel.findOne({ code: 'SERENGETI-NORTH' });
-  if (!park) {
-    park = await ParkModel.create({
-      name: 'Serengeti Northern Sector',
-      code: 'SERENGETI-NORTH',
-      description: 'Northern conservation sector guarding wildlife corridors.'
-    });
-  }
-
-  let route = await PatrolRouteModel.findOne({ park: park._id, name: 'Northern Boundary Patrol' });
-  if (!route) {
-    route = await PatrolRouteModel.create({
-      name: 'Northern Boundary Patrol',
-      park: park._id,
-      description: '12km boundary patrol along the northern river sector to prevent poaching.',
-      distanceKm: 12.5,
-      estimatedDurationHours: 3.5,
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [34.8214, -2.1523],
-          [34.8320, -2.1480],
-          [34.8450, -2.1410],
-          [34.8580, -2.1350],
-          [34.8700, -2.1300]
-        ]
-      }
-    });
-  }
-
-  let assignment = await PatrolAssignmentModel.findOne({
-    rangerId,
-    status: { $in: [PatrolStatus.ASSIGNED, PatrolStatus.ACTIVE] }
-  }).populate({
-    path: 'patrolRoute',
-    populate: { path: 'park' }
-  });
-
-  if (!assignment) {
-    const createdAssignment = await PatrolAssignmentModel.create({
-      rangerId,
-      rangerName,
-      patrolRoute: route._id,
-      status: PatrolStatus.ASSIGNED,
-      notes: 'Scheduled morning anti-poaching patrol.'
-    });
-    assignment = await PatrolAssignmentModel.findById(createdAssignment._id).populate({
-      path: 'patrolRoute',
-      populate: { path: 'park' }
-    });
-  }
-
-  return assignment;
+async function ensureSeedData(rangerId: string, rangerName = 'Ranger John') {
+  const park = await prisma.park.upsert({ where: { code: 'SERENGETI-NORTH' }, update: {}, create: { name: 'Serengeti Northern Sector', code: 'SERENGETI-NORTH', description: 'Northern conservation sector guarding wildlife corridors.' } });
+  const geometry = { type: 'LineString', coordinates: [[34.8214, -2.1523], [34.8320, -2.1480], [34.8450, -2.1410], [34.8580, -2.1350], [34.8700, -2.1300]] };
+  const existingRoute = await prisma.patrolRoute.findFirst({ where: { parkId: park.id, name: 'Northern Boundary Patrol' } });
+  const route = existingRoute ?? await prisma.patrolRoute.create({ data: { name: 'Northern Boundary Patrol', parkId: park.id, description: '12km boundary patrol along the northern river sector to prevent poaching.', distanceKm: 12.5, estimatedDurationHours: 3.5, geometry } });
+  const existing = await prisma.patrolAssignment.findFirst({ where: { rangerId, status: { in: [PatrolStatus.ASSIGNED as any, PatrolStatus.ACTIVE as any] } }, include: { patrolRoute: { include: { park: true } } } });
+  if (existing) return existing;
+  return prisma.patrolAssignment.create({ data: { rangerId, rangerName, patrolRouteId: route.id, status: PatrolStatus.ASSIGNED as any, notes: 'Scheduled morning anti-poaching patrol.' }, include: { patrolRoute: { include: { park: true } } } });
 }
 
 export class PatrolService {
-  async getAssignedPatrol(rangerId: string, rangerName: string = 'Ranger John') {
-    if (mongoose.connection.readyState !== 1) {
-      const activeSession = Array.from(memorySessionsStore.values()).find(
-        s => s.rangerId === rangerId && s.status === PatrolStatus.ACTIVE
-      );
-      const assignment = {
-        _id: '67a000000000000000000003',
-        rangerId,
-        rangerName,
-        patrolRoute: MOCK_ROUTE,
-        assignedDate: new Date(),
-        status: activeSession ? PatrolStatus.ACTIVE : PatrolStatus.ASSIGNED,
-        notes: 'Scheduled morning anti-poaching patrol.'
-      };
-      return { assignment, activeSession: activeSession || null };
-    }
-
-    let assignment = await PatrolAssignmentModel.findOne({
-      rangerId,
-      status: { $in: [PatrolStatus.ASSIGNED, PatrolStatus.ACTIVE] }
-    }).populate({
-      path: 'patrolRoute',
-      populate: { path: 'park' }
-    });
-
-    if (!assignment) {
-      assignment = await ensureSeedData(rangerId, rangerName);
-    }
-
-    const activeSession = await PatrolSessionModel.findOne({
-      rangerId,
-      status: PatrolStatus.ACTIVE
-    });
-
-    return {
-      assignment,
-      activeSession
-    };
+  async getAssignedPatrol(rangerId: string, rangerName = 'Ranger John') {
+    const assignment = await ensureSeedData(rangerId, rangerName);
+    const activeSession = await prisma.patrolSession.findFirst({ where: { rangerId, status: PatrolStatus.ACTIVE as any }, include: sessionInclude });
+    return { assignment: { _id: assignment.id, ...assignment, id: undefined, patrolRoute: routeShape(assignment.patrolRoute) }, activeSession: sessionShape(activeSession) };
   }
 
   async getPatrolRoute(routeId: string) {
-    if (mongoose.connection.readyState !== 1) {
-      return MOCK_ROUTE as any;
-    }
-
-    const route = await PatrolRouteModel.findById(routeId).populate('park');
-    if (!route) {
-      throw new Error('Patrol route not found');
-    }
-    return route;
+    const route = await prisma.patrolRoute.findUnique({ where: { id: routeId }, include: routeInclude });
+    if (!route) throw new Error('Patrol route not found');
+    return routeShape(route);
   }
 
-  async startPatrol(rangerId: string, rangerName: string = 'Ranger John', assignmentId?: string, clientSessionId?: string) {
-    if (mongoose.connection.readyState !== 1) {
-      const existingActive = Array.from(memorySessionsStore.values()).find(
-        s => s.rangerId === rangerId && s.status === PatrolStatus.ACTIVE
-      );
-      if (existingActive) {
-        if (clientSessionId && existingActive.clientSessionId === clientSessionId) {
-          return existingActive;
-        }
-        throw new Error('A patrol session is already active for this ranger.');
-      }
+  async startPatrol(rangerId: string, rangerName = 'Ranger John', assignmentId?: string, clientSessionId?: string) {
+    let assignment = assignmentId ? await prisma.patrolAssignment.findUnique({ where: { id: assignmentId }, include: { patrolRoute: true } }) : await prisma.patrolAssignment.findFirst({ where: { rangerId, status: PatrolStatus.ASSIGNED as any }, include: { patrolRoute: true } });
+    if (!assignment) assignment = await ensureSeedData(rangerId, rangerName) as any;
+    if (!assignment) throw new Error('No valid patrol assignment found for ranger.');
+    if (assignment.rangerId !== rangerId) throw new Error('Unauthorized: Patrol assignment does not belong to this ranger.');
+    const existing = await prisma.patrolSession.findFirst({ where: { rangerId, status: PatrolStatus.ACTIVE as any }, include: sessionInclude });
+    if (existing) { if (clientSessionId && existing.clientSessionId === clientSessionId) return sessionShape(existing); throw new Error('A patrol session is already active for this ranger.'); }
+    const session = await prisma.patrolSession.create({ data: { clientSessionId, rangerId, rangerName, patrolAssignmentId: assignment.id, patrolRouteId: assignment.patrolRouteId, startTime: new Date(), status: PatrolStatus.ACTIVE as any, syncStatus: SyncStatus.SYNCED as any }, include: sessionInclude });
+    await prisma.patrolAssignment.update({ where: { id: assignment.id }, data: { status: PatrolStatus.ACTIVE as any } });
+    return sessionShape(session);
+  }
 
-      const id = `67a${Date.now().toString(16).padStart(21, '0')}`;
-      const session = {
-        _id: id,
-        clientSessionId,
-        rangerId,
-        rangerName,
-        patrolAssignment: assignmentId || '67a000000000000000000003',
-        patrolRoute: MOCK_ROUTE,
-        startTime: new Date(),
-        status: PatrolStatus.ACTIVE,
-        syncStatus: SyncStatus.SYNCED,
-        waypoints: [],
-        totalDistanceKm: 0,
-        durationSeconds: 0
-      };
-      memorySessionsStore.set(id, session);
-      return session;
-    }
-
-    let assignment: IPatrolAssignment | null = null;
-    if (assignmentId) {
-      assignment = await PatrolAssignmentModel.findById(assignmentId);
-    } else {
-      assignment = await PatrolAssignmentModel.findOne({
-        rangerId,
-        status: PatrolStatus.ASSIGNED
-      });
-    }
-
-    if (!assignment) {
-      const seedRes = await ensureSeedData(rangerId, rangerName);
-      assignment = seedRes;
-    }
-
-    if (!assignment) {
-      throw new Error('No valid patrol assignment found for ranger.');
-    }
-
-    if (assignment.rangerId !== rangerId) {
-      throw new Error('Unauthorized: Patrol assignment does not belong to this ranger.');
-    }
-
-    const existingActive = await PatrolSessionModel.findOne({
-      rangerId,
-      status: PatrolStatus.ACTIVE
+  async addWaypoint(rangerId: string, sessionId: string, waypointData: { latitude: number; longitude: number; timestamp: Date; source: LocationSource; accuracy?: number; note?: string }) {
+    if (waypointData.latitude < -90 || waypointData.latitude > 90) throw new Error('Invalid latitude: must be between -90 and 90 degrees.');
+    if (waypointData.longitude < -180 || waypointData.longitude > 180) throw new Error('Invalid longitude: must be between -180 and 180 degrees.');
+    const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: { waypoints: true } });
+    if (!session) throw new Error('Patrol session not found.');
+    if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
+    if (session.status !== PatrolStatus.ACTIVE) throw new Error('Cannot add waypoints to a patrol session that is not ACTIVE.');
+    const waypoints = [...session.waypoints, waypointData] as IWaypoint[];
+    const updated = await prisma.$transaction(async (tx: any) => {
+      await tx.waypoint.create({ data: { patrolSessionId: sessionId, latitude: waypointData.latitude, longitude: waypointData.longitude, timestamp: waypointData.timestamp || new Date(), source: waypointData.source as any, accuracy: waypointData.accuracy, note: waypointData.note } });
+      return tx.patrolSession.update({ where: { id: sessionId }, data: { totalDistanceKm: calculateTotalWaypointsDistanceKm(waypoints), durationSeconds: Math.round((Date.now() - session.startTime.getTime()) / 1000) }, include: sessionInclude });
     });
+    return sessionShape(updated);
+  }
 
-    if (existingActive) {
-      if (clientSessionId && existingActive.clientSessionId === clientSessionId) {
-        return existingActive;
-      }
-      throw new Error('A patrol session is already active for this ranger.');
-    }
-
-    const session = await PatrolSessionModel.create({
-      clientSessionId,
-      rangerId,
-      rangerName,
-      patrolAssignment: assignment._id,
-      patrolRoute: assignment.patrolRoute,
-      startTime: new Date(),
-      status: PatrolStatus.ACTIVE,
-      syncStatus: SyncStatus.SYNCED,
-      waypoints: [],
-      totalDistanceKm: 0,
-      durationSeconds: 0
+  async completePatrol(rangerId: string, sessionId: string, endTime = new Date()) {
+    const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: { waypoints: true } });
+    if (!session) throw new Error('Patrol session not found.');
+    if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
+    if (session.status === PatrolStatus.COMPLETED) throw new Error('Patrol session is already COMPLETED.');
+    const updated = await prisma.$transaction(async (tx: any) => {
+      const result = await tx.patrolSession.update({ where: { id: sessionId }, data: { status: PatrolStatus.COMPLETED as any, endTime, durationSeconds: Math.max(0, Math.round((endTime.getTime() - session.startTime.getTime()) / 1000)), totalDistanceKm: calculateTotalWaypointsDistanceKm(session.waypoints as IWaypoint[]), syncStatus: SyncStatus.SYNCED as any }, include: sessionInclude });
+      await tx.patrolAssignment.update({ where: { id: session.patrolAssignmentId }, data: { status: PatrolStatus.COMPLETED as any } });
+      return result;
     });
-
-    assignment.status = PatrolStatus.ACTIVE;
-    await assignment.save();
-
-    return session;
-  }
-
-  async addWaypoint(
-    rangerId: string,
-    sessionId: string,
-    waypointData: {
-      latitude: number;
-      longitude: number;
-      timestamp: Date;
-      source: LocationSource;
-      accuracy?: number;
-      note?: string;
-    }
-  ) {
-    if (waypointData.latitude < -90 || waypointData.latitude > 90) {
-      throw new Error('Invalid latitude: must be between -90 and 90 degrees.');
-    }
-    if (waypointData.longitude < -180 || waypointData.longitude > 180) {
-      throw new Error('Invalid longitude: must be between -180 and 180 degrees.');
-    }
-
-    if (mongoose.connection.readyState !== 1) {
-      const session = memorySessionsStore.get(sessionId);
-      if (!session) throw new Error('Patrol session not found.');
-      if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-      if (session.status !== PatrolStatus.ACTIVE) throw new Error('Cannot add waypoints to a patrol session that is not ACTIVE.');
-
-      const newWaypoint: IWaypoint = {
-        latitude: waypointData.latitude,
-        longitude: waypointData.longitude,
-        timestamp: waypointData.timestamp || new Date(),
-        source: waypointData.source,
-        accuracy: waypointData.accuracy,
-        note: waypointData.note
-      };
-
-      session.waypoints.push(newWaypoint);
-      session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
-      session.durationSeconds = Math.round((new Date().getTime() - new Date(session.startTime).getTime()) / 1000);
-      return session;
-    }
-
-    const session = await PatrolSessionModel.findById(sessionId);
-    if (!session) {
-      throw new Error('Patrol session not found.');
-    }
-
-    if (session.rangerId !== rangerId) {
-      throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    }
-
-    if (session.status !== PatrolStatus.ACTIVE) {
-      throw new Error('Cannot add waypoints to a patrol session that is not ACTIVE.');
-    }
-
-    const newWaypoint: IWaypoint = {
-      latitude: waypointData.latitude,
-      longitude: waypointData.longitude,
-      timestamp: waypointData.timestamp || new Date(),
-      source: waypointData.source,
-      accuracy: waypointData.accuracy,
-      note: waypointData.note
-    };
-
-    session.waypoints.push(newWaypoint);
-    session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
-    session.durationSeconds = Math.round((new Date().getTime() - session.startTime.getTime()) / 1000);
-    await session.save();
-
-    return session;
-  }
-
-  async completePatrol(rangerId: string, sessionId: string, endTime?: Date) {
-    if (mongoose.connection.readyState !== 1) {
-      const session = memorySessionsStore.get(sessionId);
-      if (!session) throw new Error('Patrol session not found.');
-      if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-      if (session.status === PatrolStatus.COMPLETED) throw new Error('Patrol session is already COMPLETED.');
-
-      const finalEndTime = endTime || new Date();
-      session.status = PatrolStatus.COMPLETED;
-      session.endTime = finalEndTime;
-      session.durationSeconds = Math.max(0, Math.round((finalEndTime.getTime() - new Date(session.startTime).getTime()) / 1000));
-      session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
-      session.syncStatus = SyncStatus.SYNCED;
-      return session;
-    }
-
-    const session = await PatrolSessionModel.findById(sessionId);
-    if (!session) {
-      throw new Error('Patrol session not found.');
-    }
-
-    if (session.rangerId !== rangerId) {
-      throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    }
-
-    if (session.status === PatrolStatus.COMPLETED) {
-      throw new Error('Patrol session is already COMPLETED.');
-    }
-
-    const finalEndTime = endTime || new Date();
-    session.status = PatrolStatus.COMPLETED;
-    session.endTime = finalEndTime;
-    session.durationSeconds = Math.max(0, Math.round((finalEndTime.getTime() - session.startTime.getTime()) / 1000));
-    session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
-    session.syncStatus = SyncStatus.SYNCED;
-
-    await session.save();
-
-    if (session.patrolAssignment) {
-      await PatrolAssignmentModel.findByIdAndUpdate(session.patrolAssignment, {
-        status: PatrolStatus.COMPLETED
-      });
-    }
-
-    return session;
+    return sessionShape(updated);
   }
 
   async getPatrolSession(rangerId: string, sessionId: string) {
-    if (mongoose.connection.readyState !== 1) {
-      const session = memorySessionsStore.get(sessionId);
-      if (!session) throw new Error('Patrol session not found.');
-      if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-      return session;
-    }
-
-    const session = await PatrolSessionModel.findById(sessionId)
-      .populate({
-        path: 'patrolRoute',
-        populate: { path: 'park' }
-      })
-      .populate('patrolAssignment');
-
-    if (!session) {
-      throw new Error('Patrol session not found.');
-    }
-
-    if (session.rangerId !== rangerId) {
-      throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    }
-
-    return session;
+    const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: sessionInclude });
+    if (!session) throw new Error('Patrol session not found.');
+    if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
+    return sessionShape(session);
   }
 
   async getPatrolHistory(rangerId: string) {
-    if (mongoose.connection.readyState !== 1) {
-      const sessions = Array.from(memorySessionsStore.values()).filter(
-        s => s.rangerId === rangerId
-      );
-      return sessions.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-    }
-
-    const sessions = await PatrolSessionModel.find({ rangerId })
-      .populate({
-        path: 'patrolRoute',
-        populate: { path: 'park' }
-      })
-      .sort({ startTime: -1 });
-
-    return sessions;
+    const sessions = await prisma.patrolSession.findMany({ where: { rangerId }, include: sessionInclude, orderBy: { startTime: 'desc' } });
+    return sessions.map(sessionShape);
   }
 
-  async syncPatrolSession(
-    rangerId: string,
-    rangerName: string = 'Ranger John',
-    payload: {
-      clientSessionId: string;
-      patrolAssignmentId?: string;
-      patrolRouteId?: string;
-      startTime: Date;
-      endTime?: Date | null;
-      status: PatrolStatus;
-      waypoints: IWaypoint[];
-      totalDistanceKm?: number;
-      durationSeconds?: number;
+  async syncPatrolSession(rangerId: string, rangerName: string, payload: { clientSessionId: string; patrolAssignmentId?: string; patrolRouteId?: string; startTime: Date; endTime?: Date | null; status: PatrolStatus; waypoints: IWaypoint[]; totalDistanceKm?: number; durationSeconds?: number }) {
+    const existing = await prisma.patrolSession.findFirst({ where: { clientSessionId: payload.clientSessionId, rangerId }, include: sessionInclude });
+    const assignment = payload.patrolAssignmentId ? await prisma.patrolAssignment.findUnique({ where: { id: payload.patrolAssignmentId } }) : await ensureSeedData(rangerId, rangerName);
+    if (!assignment) throw new Error('Failed to resolve assignment for sync.');
+    if (existing) {
+      await prisma.waypoint.deleteMany({ where: { patrolSessionId: existing.id } });
+      const updated = await prisma.patrolSession.update({ where: { id: existing.id }, data: { status: payload.status as any, endTime: payload.endTime ?? null, durationSeconds: payload.durationSeconds ?? existing.durationSeconds, totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints), syncStatus: SyncStatus.SYNCED as any, waypoints: { create: payload.waypoints.map(point => ({ latitude: point.latitude, longitude: point.longitude, timestamp: point.timestamp, source: point.source as any, accuracy: point.accuracy, note: point.note })) } }, include: sessionInclude });
+      return sessionShape(updated);
     }
-  ) {
-    if (mongoose.connection.readyState !== 1) {
-      let existing = Array.from(memorySessionsStore.values()).find(
-        s => s.clientSessionId === payload.clientSessionId && s.rangerId === rangerId
-      );
-
-      if (existing) {
-        existing.waypoints = payload.waypoints || existing.waypoints;
-        existing.status = payload.status || existing.status;
-        existing.endTime = payload.endTime || existing.endTime;
-        existing.durationSeconds = payload.durationSeconds ?? existing.durationSeconds;
-        existing.totalDistanceKm = calculateTotalWaypointsDistanceKm(existing.waypoints);
-        existing.syncStatus = SyncStatus.SYNCED;
-        return existing;
-      }
-
-      const id = `67a${Date.now().toString(16).padStart(21, '0')}`;
-      const session = {
-        _id: id,
-        clientSessionId: payload.clientSessionId,
-        rangerId,
-        rangerName,
-        patrolAssignment: '67a000000000000000000003',
-        patrolRoute: MOCK_ROUTE,
-        startTime: payload.startTime,
-        endTime: payload.endTime || null,
-        status: payload.status,
-        syncStatus: SyncStatus.SYNCED,
-        waypoints: payload.waypoints || [],
-        totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints || []),
-        durationSeconds: payload.durationSeconds || 0
-      };
-      memorySessionsStore.set(id, session);
-      return session;
-    }
-
-    let session = await PatrolSessionModel.findOne({
-      clientSessionId: payload.clientSessionId,
-      rangerId
-    });
-
-    if (session) {
-      session.waypoints = payload.waypoints || session.waypoints;
-      session.status = payload.status || session.status;
-      session.endTime = payload.endTime || session.endTime;
-      session.durationSeconds = payload.durationSeconds ?? session.durationSeconds;
-      session.totalDistanceKm = calculateTotalWaypointsDistanceKm(session.waypoints);
-      session.syncStatus = SyncStatus.SYNCED;
-      await session.save();
-
-      if (session.patrolAssignment && session.status === PatrolStatus.COMPLETED) {
-        await PatrolAssignmentModel.findByIdAndUpdate(session.patrolAssignment, {
-          status: PatrolStatus.COMPLETED
-        });
-      }
-      return session;
-    }
-
-    let assignment = await ensureSeedData(rangerId, rangerName);
-    if (!assignment) {
-      throw new Error('Failed to resolve assignment for sync.');
-    }
-
-    const calculatedDist = calculateTotalWaypointsDistanceKm(payload.waypoints || []);
-    const calculatedDuration = payload.endTime
-      ? Math.max(0, Math.round((new Date(payload.endTime).getTime() - new Date(payload.startTime).getTime()) / 1000))
-      : payload.durationSeconds || 0;
-
-    session = await PatrolSessionModel.create({
-      clientSessionId: payload.clientSessionId,
-      rangerId,
-      rangerName,
-      patrolAssignment: assignment._id,
-      patrolRoute: assignment.patrolRoute,
-      startTime: payload.startTime,
-      endTime: payload.endTime || null,
-      status: payload.status,
-      syncStatus: SyncStatus.SYNCED,
-      waypoints: payload.waypoints || [],
-      totalDistanceKm: calculatedDist,
-      durationSeconds: calculatedDuration
-    });
-
-    if (payload.status === PatrolStatus.COMPLETED) {
-      await PatrolAssignmentModel.findByIdAndUpdate(assignment._id, {
-        status: PatrolStatus.COMPLETED
-      });
-    } else {
-      await PatrolAssignmentModel.findByIdAndUpdate(assignment._id, {
-        status: PatrolStatus.ACTIVE
-      });
-    }
-
-    return session;
+    const calculatedDuration = payload.endTime ? Math.max(0, Math.round((payload.endTime.getTime() - payload.startTime.getTime()) / 1000)) : payload.durationSeconds ?? 0;
+    const session = await prisma.patrolSession.create({ data: { clientSessionId: payload.clientSessionId, rangerId, rangerName, patrolAssignmentId: assignment.id, patrolRouteId: payload.patrolRouteId ?? assignment.patrolRouteId, startTime: payload.startTime, endTime: payload.endTime ?? null, status: payload.status as any, syncStatus: SyncStatus.SYNCED as any, totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints), durationSeconds: calculatedDuration, waypoints: { create: payload.waypoints.map(point => ({ latitude: point.latitude, longitude: point.longitude, timestamp: point.timestamp, source: point.source as any, accuracy: point.accuracy, note: point.note })) } }, include: sessionInclude });
+    await prisma.patrolAssignment.update({ where: { id: assignment.id }, data: { status: payload.status === PatrolStatus.COMPLETED ? PatrolStatus.COMPLETED as any : PatrolStatus.ACTIVE as any } });
+    return sessionShape(session);
   }
 }
 

@@ -1,14 +1,9 @@
-import dns from 'node:dns';
-import mongoose from 'mongoose';
 import { env } from './env.js';
-
-// Use public DNS resolvers for Atlas SRV records when the local DNS resolver
-// refuses Node's SRV lookup (common on some Windows networks).
-dns.setServers(['1.1.1.1', '8.8.8.8']);
+import { prisma } from './prisma.js';
 
 export async function connectDatabase(): Promise<void> {
-  if (!env.MONGODB_URI) {
-    throw new Error('MONGODB_URI is required before starting the server. Configure server/.env from server/.env.example.');
+  if (!env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is required before starting the server. Configure server/.env with your Neon connection string.');
   }
-  await mongoose.connect(env.MONGODB_URI);
+  await prisma.$connect();
 }

@@ -41,15 +41,19 @@ Install Node.js 20+ and npm. From the repository root: `npm install`.
 
 ### Backend setup
 
-`copy server/.env.example server/.env` then run `npm run dev --workspace server`. The API requires `MONGODB_URI` before startup and fails clearly when it is missing. `GET /api/health` is available once the server starts.
+`copy server/.env.example server/.env` then run `npm run db:generate --workspace server`, `npm run db:deploy --workspace server`, and `npm run dev --workspace server`. The API requires `DATABASE_URL` before startup and fails clearly when it is missing. `GET /api/health` is available once the server starts.
+
+### Running both apps
+
+Run `npm run dev` once from the repository root. The dev runner serves the frontend at `http://localhost:5173` and the API at `http://localhost:5000` (or `PORT` in `server/.env`). It reloads the API after server source edits and preserves Vite hot reload for the frontend. Press Ctrl+C or `q` and wait for `Dev servers stopped.` before restarting. Both ports are checked before startup; an occupied port stops startup instead of launching a second frontend on 5174. Run `npm run test:dev` to check startup, shutdown, duplicate starts, and restart cleanup using isolated local ports with no Neon data access.
 
 ## MongoDB Atlas manual configuration
 
-A team member must manually: create a MongoDB Atlas project/cluster; create a database user; configure network access; obtain a MongoDB URI; and paste it into `server/.env` as `MONGODB_URI=...`. No Atlas account, cluster, or credential is created by this repository.
+A team member must manually create or select the Neon project/database, copy the pooled connection string into `DATABASE_URL`, and copy the direct connection string into `DIRECT_URL` when Neon provides one. No Neon account, project, or credential is created by this repository.
 
 ## Environment variables
 
-`client/.env.example` contains `VITE_API_URL=http://localhost:5000/api`. `server/.env.example` contains `PORT` (default `5001`), `MONGODB_URI`, `CLIENT_URL`, and `NODE_ENV`. Real `.env` files are ignored by Git; never commit credentials.
+`client/.env.example` contains `VITE_API_URL=http://localhost:5000/api`. `server/.env.example` contains `PORT` (default `5000`), `DATABASE_URL`, `DIRECT_URL`, `CLIENT_URL`, and `NODE_ENV`. Real `.env` files are ignored by Git; never commit credentials.
 
 ## PWA and offline architecture
 
