@@ -119,6 +119,7 @@ export const incidentApi = {
 
   async getMyIncidents(): Promise<ConservationIncident[]> {
     let remoteIncidents: ConservationIncident[] = [];
+    let remoteFetchSucceeded = false;
     if (syncService.getIsOnline()) {
       await syncService.processAll();
     }
@@ -126,6 +127,7 @@ export const incidentApi = {
     try {
       const response = await http.get('/incidents/my');
       if (response.data?.success) {
+        remoteFetchSucceeded = true;
         remoteIncidents = response.data.data;
 
         for (const inc of remoteIncidents) {
@@ -153,6 +155,54 @@ export const incidentApi = {
       }
     } catch (e) {
       console.warn('Error reading local offline database:', e);
+    }
+
+    // When the server responded successfully, its result is authoritative.
+    // Remove stale synced browser-cache records that no longer exist remotely,
+    // but preserve pending/failed offline reports for synchronization.
+    if (remoteFetchSucceeded) {
+      const remoteKeys = new Set(remoteIncidents.flatMap(inc => [inc._id, inc.clientIncidentId].filter(Boolean)));
+      const staleCached = cached.filter(record => {
+        const incident = record.payload as ConservationIncident;
+        const key = incident?.clientIncidentId || incident?._id;
+        return record.syncStatus === SyncStatus.SYNCED && !!key && !remoteKeys.has(key);
+      });
+      if (staleCached.length > 0) {
+        await offlineDb.transaction('rw', [offlineDb.incidents, offlineDb.syncQueue], async () => {
+          for (const record of staleCached) {
+            if (record.id !== undefined) {
+              await offlineDb.incidents.delete(record.id);
+              await offlineDb.syncQueue.where('entity').equals('INCIDENT').filter(item => item.recordId === record.id).delete();
+            }
+          }
+        });
+        cached = cached.filter(record => !staleCached.some(stale => stale.id === record.id));
+      }
+    }
+
+    // Clean up repeated demo/test copies of the same SNARE report while
+    // retaining the newest local copy. Genuine reports with other content
+    // are not affected.
+    const duplicateSnareDescription = 'Wire snare found attached to acacia tree near waterhole.';
+    const duplicateSnareRecords = cached
+      .filter(record => {
+        const incident = record.payload as ConservationIncident;
+        return incident?.incidentType === 'SNARE' && incident.description?.trim() === duplicateSnareDescription;
+      })
+      .sort((a, b) => new Date((b.payload as ConservationIncident).reportedAt).getTime() - new Date((a.payload as ConservationIncident).reportedAt).getTime());
+
+    if (duplicateSnareRecords.length > 1) {
+      const duplicates = duplicateSnareRecords.slice(1).filter(record => record.id !== undefined);
+      await offlineDb.transaction('rw', [offlineDb.incidents, offlineDb.syncQueue], async () => {
+        for (const duplicate of duplicates) {
+          if (duplicate.id !== undefined) await offlineDb.incidents.delete(duplicate.id);
+          await offlineDb.syncQueue
+            .where('entity').equals('INCIDENT')
+            .filter(item => item.recordId === duplicate.id)
+            .delete();
+        }
+      });
+      cached = cached.filter(record => !duplicates.some(duplicate => duplicate.id === record.id));
     }
 
     const itemsMap = new Map<string, ConservationIncident>();
