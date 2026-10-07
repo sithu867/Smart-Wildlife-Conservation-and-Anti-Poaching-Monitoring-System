@@ -1,6 +1,9 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import { Prisma, type StatisticalReport } from '@prisma/client';
+import { unzipSync, strFromU8 } from 'fflate';
+import { hasReportableFindings } from '../src/modules/analytics/reportEligibility.js';
+import { reportFilename } from '../src/modules/analytics/reportContract.js';
 import { prisma, resetAnalyticsPrisma } from './analyticsPrismaMock.js';
 const { createApp } = await import('../src/app.js');
 const { analyticsService } =
@@ -47,6 +50,16 @@ async function create() {
     title: string;
     notes: string;
   };
+}
+function excel(id: string) {
+  return endpoint('get', `/${id}/export`)
+    .query({ format: 'xlsx' })
+    .buffer(true)
+    .parse((response, done) => {
+      const chunks: Buffer[] = [];
+      response.on('data', (chunk: Buffer) => chunks.push(chunk));
+      response.on('end', () => done(null, Buffer.concat(chunks)));
+    });
 }
 
 beforeEach(() => {
@@ -454,3 +467,245 @@ test.each(['/pdf', '/regenerate'])(
     );
   },
 );
+
+describe('Batch 5 persisted report lifecycle', () => {
+  test('neglected-only registered routes generate and save a valid report without fabricated activity', async () => {
+    source = [];
+    prisma.patrolRoute.findMany.mockResolvedValue([
+      { id: 'route-1', name: 'North route', geometry: null },
+      { id: 'route-2', name: 'River route', geometry: null },
+      { id: 'route-3', name: 'Forest route', geometry: null },
+    ]);
+    const generated = await endpoint('post').send({
+      criteria: { ...criteria, categories: ['PATROL_COVERAGE'] },
+    });
+    expect(generated.status).toBe(201);
+    const report = generated.body.data;
+    expect(report.analyticsResult.matchedRecords.patrols).toBe(0);
+    expect(report.analyticsResult.patrolCoverage).toMatchObject({
+      totalRoutes: 3,
+      coveredRoutes: 0,
+      limitedActivityRoutes: 0,
+      neglectedRoutes: 3,
+      coveragePercentage: 0,
+      patrolSessionCount: 0,
+    });
+    expect(hasReportableFindings(report.analyticsResult)).toBe(true);
+    for (const format of ['pdf', 'csv', 'xlsx']) {
+      expect(
+        (await endpoint('get', `/${report.id}/export`).query({ format }))
+          .status,
+      ).toBe(200);
+    }
+  });
+
+  test('genuinely empty selected coverage stays no-data even when unrelated source incidents exist', async () => {
+    expect(
+      (
+        await endpoint('post').send({
+          criteria: { ...criteria, categories: ['PATROL_COVERAGE'] },
+        })
+      ).status,
+    ).toBe(400);
+    expect(store.size).toBe(0);
+  });
+
+  test.each(['pdf', 'csv', 'xlsx'])(
+    '%s exports only saved values and never calls analytics',
+    async (format) => {
+      const report = await create();
+      source.push(clone(source[0]));
+      prisma.park.findUnique.mockResolvedValue({
+        ...park,
+        name: 'Current renamed park',
+      });
+      const analyze = jest.spyOn(analyticsService, 'getAnalytics');
+      const response =
+        format === 'xlsx'
+          ? await excel(report.id)
+          : await endpoint('get', `/${report.id}/export`).query({ format });
+      expect(response.status).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.headers['content-disposition']).toMatch(
+        new RegExp(
+          `^attachment; filename="conservation-report-snap-\\d{4}-\\d{2}-\\d{2}\\.${format}"$`,
+        ),
+      );
+      let content: string;
+      if (format === 'xlsx') {
+        expect(response.headers['content-type']).toContain(
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+        const zip = unzipSync(response.body as Buffer);
+        expect(Object.keys(zip)).toEqual(
+          expect.arrayContaining([
+            '[Content_Types].xml',
+            'xl/workbook.xml',
+            'xl/worksheets/sheet1.xml',
+            'xl/worksheets/sheet2.xml',
+          ]),
+        );
+        const workbook = strFromU8(zip['xl/workbook.xml']);
+        expect(workbook).toContain('name="Summary"');
+        expect(workbook).toContain('name="Incident Statistics"');
+        expect(workbook).not.toMatch(
+          /name="Patrol Coverage"|name="HWC Trends"|name="Incident Hotspots"/,
+        );
+        content = Object.entries(zip)
+          .filter(([key]) => /\.xml$/.test(key))
+          .map(([, value]) => strFromU8(value))
+          .join('\n');
+        expect(strFromU8(zip['xl/worksheets/sheet2.xml'])).toMatch(/<v>1<\/v>/);
+        expect(content).toContain('Total incidents: 1');
+      } else if (format === 'csv') {
+        expect(response.headers['content-type']).toContain('text/csv');
+        content = response.text;
+        expect(content).toContain(
+          '"Incident Statistics","Incidents by type","SNARE","1"',
+        );
+        expect(content).toContain('"Summary","Report metadata","Version","1"');
+        expect(content).toContain(
+          '"Summary","Executive Summary","Total incidents: 1"',
+        );
+        expect(content).not.toContain('"Patrol Coverage"');
+        expect(content).not.toContain('{"');
+      } else {
+        expect(response.headers['content-type']).toContain('application/pdf');
+        content = (response.body as Buffer).toString();
+        expect(content).toContain('Version: 1');
+        expect(content).toContain('Page 1 of');
+        expect(content).toContain('Total incidents: 1');
+      }
+      expect(content).toContain(report.id);
+      expect(content).toContain('Snapshot Park');
+      expect(content).not.toContain('Current renamed park');
+      expect(analyze).not.toHaveBeenCalled();
+    },
+  );
+
+  test('all selected CSV sections and Excel sheets contain saved tables', async () => {
+    const categories = [
+      'INCIDENT_STATISTICS',
+      'INCIDENT_HOTSPOTS',
+      'PATROL_COVERAGE',
+      'HWC_TRENDS',
+    ];
+    const response = await endpoint('post').send({
+      criteria: { ...criteria, categories },
+    });
+    expect(response.status).toBe(201);
+    const csv = await endpoint('get', `/${response.body.data.id}/export`).query(
+      { format: 'csv' },
+    );
+    const workbookResponse = await excel(response.body.data.id);
+    const zip = unzipSync(workbookResponse.body as Buffer);
+    const workbook = strFromU8(zip['xl/workbook.xml']);
+    for (const section of [
+      'Summary',
+      'Incident Statistics',
+      'Incident Hotspots',
+      'Patrol Coverage',
+      'HWC Trends',
+    ]) {
+      expect(csv.text).toContain(`"${section}"`);
+      expect(workbook).toContain(`name="${section}"`);
+    }
+    expect(csv.text).toContain('"End Date (inclusive UTC)","2026-10-07"');
+    expect(csv.text).toContain('"HWC Trends","Findings","Total alerts","0"');
+  });
+
+  test.each(['pdf', 'csv', 'xlsx'])(
+    '%s handles missing, malformed, archived and corrupt reports without recalculation',
+    async (format) => {
+      const analyze = jest.spyOn(analyticsService, 'getAnalytics');
+      expect(
+        (await endpoint('get', '/bad-id/export').query({ format })).status,
+      ).toBe(400);
+      expect(
+        (
+          await endpoint('get', '/c000000000000000000000099/export').query({
+            format,
+          })
+        ).status,
+      ).toBe(404);
+      const report = await create();
+      analyze.mockClear();
+      const original = clone(store.get(report.id)!.snapshot);
+      store.get(report.id)!.snapshot = { broken: true };
+      expect(
+        (await endpoint('get', `/${report.id}/export`).query({ format }))
+          .status,
+      ).toBe(500);
+      store.get(report.id)!.snapshot = original;
+      await endpoint('delete', `/${report.id}`);
+      expect(
+        (await endpoint('get', `/${report.id}/export`).query({ format }))
+          .status,
+      ).toBe(410);
+      expect(analyze).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([undefined, 'xml', 'PDF', '../xlsx', ['pdf', 'csv'], ''])(
+    'rejects unsupported export format %p',
+    async (format) => {
+      const report = await create();
+      const response = await endpoint('get', `/${report.id}/export`).query(
+        format === undefined ? {} : { format },
+      );
+      expect(response.status).toBe(400);
+    },
+  );
+
+  test('export rejects arbitrary query payload and manager guard still applies', async () => {
+    const report = await create();
+    expect(
+      (
+        await endpoint('get', `/${report.id}/export`).query({
+          format: 'csv',
+          filename: '../../private',
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(app)
+          .get(`/api/analytics/reports/${report.id}/export`)
+          .query({ format: 'csv' })
+      ).status,
+    ).toBe(403);
+  });
+
+  test('CSV quotes commas, quotes and line breaks, and spreadsheet formats protect text from formulas', async () => {
+    const report = await create();
+    await endpoint('patch', `/${report.id}`).send({
+      title: '=SUM(1,2)',
+      notes: 'Quoted "note",\nnext line',
+    });
+    const csv = await endpoint('get', `/${report.id}/export`).query({
+      format: 'csv',
+    });
+    expect(csv.text).toContain('"\'=SUM(1,2)"');
+    expect(csv.text).toContain('"Quoted ""note"",\nnext line"');
+    const workbookResponse = await excel(report.id);
+    const xml = Object.values(unzipSync(workbookResponse.body as Buffer))
+      .map((value) => strFromU8(value))
+      .join('\n');
+    expect(xml).toContain('=SUM(1,2)');
+    expect(xml).not.toContain('<f>');
+  });
+
+  test('filenames strip unsafe park characters and cannot contain path separators or header injection', () => {
+    for (const format of ['pdf', 'csv', 'xlsx'] as const) {
+      expect(
+        reportFilename(
+          {
+            park: { ...park, code: '../../Unsafe\r\nPark"' },
+            generatedAt: '2026-10-07T01:00:00.000Z',
+          },
+          format,
+        ),
+      ).toBe(`conservation-report-unsafe-park-2026-10-07.${format}`);
+    }
+  });
+});

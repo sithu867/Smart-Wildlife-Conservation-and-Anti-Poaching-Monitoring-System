@@ -178,13 +178,14 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
       screen.getByRole('button', { name: 'View Generated Report' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
-    await screen.findByText(/Report exported successfully/);
+    await screen.findByText(/PDF exported successfully/);
     expect(analyticsApi.exportReport).toHaveBeenCalledWith(
       expect.objectContaining({
         id: savedReportFixture().id,
         appliedCriteria: captured.criteria,
       }),
       expect.any(AbortSignal),
+      'pdf',
     );
     expect(analyticsApi.analyze).toHaveBeenCalledTimes(1);
   });
@@ -239,10 +240,10 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
     await act(async () => pending.reject(new Error('secret export details')));
     expect(
       screen.getByRole('alert', { name: 'PDF export failed' }),
-    ).toHaveTextContent('Your report preview is still available');
+    ).toHaveTextContent('Your saved report preview is still available');
     expect(preview).toHaveTextContent('Total incidents: 2');
-    fireEvent.click(screen.getByRole('button', { name: 'Retry Export' }));
-    const success = await screen.findByText(/Report exported successfully/);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry Export PDF' }));
+    const success = await screen.findByText(/PDF exported successfully/);
     expect(success).toHaveAttribute('role', 'status');
     expect(success).toHaveTextContent(
       'conservation-report-alpha-2026-10-05.pdf',

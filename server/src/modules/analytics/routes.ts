@@ -26,3 +26,7 @@ analyticsRoutes.get(
   '/reports/:reportId/pdf',
   conservationReportController.exportPdf,
 );
+analyticsRoutes.get(
+  '/reports/:reportId/export',
+  conservationReportController.exportReport,
+);

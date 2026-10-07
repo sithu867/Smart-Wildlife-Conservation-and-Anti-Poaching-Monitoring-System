@@ -267,7 +267,7 @@ describe('UC-D criteria and Analyze workflow', () => {
       name: 'Generate & Save Report',
     });
     expect(generateButton).toHaveAccessibleDescription(
-      'Generate & Save Report is available after a successful analysis with matching conservation data.',
+      'Generate & Save Report is available after a successful analysis with meaningful findings, including registered routes with no patrol activity.',
     );
     fireEvent.click(generateButton);
     expect(generateReport).not.toHaveBeenCalled();

@@ -52,6 +52,18 @@ export function SavedReports({
           </button>
         </div>
       )}
+      {reports.exportError && !reports.detail && (
+        <div role="alert">
+          <p>{reports.exportError}</p>
+          <button
+            type="button"
+            disabled={!!reports.busy}
+            onClick={() => reports.retry?.()}
+          >
+            Retry Export PDF
+          </button>
+        </div>
+      )}
       {!reports.detail && (
         <ReportHistoryCards
           history={reports.history}
@@ -126,12 +138,15 @@ export function SavedReports({
           )}
           <ConservationReportPreview
             snapshot={reports.detail}
-            exporting={reports.busy === 'Exporting PDF'}
-            error=""
+            exporting={reports.busy.startsWith('Exporting ')}
+            disabled={!!reports.busy && !reports.busy.startsWith('Exporting ')}
+            error={reports.exportError}
             exportedFilename={reports.exportedFilename}
             onBack={reports.back}
             backLabel="Back to History"
-            onExport={() => reports.exportPdf(reports.detail!)}
+            format={reports.format}
+            onFormatChange={reports.selectFormat}
+            onExport={() => reports.exportReport(reports.detail!)}
           />
         </>
       )}

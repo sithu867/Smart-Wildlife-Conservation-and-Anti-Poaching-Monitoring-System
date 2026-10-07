@@ -14,6 +14,19 @@ export type DeepReadonly<T> = T extends object
   ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
   : T;
 
+export const REPORT_EXPORT_FORMATS = ['pdf', 'csv', 'xlsx'] as const;
+export type ReportExportFormat = (typeof REPORT_EXPORT_FORMATS)[number];
+export const REPORT_FORMAT_LABELS: Record<ReportExportFormat, string> = {
+  pdf: 'PDF',
+  csv: 'CSV',
+  xlsx: 'Excel',
+};
+export const REPORT_CONTENT_TYPES: Record<ReportExportFormat, string> = {
+  pdf: 'application/pdf',
+  csv: 'text/csv',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
 export type ConservationReportSnapshot = DeepReadonly<{
   generatedAt: string;
   park: ParkOption;
@@ -185,10 +198,13 @@ export function buildReportDocument(
         `Grid: ${hotspots.gridSizeDegrees} degrees; minimum incidents per hotspot: ${hotspots.minimumIncidents}`,
         `Valid coordinates: ${hotspots.validIncidentCount}; excluded coordinates: ${hotspots.excludedCoordinateCount}; isolated incidents: ${hotspots.isolatedIncidentCount}`,
         ...(hotspots.hotspots.length
-          ? hotspots.hotspots.map(
-              (hotspot) =>
-                `Rank ${hotspot.rank}: ${hotspot.latitude.toFixed(5)}, ${hotspot.longitude.toFixed(5)} | ${hotspot.concentration} concentration | ${hotspot.incidentCount} incidents`,
-            )
+          ? hotspots.hotspots.flatMap((hotspot) => [
+              `Rank ${hotspot.rank}: ${hotspot.latitude.toFixed(5)}, ${hotspot.longitude.toFixed(5)} | ${hotspot.concentration} concentration | ${hotspot.incidentCount} incidents`,
+              ...groupLines(
+                `Hotspot ${hotspot.rank} incident types`,
+                hotspot.byType,
+              ),
+            ])
           : ['No concentrated hotspots in the reviewed incident data.']),
       );
     }
@@ -196,6 +212,7 @@ export function buildReportDocument(
       const coverage = data.patrolCoverage;
       summary.push(
         `Patrol coverage: ${coverage.coveragePercentage}% (${coverage.coveredRoutes} of ${coverage.totalRoutes} routes covered)`,
+        `Covered routes: ${coverage.coveredRoutes}; limited-activity routes: ${coverage.limitedActivityRoutes}; neglected routes: ${coverage.neglectedRoutes}`,
       );
       lines.push(
         `Coverage percentage: ${coverage.coveragePercentage}%`,
@@ -204,6 +221,7 @@ export function buildReportDocument(
         `Limited-activity routes: ${coverage.limitedActivityRoutes}`,
         `Neglected routes: ${coverage.neglectedRoutes}`,
         `Patrol sessions: ${coverage.patrolSessionCount}; completed patrols: ${coverage.completedPatrolCount}`,
+        `Excluded sessions: ${coverage.excludedSessionCount}; routes without usable geometry: ${coverage.missingGeometryRouteCount}`,
         ...coverage.routes.map(
           (route) =>
             `${route.routeName}: ${PATROL_COVERAGE_LABELS[route.status]} | Sessions: ${route.sessionCount}; completed: ${route.completedSessionCount}; waypoints: ${route.waypointCount}; last patrol: ${route.lastPatrolDate ?? 'None'}`,
@@ -224,10 +242,11 @@ export function buildReportDocument(
         ...groupLines('Alerts by source', trends.bySource),
         ...groupLines('Alerts by type', trends.byType),
         `Conflict locations: ${trends.locations.locations.length} occupied ${trends.locations.gridSizeDegrees}-degree cells; ${trends.locations.excludedCoordinateCount} alerts excluded for invalid coordinates`,
-        ...trends.locations.locations.map(
-          (cell) =>
-            `Location ${cell.rank}: ${cell.latitude}, ${cell.longitude} | ${cell.alertCount} alerts`,
-        ),
+        ...trends.locations.locations.flatMap((cell) => [
+          `Location ${cell.rank}: ${cell.latitude}, ${cell.longitude} | ${cell.alertCount} alerts`,
+          ...groupLines(`Location ${cell.rank} severity`, cell.bySeverity),
+          ...groupLines(`Location ${cell.rank} types`, cell.byType),
+        ]),
         `Total responses: ${trends.totalResponses}`,
         ...groupLines('Responses by action', trends.responsesByAction),
         ...timeLines('Responses over time', trends.responsesOverTime),
@@ -263,6 +282,7 @@ export function buildReportDocument(
 
 export function reportFilename(
   report: Pick<ConservationReportSnapshot, 'park' | 'generatedAt'>,
+  format: ReportExportFormat = 'pdf',
 ): string {
   const code =
     report.park.code
@@ -270,5 +290,6 @@ export function reportFilename(
       .replace(/[^a-z0-9_-]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 48) || 'park';
-  return `conservation-report-${code}-${report.generatedAt.slice(0, 10)}.pdf`;
+  const date = /^\d{4}-\d{2}-\d{2}/.exec(report.generatedAt)?.[0] ?? 'undated';
+  return `conservation-report-${code}-${date}.${format}`;
 }

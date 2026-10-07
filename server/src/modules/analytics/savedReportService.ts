@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma.js';
 import { analyticsService } from './service.js';
 import { createReportSnapshot } from './reportContract.js';
 import { validateReportSnapshot } from './reportValidation.js';
+import { hasReportableFindings } from './reportEligibility.js';
 import type {
   CreateStatisticalReport,
   ReportHistory,
@@ -63,7 +64,7 @@ async function create(
   // CREATE: recompute on the server so client totals can never become evidence.
   // The existing service validates park existence and preserves Batch 1–2 scoping.
   const result = await analyticsService.getAnalytics(input.criteria);
-  if (!Object.values(result.matchedRecords).some((count) => (count ?? 0) > 0))
+  if (!hasReportableFindings(result))
     throw new SavedReportError(
       400,
       'Report generation requires matching conservation data. Refine the criteria and Analyze again.',

@@ -8,8 +8,8 @@ import {
   reportIdSchema,
   reportHistoryQuerySchema,
 } from './savedReportValidation.js';
-import { generateReportPdf } from './reportPdf.js';
-import { reportFilename } from './reportContract.js';
+import { REPORT_EXPORT_FORMATS } from './reportContract.js';
+import { exportSavedReport } from './reportExportService.js';
 
 function reportError(error: unknown, res: Response) {
   const status =
@@ -84,18 +84,29 @@ const regenerate = action(async (req, res) => {
   });
 });
 const exportPdf = action(async (req, res) => {
-  // PDF reads only database evidence. Current analytics and request bodies cannot
-  // replace the findings previously issued by the server.
-  const report = await savedReportService.detail(
+  z.object({}).strict().parse(req.query);
+  const file = await exportSavedReport(
     reportIdSchema.parse(req.params.reportId),
+    'pdf',
   );
   res
-    .type('application/pdf')
-    .set(
-      'Content-Disposition',
-      `attachment; filename="${reportFilename(report)}"`,
-    )
-    .send(generateReportPdf(report));
+    .type(file.contentType)
+    .set('Access-Control-Expose-Headers', 'Content-Disposition')
+    .set('Content-Disposition', `attachment; filename="${file.filename}"`)
+    .send(file.content);
+});
+const exportReport = action(async (req, res) => {
+  const id = reportIdSchema.parse(req.params.reportId);
+  const { format } = z
+    .object({ format: z.enum(REPORT_EXPORT_FORMATS) })
+    .strict()
+    .parse(req.query);
+  const file = await exportSavedReport(id, format);
+  res
+    .type(file.contentType)
+    .set('Access-Control-Expose-Headers', 'Content-Disposition')
+    .set('Content-Disposition', `attachment; filename="${file.filename}"`)
+    .send(file.content);
 });
 export const conservationReportController = {
   generate,
@@ -105,4 +116,5 @@ export const conservationReportController = {
   archive,
   regenerate,
   exportPdf,
+  exportReport,
 };

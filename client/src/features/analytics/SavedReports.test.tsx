@@ -11,6 +11,9 @@ import { SavedReports } from './SavedReports';
 import { analyticsApi } from './api';
 import { savedReportFixture } from './savedReportTestFixtures';
 import type { SavedStatisticalReport } from '../../../../server/src/modules/analytics/savedReportContract';
+import { installAnalyticsObservers } from './analyticsTestSetup';
+
+installAnalyticsObservers();
 
 const saved = savedReportFixture();
 function deferred<T>() {
@@ -288,13 +291,14 @@ test('saved PDF failure offers retry by saved ID, without regeneration', async (
   );
   fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
   expect(await screen.findByRole('alert')).not.toHaveTextContent('secret');
-  fireEvent.click(screen.getByRole('button', { name: 'Retry report request' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry Export PDF' }));
   await waitFor(() =>
     expect(analyticsApi.exportReport).toHaveBeenCalledTimes(2),
   );
   expect(analyticsApi.exportReport).toHaveBeenLastCalledWith(
     saved,
     expect.any(AbortSignal),
+    'pdf',
   );
   expect(analyticsApi.regenerateReport).not.toHaveBeenCalled();
 });

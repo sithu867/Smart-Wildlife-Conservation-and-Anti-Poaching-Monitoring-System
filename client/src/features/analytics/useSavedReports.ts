@@ -6,6 +6,10 @@ import type {
   StatisticalReportSummary,
 } from '../../../../server/src/modules/analytics/savedReportContract';
 import { analyticsApi } from './api';
+import {
+  REPORT_FORMAT_LABELS,
+  type ReportExportFormat,
+} from '../../../../server/src/modules/analytics/reportContract';
 
 function failureMessage(error: unknown) {
   if (isAxiosError(error)) {
@@ -38,6 +42,8 @@ export function useSavedReports(
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [exportedFilename, setExportedFilename] = useState('');
+  const [format, setFormat] = useState<ReportExportFormat>('pdf');
+  const [exportError, setExportError] = useState('');
   const [retry, setRetry] = useState<(() => void) | null>(null);
   const pending = useRef<AbortController | null>(null);
 
@@ -55,12 +61,19 @@ export function useSavedReports(
     setError('');
     setRetry(null);
     setNotice('');
+    setExportError('');
     try {
       const value = await request(controller.signal);
       if (!controller.signal.aborted) success(value);
     } catch (cause) {
       if (!controller.signal.aborted) {
-        setError(failureMessage(cause));
+        if (name.startsWith('Exporting ')) {
+          // A failed download changes feedback only. Keep the saved preview and
+          // selected format so retry never needs Analyze or Generate again.
+          setExportError(
+            `${name.replace('Exporting ', '')} export could not be completed. The saved report is still available. ${failureMessage(cause)}`,
+          );
+        } else setError(failureMessage(cause));
         setRetry(() => again);
       }
     } finally {
@@ -105,15 +118,19 @@ export function useSavedReports(
       () => open(id),
     );
   }
-  function exportPdf(report: StatisticalReportSummary) {
+  function exportReport(report: StatisticalReportSummary, selected = format) {
+    if (pending.current) return;
+    setExportedFilename('');
     void run(
-      'Exporting PDF',
-      (signal) => analyticsApi.exportReport(report, signal),
+      `Exporting ${REPORT_FORMAT_LABELS[selected]}`,
+      (signal) => analyticsApi.exportReport(report, signal, selected),
       (filename) => {
         setExportedFilename(filename);
-        setNotice(`Report exported successfully: ${filename}`);
+        setNotice(
+          `${REPORT_FORMAT_LABELS[selected]} report exported successfully: ${filename}`,
+        );
       },
-      () => exportPdf(report),
+      () => exportReport(report, selected),
     );
   }
   function saveMetadata(title: string, notes: string) {
@@ -187,11 +204,14 @@ export function useSavedReports(
     );
   }
   function back() {
+    if (pending.current) return;
     setDetail(null);
     setEditing(false);
     setError('');
     setRetry(null);
     setExportedFilename('');
+    setExportError('');
+    setNotice('');
   }
   return {
     history,
@@ -206,7 +226,19 @@ export function useSavedReports(
     retry,
     load,
     open,
-    exportPdf,
+    exportReport,
+    exportPdf: (report: StatisticalReportSummary) =>
+      exportReport(report, 'pdf'),
+    format,
+    exportError,
+    selectFormat: (value: ReportExportFormat) => {
+      if (pending.current) return;
+      setFormat(value);
+      setExportError('');
+      setRetry(null);
+      setExportedFilename('');
+      setNotice('');
+    },
     saveMetadata,
     regenerate,
     archive,

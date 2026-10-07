@@ -361,7 +361,9 @@ export function AnalyticsPage() {
           error={report.exportError}
           exportedFilename={report.exportedFilename}
           onBack={report.returnToAnalysis}
-          onExport={() => void report.exportPdf()}
+          format={report.format}
+          onFormatChange={report.selectFormat}
+          onExport={() => void report.exportReport()}
         />
       )}
     </main>

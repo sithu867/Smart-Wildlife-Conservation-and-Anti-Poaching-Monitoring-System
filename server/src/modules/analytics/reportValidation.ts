@@ -8,6 +8,7 @@ import {
 } from './contract.js';
 import { analysisCriteriaSchema, analysisParkIdSchema } from './validation.js';
 import type { ConservationReportSnapshot } from './reportContract.js';
+import { hasReportableFindings } from './reportEligibility.js';
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const text = z.string().trim().min(1).max(2000);
@@ -257,15 +258,7 @@ export const reportSnapshotSchema = z
       invalid('Report requires successful selected-category analysis.');
     // Only selected sources can establish eligibility. Unrelated legacy totals
     // cannot turn an empty selected category into a reportable analysis.
-    const matching =
-      (selected.some((category) => category.startsWith('INCIDENT_')) &&
-        data.matchedRecords.incidents > 0) ||
-      (selected.includes('PATROL_COVERAGE') &&
-        data.matchedRecords.patrols > 0) ||
-      (selected.includes('HWC_TRENDS') &&
-        ((data.matchedRecords.conflicts ?? 0) > 0 ||
-          (data.matchedRecords.responses ?? 0) > 0));
-    if (!matching)
+    if (!hasReportableFindings(data))
       invalid('Report requires meaningful matching conservation data.');
     if (
       data.incidentStatistics &&

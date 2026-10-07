@@ -636,7 +636,12 @@
   overflow-wrap: anywhere;
 }
 .analytics-report-paper header {
-  padding-bottom: 1.25rem;
+  /* The application's global header rule uses a navigation flex row. Report
+     identity needs a normal text block so long titles stay readable on phones. */
+  display: block;
+  background: transparent;
+  color: inherit;
+  padding: 0 0 1.25rem;
   border-bottom: 3px solid #287452;
 }
 .analytics-report-paper .eyebrow {
@@ -687,6 +692,33 @@
   font-size: 1.2rem;
   font-weight: 700;
 }
+.analytics-report-export strong { font-size: 1rem; color: inherit; }
+.analytics-export-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  min-width: 0;
+  margin-block: 1rem;
+}
+.analytics-export-formats label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+.analytics-export-formats input { width: 1.2rem; height: 1.2rem; accent-color: #047857; }
+.analytics-report-preview :is(button, input, [tabindex]):focus-visible {
+  outline: 3px solid #34d399;
+  outline-offset: 3px;
+}
+.analytics-report-paper .analytics-table-scroll { max-width: 100%; margin-block: 1rem; overflow-x: auto; }
+.analytics-report-paper table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.analytics-report-paper :is(th, td) { padding: 0.6rem; text-align: left; border-bottom: 1px solid #c6d5cc; min-width: 6rem; overflow-wrap: anywhere; }
+.analytics-report-paper caption { text-align: left; font-weight: 700; padding-block: 0.5rem; }
+.analytics-report-visuals { min-width: 0; color: #ecfdf5; background: #10231c; border-radius: 0.5rem; }
+.analytics-report-visuals:has(> *) { padding: 0.5rem; margin-block: 1rem; }
+.analytics-report-visuals :is(h3, p, th, td, caption) { color: #ecfdf5; }
 .analytics-report-export .analytics-actions,
 .analytics-report-success {
   margin-top: 1rem;

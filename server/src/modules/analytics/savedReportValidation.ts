@@ -20,7 +20,8 @@ export const createStatisticalReportSchema = z
   })
   .strict('Only analysis criteria, title and notes can be submitted.');
 
-// Allow-list metadata rather than stripping unknown keys: tampering must fail visibly.
+// Metadata cannot change analytical evidence: allow-list title/notes and reject
+// snapshot/criteria fields visibly rather than silently accepting tampering.
 export const updateStatisticalReportSchema = z
   .object({
     title: title.optional(),

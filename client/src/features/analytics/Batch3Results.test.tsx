@@ -202,7 +202,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Generate & Save Report' }),
-    ).toBeDisabled();
+    ).toBeEnabled();
   });
   test('applied categories control coverage visibility even when the response contains other category data', () => {
     display({ ...result(), patrolCoverage: patrolCoverageFixture() });

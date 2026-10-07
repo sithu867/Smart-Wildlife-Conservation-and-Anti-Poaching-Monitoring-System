@@ -3,7 +3,11 @@ import type {
   AnalysisCriteria,
   AnalyticsResult,
 } from '../../../../server/src/modules/analytics/contract';
-import { retainReportSnapshot } from '../../../../server/src/modules/analytics/reportContract';
+import {
+  retainReportSnapshot,
+  REPORT_FORMAT_LABELS,
+  type ReportExportFormat,
+} from '../../../../server/src/modules/analytics/reportContract';
 import type {
   CreateStatisticalReport,
   SavedStatisticalReport,
@@ -30,6 +34,7 @@ export function useConservationReport(
   const [preview, setPreview] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [format, setFormat] = useState<ReportExportFormat>('pdf');
   const [generationError, setGenerationError] = useState('');
   const [exportError, setExportError] = useState('');
   const [exportedFilename, setExportedFilename] = useState('');
@@ -110,7 +115,7 @@ export function useConservationReport(
     }
   }
 
-  async function exportPdf() {
+  async function exportReport() {
     if (!report || pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
@@ -122,6 +127,7 @@ export function useConservationReport(
       const filename = await analyticsApi.exportReport(
         report,
         controller.signal,
+        format,
       );
       if (sequence === revision.current) setExportedFilename(filename);
     } catch {
@@ -129,7 +135,7 @@ export function useConservationReport(
       // it never requires another analysis request or report generation.
       if (sequence === revision.current)
         setExportError(
-          'Unable to export the PDF. Your report preview is still available. Please try again.',
+          `${REPORT_FORMAT_LABELS[format]} export could not be completed. Your saved report preview is still available. Please try again.`,
         );
     } finally {
       if (sequence === revision.current) {
@@ -148,7 +154,15 @@ export function useConservationReport(
     exportError,
     exportedFilename,
     generate,
-    exportPdf,
+    exportReport,
+    exportPdf: exportReport,
+    format,
+    selectFormat: (value: ReportExportFormat) => {
+      if (pending.current) return;
+      setFormat(value);
+      setExportError('');
+      setExportedFilename('');
+    },
     synchronizeSavedReport: (saved: SavedStatisticalReport) => {
       setGeneratedReport((current) =>
         current?.snapshot.id === saved.id

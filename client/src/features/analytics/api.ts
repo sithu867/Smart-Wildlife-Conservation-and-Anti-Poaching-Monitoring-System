@@ -5,7 +5,13 @@ import type {
   ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
 import { criteriaParams } from './criteria';
-import { reportFilename } from '../../../../server/src/modules/analytics/reportContract';
+import {
+  reportFilename,
+  REPORT_CONTENT_TYPES,
+  REPORT_EXPORT_FORMATS,
+  type ReportExportFormat,
+} from '../../../../server/src/modules/analytics/reportContract';
+import { isValidAnalysisId } from '../../../../server/src/modules/analytics/contract';
 import type {
   CreateStatisticalReport,
   ReportHistory,
@@ -102,19 +108,40 @@ export const analyticsApi = {
   async exportReport(
     report: StatisticalReportSummary,
     signal: AbortSignal,
+    format: ReportExportFormat = 'pdf',
   ): Promise<string> {
-    // Export by database ID. Sending edited JSON cannot change the saved PDF.
+    if (
+      !isValidAnalysisId(report.id) ||
+      !REPORT_EXPORT_FORMATS.includes(format)
+    )
+      throw new Error('Invalid report ID or export format');
+    // Send only the ID/format. The server owns content and filenames; it never
+    // accepts browser findings or recalculates current analytics during export.
     const response = await http.get<Blob>(
-      `/analytics/reports/${report.id}/pdf`,
+      format === 'pdf'
+        ? `/analytics/reports/${report.id}/pdf`
+        : `/analytics/reports/${report.id}/export`,
       {
         headers: managerHeaders,
         responseType: 'blob',
         signal,
+        ...(format !== 'pdf' ? { params: { format } } : {}),
       },
     );
-    if (!response.data.size || !response.data.type.includes('application/pdf'))
-      throw new Error('Invalid PDF response');
-    const filename = reportFilename(report);
+    if (
+      signal.aborted ||
+      !response.data.size ||
+      !response.data.type.includes(REPORT_CONTENT_TYPES[format])
+    )
+      throw new Error('Invalid or cancelled export response');
+    const disposition = response.headers?.['content-disposition'];
+    const issuedName =
+      typeof disposition === 'string'
+        ? /filename="([a-z0-9_-]+\.[a-z]+)"/.exec(disposition)?.[1]
+        : undefined;
+    const filename = issuedName?.endsWith(`.${format}`)
+      ? issuedName
+      : reportFilename(report, format);
     const url = URL.createObjectURL(response.data);
     const anchor = document.createElement('a');
     anchor.href = url;

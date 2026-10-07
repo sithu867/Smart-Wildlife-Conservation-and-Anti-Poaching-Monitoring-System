@@ -6,6 +6,7 @@ import {
 } from '../../../../server/src/modules/analytics/contract';
 import { FeedbackPanel } from './AnalyticsFeedback';
 import { hasIncidentCategory } from './criteria';
+import { hasReportableFindings } from '../../../../server/src/modules/analytics/reportEligibility';
 import { PatrolCoverageResults } from './PatrolCoverageResults';
 import {
   IncidentStatisticsResults,
@@ -16,13 +17,7 @@ import {
 export function hasMeaningfulMatchingData(
   data: AnalyticsResult | undefined,
 ): boolean {
-  return (
-    data?.status === 'DATA' &&
-    (data.matchedRecords.incidents > 0 ||
-      data.matchedRecords.patrols > 0 ||
-      (data.matchedRecords.conflicts ?? 0) > 0 ||
-      (data.matchedRecords.responses ?? 0) > 0)
-  );
+  return hasReportableFindings(data);
 }
 
 interface Props {
