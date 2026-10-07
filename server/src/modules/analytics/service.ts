@@ -10,7 +10,7 @@ export const analyticsService = {
     const dateFilter = (field: 'startTime' | 'reportedAt' | 'createdAt') => ({ ...(filters.start || filters.end ? { [field]: { ...(filters.start ? { gte: filters.start } : {}), ...(filters.end ? { lte: filters.end } : {}) } } : {}) });
     const [patrols, incidents, alerts] = await Promise.all([
       prisma.patrolSession.findMany({ where: { ...dateFilter('startTime'), rangerId: filters.rangerId }, include: { waypoints: true } }),
-      prisma.conservationIncident.findMany({ where: { ...dateFilter('reportedAt'), reportedBy: filters.rangerId, incidentType: filters.incidentType as any, status: filters.incidentStatus as any } }),
+      prisma.conservationIncident.findMany({ where: { deletedAt: null, ...dateFilter('reportedAt'), reportedBy: filters.rangerId, incidentType: filters.incidentType as any, status: filters.incidentStatus as any } }),
       prisma.wildlifeConflictAlert.findMany({ where: { ...dateFilter('createdAt'), acknowledgedBy: filters.rangerId, severity: filters.severity as any, status: filters.conflictStatus as any, source: filters.conflictSource as any, alertType: filters.conflictType as any }, include: { responses: true } })
     ]);
     const responses = alerts.flatMap((a: any) => a.responses).filter((r: any) => (!filters.start || r.respondedAt >= filters.start) && (!filters.end || r.respondedAt <= filters.end));

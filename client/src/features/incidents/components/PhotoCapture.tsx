@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { PHOTO_ACCEPT_ATTRIBUTE, readEvidenceFile } from '../utils/photoFile';
 
 interface PhotoCaptureProps {
   initialPhotoUrl?: string | null;
@@ -26,35 +27,13 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({
 
     setError(null);
 
-    // Validate MIME type
-    if (!file.type || !file.type.startsWith('image/')) {
-      setError('Invalid file type: Camera or photo evidence must be a valid image format (JPEG, PNG, WebP).');
-      return;
-    }
-
-    // Validate size (max 5MB)
-    const MAX_BYTES = 5 * 1024 * 1024;
-    if (file.size > MAX_BYTES) {
-      setError('Image file is too large. Maximum allowed evidence size is 5MB.');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onerror = () => {
-      setError('Camera access error or failed to read captured image.');
-    };
-    reader.onload = event => {
-      const dataUrl = event.target?.result as string;
-      if (dataUrl) {
-        setPreviewUrl(dataUrl);
-        const kb = Math.round(file.size / 1024);
-        setFileDetails({ sizeKb: kb, mimeType: file.type });
-        onPhotoCaptured(dataUrl, file.size, file.type);
-      } else {
-        setError('Unable to process captured photograph. Please try again.');
-      }
-    };
-    reader.readAsDataURL(file);
+    readEvidenceFile(file)
+      .then(photo => {
+        setPreviewUrl(photo.dataUrl);
+        setFileDetails({ sizeKb: Math.round(photo.size / 1024), mimeType: photo.mimeType });
+        onPhotoCaptured(photo.dataUrl, photo.size, photo.mimeType);
+      })
+      .catch(err => setError(err instanceof Error ? err.message : 'Unable to process captured photograph. Please try again.'));
   };
 
   const handleRetake = () => {
@@ -79,7 +58,7 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={PHOTO_ACCEPT_ATTRIBUTE}
         capture="environment"
         onChange={handleFileChange}
         className="hidden"

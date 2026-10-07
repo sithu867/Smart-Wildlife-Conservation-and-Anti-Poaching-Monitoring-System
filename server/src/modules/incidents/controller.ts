@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { incidentService } from './service.js';
-import { createIncidentSchema, updateIncidentSchema } from './validation.js';
+import { createIncidentSchema, deleteIncidentSchema, restoreIncidentSchema, updateIncidentSchema } from './validation.js';
 
 function getAuthenticatedRanger(req: Request): { rangerId: string; rangerName: string } {
   const headerId = req.headers['x-ranger-id'];
@@ -58,6 +58,36 @@ export const incidentController = {
       const incidentId = String(req.params.incidentId);
       const input = updateIncidentSchema.parse(req.body);
       const data = await incidentService.updateIncident(rangerId, rangerName, incidentId, input);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
+  async deleteIncident(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId } = getAuthenticatedRanger(req);
+      const incidentId = String(req.params.incidentId);
+      const input = deleteIncidentSchema.parse(req.body ?? {});
+      const data = await incidentService.deleteIncident(rangerId, incidentId, input);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
+  async restoreIncident(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId } = getAuthenticatedRanger(req);
+      const incidentId = String(req.params.incidentId);
+      const input = restoreIncidentSchema.parse(req.body ?? {});
+      const data = await incidentService.restoreIncident(rangerId, incidentId, input);
       return res.status(200).json({
         success: true,
         data

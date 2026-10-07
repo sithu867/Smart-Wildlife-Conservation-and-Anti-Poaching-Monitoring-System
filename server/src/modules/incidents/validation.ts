@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IncidentType, LocationSource } from '../../types/enums.js';
+import { IncidentDeletionReason, IncidentType, LocationSource } from '../../types/enums.js';
 
 export const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 export const MAX_EVIDENCE_PER_INCIDENT = 5;
@@ -114,3 +114,30 @@ export const updateIncidentSchema = z
   .refine(input => EDITABLE_FIELDS.some(field => input[field] !== undefined), { message: 'No changes to save' });
 
 export type UpdateIncidentInput = z.infer<typeof updateIncidentSchema>;
+
+export const deleteIncidentSchema = z
+  .object({
+    expectedUpdatedAt: isoDateTime('expectedUpdatedAt'),
+    // When the ranger deleted the report (offline deletes sync later and are judged by this time)
+    deletedAt: isoDateTime('deletedAt'),
+    clientDeleteId: z.string().trim().min(1, 'clientDeleteId is required').max(64, 'clientDeleteId cannot exceed 64 characters'),
+    reason: z.nativeEnum(IncidentDeletionReason, { errorMap: () => ({ message: 'Choose a reason for deleting this report' }) }),
+    note: z.string().trim().max(500, 'Note cannot exceed 500 characters').optional()
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    if (input.reason === IncidentDeletionReason.OTHER && (input.note ?? '').length < 3) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['note'], message: 'Add a short note explaining why (at least 3 characters)' });
+    }
+  });
+
+export type DeleteIncidentInput = z.infer<typeof deleteIncidentSchema>;
+
+export const restoreIncidentSchema = z
+  .object({
+    restoredAt: isoDateTime('restoredAt'),
+    clientRestoreId: z.string().trim().min(1, 'clientRestoreId is required').max(64, 'clientRestoreId cannot exceed 64 characters')
+  })
+  .strict();
+
+export type RestoreIncidentInput = z.infer<typeof restoreIncidentSchema>;

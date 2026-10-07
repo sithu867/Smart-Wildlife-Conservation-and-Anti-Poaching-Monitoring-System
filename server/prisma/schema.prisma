@@ -41,6 +41,13 @@ enum IncidentStatus {
   RESOLVED
 }
 
+enum IncidentDeletionReason {
+  DUPLICATE
+  CREATED_BY_MISTAKE
+  FALSE_ALARM
+  OTHER
+}
+
 enum AlertSource {
   COLLAR
   COMMUNITY_REPORT
@@ -176,6 +183,11 @@ model ConservationIncident {
   syncStatus          SyncStatus      @default(SYNCED)
   editCount           Int             @default(0)
   lastEditedAt        DateTime?
+  // Withdrawal (soft delete): the report is hidden from the ranger, patrol and analytics but kept for audit
+  deletedAt           DateTime?
+  deletedBy           String?
+  deletionReason      IncidentDeletionReason?
+  deletionNote        String?
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   patrolSession       PatrolSession?  @relation(fields: [patrolSessionId], references: [id], onDelete: SetNull)
@@ -185,6 +197,7 @@ model ConservationIncident {
   @@index([reportedBy])
   @@index([reportedAt])
   @@index([patrolSessionId])
+  @@index([reportedBy, deletedAt])
 }
 
 model IncidentEvidence {
@@ -206,6 +219,7 @@ model IncidentRevision {
   id           String                @id @default(cuid())
   incidentId   String
   clientEditId String
+  action       String                @default("EDIT") // EDIT | DELETE | RESTORE
   editedBy     String
   editedByName String
   editedAt     DateTime              // when the ranger made the edit (may be earlier than receivedAt for offline edits)

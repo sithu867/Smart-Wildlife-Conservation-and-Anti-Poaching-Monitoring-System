@@ -1,16 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { incidentApi } from '../api/incidentApi';
-import type { ConservationIncident } from '../types/incident';
+import type { ConservationIncident, IncidentDeletionReason } from '../types/incident';
 import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
 import { SyncStatus } from '../../../shared/types/enums';
+import { ApiError } from '../../../shared/api/apiError';
+import { EDIT_LOCK_MESSAGES, buildSubmitIssue } from '../utils/incidentFormIssues';
+import { buildDeletePayload, incidentDisplayName } from '../utils/incidentEdit';
+import { DeleteIncidentDialog } from '../components/DeleteIncidentDialog';
+import { UndoToast } from '../components/UndoToast';
+import { ValidationErrorDialog, type DialogOverrides, type ValidationIssue } from '../components/ValidationErrorDialog';
+
+/** Router state passed by the edit page after it withdrew a report, so this page can offer Undo. */
+export interface WithdrawnReportState {
+  withdrawn?: { incidentId: string; label: string };
+}
+
+type DeleteTarget = { incident: ConservationIncident; mode: 'withdraw' | 'discard' };
+type ErrorDialogState = { issues: ValidationIssue[]; overrides: DialogOverrides };
+
+// Server answers after which the list on screen is out of date
+const RELOAD_CODES = ['EDIT_CONFLICT', 'INCIDENT_LOCKED', 'INCIDENT_DELETED', 'INCIDENT_NOT_DELETED'];
 
 export const IncidentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [incidents, setIncidents] = useState<ConservationIncident[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(null);
+  const [undo, setUndo] = useState<{ incidentId: string; label: string } | null>(
+    () => (location.state as WithdrawnReportState | null)?.withdrawn ?? null
+  );
 
   const fetchIncidents = () => {
     setLoading(true);
@@ -23,7 +47,67 @@ export const IncidentHistoryPage: React.FC = () => {
 
   useEffect(() => {
     fetchIncidents();
+    // Consume the one-time Undo offer from the edit page so a refresh doesn't show it again
+    if ((location.state as WithdrawnReportState | null)?.withdrawn) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
   }, []);
+
+  const dismissUndo = useCallback(() => setUndo(null), []);
+  const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
+
+  const showActionError = (err: unknown, action: 'delete' | 'restore') => {
+    const issue = buildSubmitIssue(err, action, { description: '', otherDescription: '' });
+    const code = err instanceof ApiError ? err.code : undefined;
+    const overrides: DialogOverrides = {
+      eyebrow: action === 'delete' ? 'Delete failed' : 'Undo failed',
+      heading: action === 'delete' ? "We couldn't delete this report" : "We couldn't restore this report",
+      intro: 'Nothing was changed.'
+    };
+    if (code && RELOAD_CODES.includes(code)) {
+      overrides.primaryAction = {
+        label: 'Reload Reports',
+        onClick: () => {
+          setErrorDialog(null);
+          fetchIncidents();
+        }
+      };
+    }
+    setErrorDialog({ issues: [issue], overrides });
+  };
+
+  const handleConfirmDelete = async (reason?: IncidentDeletionReason, note?: string) => {
+    if (!deleteTarget || isDeleting) return;
+    const { incident, mode } = deleteTarget;
+    setIsDeleting(true);
+    try {
+      if (mode === 'discard') {
+        await incidentApi.discardLocalDraft(incident.clientIncidentId || incident._id);
+      } else {
+        await incidentApi.deleteIncident(incident._id, buildDeletePayload(incident, reason!, note));
+        setUndo({ incidentId: incident._id, label: incidentDisplayName(incident) });
+      }
+      setIncidents(prev => prev.filter(item => item._id !== incident._id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteTarget(null);
+      showActionError(err, 'delete');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleUndo = async () => {
+    if (!undo) return;
+    try {
+      await incidentApi.restoreIncident(undo.incidentId);
+      setUndo(null);
+      fetchIncidents();
+    } catch (err) {
+      setUndo(null);
+      showActionError(err, 'restore');
+    }
+  };
 
   const handleManualRetry = async (inc: ConservationIncident) => {
     const idToRetry = inc.clientIncidentId || inc._id;
@@ -171,11 +255,75 @@ export const IncidentHistoryPage: React.FC = () => {
                     />
                   </div>
                 )}
+
+                {isSynced && (
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-[10px] text-slate-500">
+                      {inc.editCount ? `✏️ Edited ${inc.editCount}× · last ${new Date(inc.lastEditedAt ?? inc.reportedAt).toLocaleString()}` : ''}
+                    </span>
+                    {inc.canEdit === false ? (
+                      <span
+                        className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-slate-950 border border-slate-700 text-slate-400"
+                        title={inc.editLockedReason ? EDIT_LOCK_MESSAGES[inc.editLockedReason].message : undefined}
+                      >
+                        🔒 Locked{inc.editLockedReason ? ` · ${EDIT_LOCK_MESSAGES[inc.editLockedReason].short}` : ''}
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {inc.canDelete !== false && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget({ incident: inc, mode: 'withdraw' })}
+                            aria-label={`Delete ${incidentDisplayName(inc)} report`}
+                            className="py-1.5 px-3 rounded-full bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-500/50 text-rose-300 text-[11px] font-extrabold"
+                          >
+                            🗑️ Delete
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/ranger/incidents/${inc._id}/edit`)}
+                          className="py-1.5 px-3.5 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-extrabold shadow"
+                        >
+                          ✏️ Edit Report
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!isSynced && (
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ incident: inc, mode: 'discard' })}
+                      className="py-1.5 px-3 rounded-full bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-500/50 text-rose-300 text-[11px] font-extrabold"
+                    >
+                      🗑️ Discard Draft
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+
+      {deleteTarget && (
+        <DeleteIncidentDialog
+          incident={deleteTarget.incident}
+          mode={deleteTarget.mode}
+          isWorking={isDeleting}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleConfirmDelete}
+        />
+      )}
+
+      {errorDialog && (
+        <ValidationErrorDialog variant="submit" issues={errorDialog.issues} onClose={closeErrorDialog} {...errorDialog.overrides} />
+      )}
+
+      {undo && <UndoToast message={`"${undo.label}" report deleted`} onUndo={handleUndo} onDismiss={dismissUndo} />}
     </div>
   );
 };

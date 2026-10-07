@@ -5,105 +5,18 @@ import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
 import { PhotoCapture } from '../components/PhotoCapture';
 import { ManualLocationPicker } from '../components/ManualLocationPicker';
 import { ValidationErrorDialog, type IncidentField, type ValidationIssue } from '../components/ValidationErrorDialog';
+import { FieldHint } from '../components/FieldHint';
+import { IncidentTypeSelector } from '../components/IncidentTypeSelector';
+import { IncidentDescriptionField } from '../components/IncidentDescriptionField';
 import { incidentApi } from '../api/incidentApi';
 import { reportIncidentFormSchema } from '../schemas/incidentSchemas';
+import { SCHEMA_PATH_TO_FIELD, buildFieldIssue, buildSubmitIssue, sortIssues } from '../utils/incidentFormIssues';
 import { IncidentType, LocationSource, SyncStatus } from '../../../shared/types/enums';
 import type { ConservationIncident } from '../types/incident';
 
-const INCIDENT_TYPE_OPTIONS = [
-  { type: IncidentType.SNARE, label: 'Wire Snare / Trap', icon: '🪤', desc: 'Illegal animal snares, traps, or nets' },
-  { type: IncidentType.ANIMAL_CARCASS, label: 'Animal Carcass', icon: '🦴', desc: 'Deceased animal or suspected poaching kill' },
-  { type: IncidentType.ILLEGAL_CAMPSITE, label: 'Illegal Campsite', icon: '⛺', desc: 'Unauthorized human encampments or firepits' },
-  { type: IncidentType.AT_RISK_FOOTPRINTS, label: 'Species Tracks', icon: '🐾', desc: 'Footprints or signs of endangered species' },
-  { type: IncidentType.OTHER, label: 'Other Threat', icon: '⚠️', desc: 'Fencing breaches, logging, or other threats' }
-];
-
 const generateClientIncidentId = () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
-// Order in which fields appear on the form, so issues are listed top-to-bottom
-const FIELD_ORDER: IncidentField[] = ['location', 'incidentType', 'otherTypeDescription', 'imageUrl', 'description'];
-
-const SCHEMA_PATH_TO_FIELD: Record<string, IncidentField> = {
-  latitude: 'location',
-  longitude: 'location',
-  incidentType: 'incidentType',
-  otherTypeDescription: 'otherTypeDescription',
-  imageUrl: 'imageUrl',
-  description: 'description'
-};
-
-function buildFieldIssue(field: IncidentField, schemaMessage: string, description: string): ValidationIssue {
-  switch (field) {
-    case 'location':
-      return {
-        field,
-        icon: '📍',
-        title: 'Location not set',
-        message: 'We could not get your GPS position. Pin the spot where you found the threat on the map.',
-        actionLabel: 'Pin on Map'
-      };
-    case 'incidentType':
-      return {
-        field,
-        icon: '🏷️',
-        title: 'Incident type not selected',
-        message: 'Choose what you found, for example a Wire Snare, Animal Carcass or Illegal Campsite.',
-        actionLabel: 'Choose Type'
-      };
-    case 'otherTypeDescription':
-      return { field, icon: '⚠️', title: 'Threat details too long', message: schemaMessage, actionLabel: 'Shorten Text' };
-    case 'imageUrl':
-      return {
-        field,
-        icon: '📷',
-        title: 'Photo evidence missing',
-        message: 'Take or upload a clear photo of the scene. A photo is required as evidence.',
-        actionLabel: 'Add Photo'
-      };
-    case 'description':
-      if (description.trim().length === 0) {
-        return {
-          field,
-          icon: '✍️',
-          title: 'Description is empty',
-          message: 'Write a short note about what you saw, such as quantity, landmarks or action taken.',
-          actionLabel: 'Write Note'
-        };
-      }
-      return description.length > 1000
-        ? { field, icon: '✍️', title: 'Description too long', message: schemaMessage, actionLabel: 'Shorten Text' }
-        : {
-            field,
-            icon: '✍️',
-            title: 'Description too short',
-            message: 'Add a little more detail (at least 3 characters).',
-            actionLabel: 'Add Detail'
-          };
-  }
-}
-
-function buildSubmitIssue(message: string): ValidationIssue {
-  if (/8 MB|too large/i.test(message)) {
-    return { icon: '📦', title: 'Photo is too large to upload', message: 'Retake the photo or choose a smaller image, then submit again.' };
-  }
-  if (/unauthorized/i.test(message)) {
-    return { icon: '🔒', title: 'Not allowed', message };
-  }
-  if (/on the device/i.test(message)) {
-    return { icon: '💾', title: 'Could not save on this device', message };
-  }
-  return { icon: '📡', title: 'The server rejected this report', message };
-}
-
 type ErrorDialogState = { variant: 'validation' | 'submit'; issues: ValidationIssue[] };
-
-const FieldHint: React.FC<{ message?: string }> = ({ message }) =>
-  message ? (
-    <p className="text-[11px] font-semibold text-rose-300 flex items-center gap-1.5">
-      <span aria-hidden="true">⚠️</span>
-      <span>{message}</span>
-    </p>
-  ) : null;
 
 export const ReportIncidentPage: React.FC = () => {
   const navigate = useNavigate();
@@ -143,10 +56,10 @@ export const ReportIncidentPage: React.FC = () => {
     });
   };
 
+  const issueContext = { description, otherDescription };
+
   const showValidationIssues = (issues: ValidationIssue[]) => {
-    const sorted = [...issues].sort(
-      (a, b) => FIELD_ORDER.indexOf(a.field!) - FIELD_ORDER.indexOf(b.field!)
-    );
+    const sorted = sortIssues(issues);
     setFieldErrors(Object.fromEntries(sorted.map(issue => [issue.field, issue.title])));
     setErrorDialog({ variant: 'validation', issues: sorted });
   };
@@ -239,7 +152,7 @@ export const ReportIncidentPage: React.FC = () => {
     // Collect every problem at once so the ranger can fix them all in one pass
     const issuesByField = new Map<IncidentField, ValidationIssue>();
     if (!location) {
-      issuesByField.set('location', buildFieldIssue('location', '', description));
+      issuesByField.set('location', buildFieldIssue('location', '', issueContext));
     }
 
     const parseResult = reportIncidentFormSchema.safeParse({
@@ -258,7 +171,7 @@ export const ReportIncidentPage: React.FC = () => {
       for (const issue of parseResult.error.issues) {
         const field = SCHEMA_PATH_TO_FIELD[String(issue.path[0])];
         if (field && !issuesByField.has(field)) {
-          issuesByField.set(field, buildFieldIssue(field, issue.message, description));
+          issuesByField.set(field, buildFieldIssue(field, issue.message, issueContext));
         }
       }
     }
@@ -278,7 +191,7 @@ export const ReportIncidentPage: React.FC = () => {
 
     if (!location) {
       setIsReviewOpen(false);
-      showValidationIssues([buildFieldIssue('location', '', description)]);
+      showValidationIssues([buildFieldIssue('location', '', issueContext)]);
       setIsSubmitting(false);
       return;
     }
@@ -306,8 +219,7 @@ export const ReportIncidentPage: React.FC = () => {
       setSubmittedIncident(created);
       setIsReviewOpen(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to submit incident report.';
-      setErrorDialog({ variant: 'submit', issues: [buildSubmitIssue(message)] });
+      setErrorDialog({ variant: 'submit', issues: [buildSubmitIssue(err, 'submit', issueContext)] });
     } finally {
       setIsSubmitting(false);
     }
@@ -374,7 +286,11 @@ export const ReportIncidentPage: React.FC = () => {
 
           <div className="flex flex-col gap-2 w-full mt-2">
             {(() => {
-              const linkedSessId = patrolSessionId || (typeof submittedIncident.patrolSession === 'object' ? submittedIncident.patrolSession?._id : submittedIncident.patrolSession);
+              // The server also links reports made from the Incidents screen to the ranger's open patrol
+              const linkedSessId =
+                patrolSessionId ||
+                submittedIncident.patrolSessionId ||
+                (typeof submittedIncident.patrolSession === 'object' ? submittedIncident.patrolSession?._id : submittedIncident.patrolSession);
               return linkedSessId ? (
                 <button
                   onClick={() => navigate(`/ranger/patrol/active/${linkedSessId}`)}
@@ -498,68 +414,23 @@ export const ReportIncidentPage: React.FC = () => {
         </div>
 
         {/* 2. Incident Type Selection */}
-        <div ref={el => { fieldRefs.current.incidentType = el; }} className="flex flex-col gap-2">
-          <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
-            Select Incident Type <span className="text-rose-400">*</span>
-          </label>
-
-          <div
-            className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 rounded-2xl transition-shadow ${
-              fieldErrors.incidentType ? 'ring-2 ring-rose-500/60 ring-offset-4 ring-offset-slate-950' : ''
-            }`}
-          >
-            {INCIDENT_TYPE_OPTIONS.map(opt => {
-              const isSelected = selectedType === opt.type;
-              return (
-                <button
-                  type="button"
-                  key={opt.type}
-                  onClick={() => {
-                    setSelectedType(opt.type);
-                    clearFieldError('incidentType');
-                    if (opt.type !== IncidentType.OTHER) clearFieldError('otherTypeDescription');
-                  }}
-                  className={`p-3.5 rounded-2xl border text-left flex items-start gap-3 transition-all active:scale-[0.98] ${
-                    isSelected
-                      ? 'bg-amber-400/10 border-amber-400 text-white shadow-lg shadow-amber-400/10'
-                      : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <span className="text-2xl p-2 rounded-xl bg-slate-950 border border-slate-800">{opt.icon}</span>
-                  <div>
-                    <span className="font-black text-sm block text-white">{opt.label}</span>
-                    <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">{opt.desc}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <FieldHint message={fieldErrors.incidentType} />
-
-          {selectedType === IncidentType.OTHER && (
-            <div className="mt-2">
-              <label className="block text-xs font-semibold text-slate-300 mb-1 uppercase">
-                Specify Other Incident Type
-              </label>
-              <input
-                ref={el => { fieldRefs.current.otherTypeDescription = el; }}
-                type="text"
-                value={otherDescription}
-                onChange={e => {
-                  setOtherDescription(e.target.value);
-                  clearFieldError('otherTypeDescription');
-                }}
-                placeholder="Specify specific threat details..."
-                maxLength={200}
-                aria-invalid={Boolean(fieldErrors.otherTypeDescription)}
-                className={`w-full bg-slate-950 border rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400 ${
-                  fieldErrors.otherTypeDescription ? 'border-rose-500' : 'border-slate-700'
-                }`}
-              />
-              <FieldHint message={fieldErrors.otherTypeDescription} />
-            </div>
-          )}
-        </div>
+        <IncidentTypeSelector
+          selectedType={selectedType}
+          onSelect={type => {
+            setSelectedType(type);
+            clearFieldError('incidentType');
+            if (type !== IncidentType.OTHER) clearFieldError('otherTypeDescription');
+          }}
+          otherDescription={otherDescription}
+          onOtherDescriptionChange={value => {
+            setOtherDescription(value);
+            clearFieldError('otherTypeDescription');
+          }}
+          typeError={fieldErrors.incidentType}
+          otherError={fieldErrors.otherTypeDescription}
+          sectionRef={el => { fieldRefs.current.incidentType = el; }}
+          otherInputRef={el => { fieldRefs.current.otherTypeDescription = el; }}
+        />
 
         {/* 3. Photo Capture Evidence */}
         <div ref={el => { fieldRefs.current.imageUrl = el; }} className="flex flex-col gap-2">
@@ -581,31 +452,15 @@ export const ReportIncidentPage: React.FC = () => {
         </div>
 
         {/* 4. Description Notes */}
-        <div className="flex flex-col gap-2">
-          <label htmlFor="incident-description" className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
-            Field Description & Notes <span className="text-rose-400">*</span>
-          </label>
-          <textarea
-            id="incident-description"
-            ref={el => { fieldRefs.current.description = el; }}
-            value={description}
-            onChange={e => {
-              setDescription(e.target.value);
-              clearFieldError('description');
-            }}
-            placeholder="Describe observations, quantity, exact landmarks, or immediate action taken..."
-            rows={3}
-            maxLength={1000}
-            aria-invalid={Boolean(fieldErrors.description)}
-            className={`w-full bg-slate-950 border rounded-2xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 shadow-inner ${
-              fieldErrors.description ? 'border-rose-500 ring-2 ring-rose-500/30' : 'border-slate-700'
-            }`}
-          />
-          <div className="flex items-start justify-between gap-2">
-            <FieldHint message={fieldErrors.description} />
-            <span className="text-[10px] text-slate-500 ml-auto">{description.length}/1000</span>
-          </div>
-        </div>
+        <IncidentDescriptionField
+          value={description}
+          onChange={value => {
+            setDescription(value);
+            clearFieldError('description');
+          }}
+          error={fieldErrors.description}
+          textareaRef={el => { fieldRefs.current.description = el; }}
+        />
 
         {/* Review Action Button */}
         <button
