@@ -443,8 +443,14 @@ export const EditIncidentPage: React.FC = () => {
         >
           <span className="font-bold text-slate-300 uppercase tracking-wider text-[11px]">Location ({form.location.source})</span>
           <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-xs font-mono text-emerald-400 flex justify-between items-center gap-2">
-            <span>
-              Lat: {form.location.latitude.toFixed(5)}°, Lng: {form.location.longitude.toFixed(5)}°
+            <span className="flex flex-col gap-0.5">
+              {!isLocationChanged && original.location.placeName && (
+                <span className="font-sans font-bold text-emerald-300">📍 {original.location.placeName}</span>
+              )}
+              {isLocationChanged && <span className="font-sans text-[10px] text-amber-200">Place name updates after saving</span>}
+              <span>
+                Lat: {form.location.latitude.toFixed(5)}°, Lng: {form.location.longitude.toFixed(5)}°
+              </span>
             </span>
             <button
               type="button"

@@ -62,6 +62,8 @@ const requireOtherDescription = (
 export const createIncidentSchema = z
   .object({
     clientIncidentId: z.string().optional(),
+    // When the ranger reported it on the device. Sent for offline reports so syncing later keeps the real time.
+    reportedAt: isoDateTime('reportedAt').optional(),
     incidentType: z.nativeEnum(IncidentType),
     otherTypeDescription: otherTypeDescriptionSchema.optional(),
     description: descriptionSchema,

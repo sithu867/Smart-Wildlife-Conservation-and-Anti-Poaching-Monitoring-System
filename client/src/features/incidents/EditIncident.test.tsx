@@ -231,6 +231,32 @@ describe('EditIncidentPage', () => {
   });
 });
 
+describe('IncidentHistoryPage location wording', () => {
+  test('shows the place name with coordinates, and only coordinates until a name is available', async () => {
+    const base = makeIncident();
+    vi.spyOn(incidentApi, 'getMyIncidents').mockResolvedValue([
+      makeIncident({
+        _id: 'inc-named',
+        clientIncidentId: 'c-named',
+        description: 'Named place',
+        location: { ...base.location, latitude: 6.8467, longitude: 79.948, placeName: 'Pannipitiya, Sri Lanka' }
+      }),
+      makeIncident({ _id: 'inc-unnamed', clientIncidentId: 'c-unnamed', description: 'Not resolved yet' })
+    ]);
+
+    render(
+      <BrowserRouter>
+        <IncidentHistoryPage />
+      </BrowserRouter>
+    );
+
+    expect(await screen.findByText('📍 Pannipitiya, Sri Lanka')).toBeInTheDocument();
+    expect(screen.getByText('6.8467°, 79.9480°')).toBeInTheDocument();
+    expect(screen.getByText('-2.1523°, 34.8214°')).toBeInTheDocument();
+    expect(screen.getByText('Place names © OpenStreetMap contributors')).toBeInTheDocument();
+  });
+});
+
 describe('IncidentHistoryPage edit controls', () => {
   test('shows Edit only for editable reports and a lock badge otherwise', async () => {
     vi.spyOn(incidentApi, 'getMyIncidents').mockResolvedValue([

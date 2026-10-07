@@ -44,7 +44,10 @@ async function findLocalIncidentByRemoteId(remoteId: string): Promise<OfflineRec
 export const incidentApi = {
   async createIncident(payload: CreateIncidentPayload): Promise<ConservationIncident> {
     const clientIncidentId = payload.clientIncidentId || `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    const fullPayload = { ...payload, clientIncidentId };
+    // The moment the ranger submitted - captured before the network attempt, which can take a long time to fail
+    const reportedAt = payload.reportedAt || new Date().toISOString();
+    // Online the server's clock is authoritative, so the device time is only sent when the report is synced later
+    const { reportedAt: _deviceTime, ...fullPayload } = { ...payload, clientIncidentId };
 
     try {
       const response = await http.post('/incidents', fullPayload);
@@ -80,12 +83,12 @@ export const incidentApi = {
         location: {
           latitude: payload.latitude,
           longitude: payload.longitude,
-          timestamp: new Date().toISOString(),
+          timestamp: reportedAt,
           source: payload.locationSource || LocationSource.GPS
         },
         reportedBy: 'R-101',
         rangerName: 'Ranger John',
-        reportedAt: new Date().toISOString(),
+        reportedAt,
         patrolSession: payload.patrolSessionId,
         evidence: payload.evidence.map((ev, idx) => ({
           evidenceId: `evid-${clientIncidentId}-${idx}`,
@@ -297,6 +300,8 @@ export const incidentApi = {
     try {
       const response = await http.post('/incidents', {
         clientIncidentId: inc.clientIncidentId || inc._id,
+        // Keep the real time the ranger reported it, not the time the device came back online
+        reportedAt: inc.reportedAt,
         incidentType: inc.incidentType,
         otherTypeDescription: inc.otherTypeDescription,
         description: inc.description,

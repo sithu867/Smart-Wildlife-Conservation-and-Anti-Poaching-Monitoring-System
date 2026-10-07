@@ -8,6 +8,7 @@ import { ValidationErrorDialog, type IncidentField, type ValidationIssue } from 
 import { FieldHint } from '../components/FieldHint';
 import { IncidentTypeSelector } from '../components/IncidentTypeSelector';
 import { IncidentDescriptionField } from '../components/IncidentDescriptionField';
+import { IncidentLocationLabel } from '../components/IncidentLocationLabel';
 import { incidentApi } from '../api/incidentApi';
 import { reportIncidentFormSchema } from '../schemas/incidentSchemas';
 import { SCHEMA_PATH_TO_FIELD, buildFieldIssue, buildSubmitIssue, sortIssues } from '../utils/incidentFormIssues';
@@ -266,8 +267,8 @@ export const ReportIncidentPage: React.FC = () => {
             </div>
             <div className="flex justify-between border-b border-slate-900 pb-2">
               <span className="text-slate-400">Location ({submittedIncident.location.source})</span>
-              <span className="font-mono text-emerald-400">
-                {submittedIncident.location.latitude.toFixed(4)}°, {submittedIncident.location.longitude.toFixed(4)}°
+              <span className="text-right">
+                <IncidentLocationLabel location={submittedIncident.location} />
               </span>
             </div>
             <div className="flex justify-between border-b border-slate-900 pb-2">

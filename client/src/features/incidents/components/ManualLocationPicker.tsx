@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from 'react-leaflet';
+import React, { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -45,6 +45,24 @@ const MapClickHandler: React.FC<MapClickHandlerProps> = ({ onPointSelect }) => {
   return null;
 };
 
+/** Parses a typed coordinate; null when empty, not a number, or out of range. */
+export function parseCoordinate(text: string, min: number, max: number): number | null {
+  const trimmed = text.trim();
+  if (trimmed === '') return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value >= min && value <= max ? value : null;
+}
+
+/** Keeps the map centred on the chosen point when it changes (typing or tapping). */
+const RecenterOnChange: React.FC<{ position: [number, number] }> = ({ position }) => {
+  const map = useMap();
+  const [lat, lng] = position;
+  useEffect(() => {
+    map.panTo([lat, lng]);
+  }, [map, lat, lng]);
+  return null;
+};
+
 interface ManualLocationPickerProps {
   initialLocation?: { latitude: number; longitude: number } | null;
   onLocationSelected: (location: { latitude: number; longitude: number }) => void;
@@ -60,29 +78,50 @@ export const ManualLocationPicker: React.FC<ManualLocationPickerProps> = ({
   const defaultLat = initialLocation?.latitude ?? -2.1523;
   const defaultLng = initialLocation?.longitude ?? 34.8214;
 
-  const [selectedLat, setSelectedLat] = useState<number>(defaultLat);
-  const [selectedLng, setSelectedLng] = useState<number>(defaultLng);
+  // What the ranger is typing (may be empty or half-typed, e.g. "-" or "2.")
+  const [latText, setLatText] = useState<string>(String(defaultLat));
+  const [lngText, setLngText] = useState<string>(String(defaultLng));
+  // Last valid position: the only value the map and marker ever see, so invalid input can't crash Leaflet
+  const [position, setPosition] = useState<[number, number]>([defaultLat, defaultLng]);
   const [error, setError] = useState<string | null>(null);
 
+  const latValue = parseCoordinate(latText, -90, 90);
+  const lngValue = parseCoordinate(lngText, -180, 180);
+  const latError = latValue === null ? 'Enter a latitude between -90 and 90' : null;
+  const lngError = lngValue === null ? 'Enter a longitude between -180 and 180' : null;
+
   const handlePointSelect = (lat: number, lng: number) => {
-    setSelectedLat(Number(lat.toFixed(6)));
-    setSelectedLng(Number(lng.toFixed(6)));
+    const roundedLat = Number(lat.toFixed(6));
+    const roundedLng = Number(lng.toFixed(6));
+    setPosition([roundedLat, roundedLng]);
+    setLatText(String(roundedLat));
+    setLngText(String(roundedLng));
     setError(null);
   };
 
+  const handleLatChange = (text: string) => {
+    setLatText(text);
+    setError(null);
+    const parsed = parseCoordinate(text, -90, 90);
+    if (parsed !== null) setPosition(([, lng]) => [parsed, lng]);
+  };
+
+  const handleLngChange = (text: string) => {
+    setLngText(text);
+    setError(null);
+    const parsed = parseCoordinate(text, -180, 180);
+    if (parsed !== null) setPosition(([lat]) => [lat, parsed]);
+  };
+
   const handleConfirm = () => {
-    if (isNaN(selectedLat) || selectedLat < -90 || selectedLat > 90) {
-      setError('Invalid latitude: Must be between -90 and 90 degrees.');
-      return;
-    }
-    if (isNaN(selectedLng) || selectedLng < -180 || selectedLng > 180) {
-      setError('Invalid longitude: Must be between -180 and 180 degrees.');
+    if (latValue === null || lngValue === null) {
+      setError('Fix the highlighted coordinates, or tap the map to choose the location.');
       return;
     }
 
     onLocationSelected({
-      latitude: selectedLat,
-      longitude: selectedLng
+      latitude: latValue,
+      longitude: lngValue
     });
   };
 
@@ -116,7 +155,7 @@ export const ManualLocationPicker: React.FC<ManualLocationPickerProps> = ({
         {/* Leaflet Selection Map */}
         <div className="h-64 w-full rounded-2xl overflow-hidden border border-slate-700 relative shadow-inner">
           <MapContainer
-            center={[selectedLat, selectedLng]}
+            center={position}
             zoom={13}
             scrollWheelZoom={true}
             style={{ height: '100%', width: '100%' }}
@@ -126,12 +165,13 @@ export const ManualLocationPicker: React.FC<ManualLocationPickerProps> = ({
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             <MapClickHandler onPointSelect={handlePointSelect} />
-            <Marker position={[selectedLat, selectedLng]} icon={manualIcon}>
+            <RecenterOnChange position={position} />
+            <Marker position={position} icon={manualIcon}>
               <Popup>
                 <div className="text-xs font-bold text-slate-900">
                   📍 Selected Manual Incident Point
                   <p className="text-[10px] font-mono text-slate-600 mt-1">
-                    {selectedLat.toFixed(5)}°, {selectedLng.toFixed(5)}°
+                    {position[0].toFixed(5)}°, {position[1].toFixed(5)}°
                   </p>
                 </div>
               </Popup>
@@ -139,32 +179,54 @@ export const ManualLocationPicker: React.FC<ManualLocationPickerProps> = ({
           </MapContainer>
         </div>
 
-        {/* Numerical Latitude & Longitude Inputs */}
+        {/* Numerical Latitude & Longitude Inputs (plain text so "-" and partial numbers can be typed) */}
         <div className="grid grid-cols-2 gap-3 bg-slate-950 p-3 rounded-2xl border border-slate-800">
           <div>
-            <label className="block text-[10px] font-extrabold uppercase text-slate-400 mb-1">
+            <label htmlFor="manual-latitude" className="block text-[10px] font-extrabold uppercase text-slate-400 mb-1">
               Latitude (-90 to 90)
             </label>
             <input
-              type="number"
-              step="any"
-              value={selectedLat}
-              onChange={e => setSelectedLat(parseFloat(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-emerald-400 font-mono focus:outline-none focus:border-amber-400"
+              id="manual-latitude"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              value={latText}
+              onChange={e => handleLatChange(e.target.value)}
+              aria-invalid={Boolean(latError)}
+              aria-describedby={latError ? 'manual-latitude-error' : undefined}
+              className={`w-full bg-slate-900 border rounded-xl p-2.5 text-xs text-emerald-400 font-mono focus:outline-none focus:border-amber-400 ${
+                latError ? 'border-rose-500' : 'border-slate-700'
+              }`}
             />
+            {latError && (
+              <p id="manual-latitude-error" className="text-[10px] font-semibold text-rose-300 mt-1">
+                {latError}
+              </p>
+            )}
           </div>
 
           <div>
-            <label className="block text-[10px] font-extrabold uppercase text-slate-400 mb-1">
+            <label htmlFor="manual-longitude" className="block text-[10px] font-extrabold uppercase text-slate-400 mb-1">
               Longitude (-180 to 180)
             </label>
             <input
-              type="number"
-              step="any"
-              value={selectedLng}
-              onChange={e => setSelectedLng(parseFloat(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-emerald-400 font-mono focus:outline-none focus:border-amber-400"
+              id="manual-longitude"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              value={lngText}
+              onChange={e => handleLngChange(e.target.value)}
+              aria-invalid={Boolean(lngError)}
+              aria-describedby={lngError ? 'manual-longitude-error' : undefined}
+              className={`w-full bg-slate-900 border rounded-xl p-2.5 text-xs text-emerald-400 font-mono focus:outline-none focus:border-amber-400 ${
+                lngError ? 'border-rose-500' : 'border-slate-700'
+              }`}
             />
+            {lngError && (
+              <p id="manual-longitude-error" className="text-[10px] font-semibold text-rose-300 mt-1">
+                {lngError}
+              </p>
+            )}
           </div>
         </div>
 

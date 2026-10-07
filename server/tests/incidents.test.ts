@@ -457,6 +457,49 @@ describe('UC-B Conservation Incidents API Endpoints', () => {
       expect(incident.patrolSessionId).toBe(sessionId);
     });
 
+    test('an offline report keeps the time it was reported, not the time it synced', async () => {
+      const rangerId = uniqueRanger('OFFLINE-TIME');
+      const reportedOffline = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+      const incident = await createIncident(rangerId, { reportedAt: reportedOffline });
+      expect(incident.reportedAt).toBe(reportedOffline);
+      expect(incident.location.timestamp).toBe(reportedOffline);
+    });
+
+    test('a report time in the future is rejected', async () => {
+      const res = await request(app)
+        .post('/api/incidents')
+        .set('x-ranger-id', uniqueRanger('FUTURE-REPORT'))
+        .send({ ...sampleIncidentPayload, reportedAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_REPORT_TIME');
+    });
+
+    test('a report time before its named patrol started is rejected', async () => {
+      const rangerId = uniqueRanger('BEFORE-PATROL');
+      const sessionId = await startPatrol(rangerId);
+      const res = await request(app)
+        .post('/api/incidents')
+        .set('x-ranger-id', rangerId)
+        .send({ ...sampleIncidentPayload, patrolSessionId: sessionId, reportedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString() });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('REPORT_BEFORE_PATROL');
+    });
+
+    test('an offline report synced after the patrol ended is linked to the patrol it was made during', async () => {
+      const rangerId = uniqueRanger('LATE-SYNC');
+      const sessionId = await startPatrol(rangerId);
+      const reportedDuringPatrol = new Date().toISOString();
+      await request(app).post(`/api/patrols/sessions/${sessionId}/complete`).set('x-ranger-id', rangerId).send({});
+
+      const incident = await createIncident(rangerId, { reportedAt: reportedDuringPatrol });
+      expect(incident.patrolSessionId).toBe(sessionId);
+      expect(incident.reportedAt).toBe(reportedDuringPatrol);
+      expect(incident.editLockedReason).toBe('PATROL_COMPLETED');
+    });
+
     test('a report made when no patrol is open stays standalone', async () => {
       const rangerId = uniqueRanger('NOPATROL');
       const sessionId = await startPatrol(rangerId);

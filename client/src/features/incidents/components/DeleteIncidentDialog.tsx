@@ -70,6 +70,7 @@ export const DeleteIncidentDialog: React.FC<DeleteIncidentDialogProps> = ({ inci
           </h3>
           <p className="text-xs text-slate-400">
             Reported {new Date(incident.reportedAt).toLocaleString()}
+            {incident.location.placeName ? ` · ${incident.location.placeName}` : ''}
             {patrolName ? ` · Patrol: ${patrolName}` : ''}
           </p>
         </div>

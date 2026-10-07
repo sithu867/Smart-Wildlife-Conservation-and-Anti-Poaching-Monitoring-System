@@ -2,6 +2,7 @@ import { prisma } from '../../config/prisma.js';
 import { IncidentStatus, IncidentType, PatrolStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import { AppError } from '../shared/appError.js';
 import { calculateHaversineDistanceKm } from '../patrols/service.js';
+import { lookupPlaceName, placeNameBackfill } from './placeNames.js';
 import {
   MAX_EVIDENCE_PER_INCIDENT,
   type CreateIncidentInput,
@@ -126,8 +127,9 @@ export class IncidentService {
   /**
    * Decides which patrol a new report belongs to:
    * 1. the session the client named (by server id, or by clientSessionId for patrols started offline);
-   * 2. otherwise the ranger's currently open (ACTIVE/PAUSED) patrol, so reports made from the Incidents
-   *    screen during a patrol are still part of it (and lock when the patrol is completed).
+   *    the report must not be older than that patrol;
+   * 2. otherwise the ranger's patrol that was running at `reportedAt` (still open, or since ended for an
+   *    offline report synced later), so reports made from the Incidents screen during a patrol are part of it.
    */
   private async resolvePatrolSessionId(rangerId: string, requestedId: string | undefined, reportedAt: Date): Promise<string | undefined> {
     if (requestedId) {
@@ -137,33 +139,53 @@ export class IncidentService {
       if (session && session.rangerId !== rangerId) {
         throw new AppError(403, 'FORBIDDEN', 'Unauthorized: Attached patrol session does not belong to this ranger.');
       }
-      if (session) return session.id;
+      if (session) {
+        if (reportedAt.getTime() < session.startTime.getTime() - CLOCK_SKEW_TOLERANCE_MS) {
+          throw new AppError(400, 'REPORT_BEFORE_PATROL', 'The report time is before the patrol started. Check the device clock.');
+        }
+        return session.id;
+      }
     }
 
-    const openSession = await prisma.patrolSession.findFirst({
+    const coveringSession = await prisma.patrolSession.findFirst({
       where: {
         rangerId,
-        status: { in: OPEN_PATROL_STATUSES as any },
-        startTime: { lte: new Date(reportedAt.getTime() + CLOCK_SKEW_TOLERANCE_MS) }
+        startTime: { lte: new Date(reportedAt.getTime() + CLOCK_SKEW_TOLERANCE_MS) },
+        OR: [{ endTime: null }, { endTime: { gte: reportedAt } }],
+        status: { not: PatrolStatus.ASSIGNED as any }
       },
       orderBy: { startTime: 'desc' }
     });
-    return openSession?.id;
+    return coveringSession?.id;
+  }
+
+  /** The device's report time for offline reports (validated), otherwise the server's clock. */
+  private resolveReportedAt(requested: string | undefined, now: Date): Date {
+    if (!requested) return now;
+    const reportedAt = new Date(requested);
+    if (reportedAt.getTime() > now.getTime() + CLOCK_SKEW_TOLERANCE_MS) {
+      throw new AppError(400, 'INVALID_REPORT_TIME', 'The report time cannot be in the future. Check the device clock.');
+    }
+    return reportedAt;
   }
 
   async createIncident(rangerId: string, rangerName: string, input: CreateIncidentInput): Promise<any> {
-    const reportedAt = new Date();
+    const reportedAt = this.resolveReportedAt(input.reportedAt, new Date());
     const patrolSessionId = await this.resolvePatrolSessionId(rangerId, input.patrolSessionId, reportedAt);
     if (input.clientIncidentId) {
       const existing = await prisma.conservationIncident.findFirst({ where: { clientIncidentId: input.clientIncidentId, reportedBy: rangerId }, include: incidentInclude });
       if (existing) return shapeIncident(existing);
     }
-    const incident = await prisma.conservationIncident.create({ data: { clientIncidentId: input.clientIncidentId, incidentType: input.incidentType as any, otherTypeDescription: input.incidentType === IncidentType.OTHER ? input.otherTypeDescription : undefined, description: input.description, location: { latitude: input.latitude, longitude: input.longitude, timestamp: reportedAt.toISOString(), source: input.locationSource || LocationSource.GPS }, reportedBy: rangerId, rangerName, reportedAt, patrolSessionId, status: IncidentStatus.REPORTED as any, syncStatus: SyncStatus.SYNCED as any, evidence: { create: input.evidence.map((ev, idx) => toEvidenceRow(ev, idx, reportedAt)) } }, include: incidentInclude });
+    // "Pannipitiya, Sri Lanka"; left out when the lookup service is unavailable and filled in later
+    const placeName = await lookupPlaceName({ latitude: input.latitude, longitude: input.longitude });
+    const incident = await prisma.conservationIncident.create({ data: { clientIncidentId: input.clientIncidentId, incidentType: input.incidentType as any, otherTypeDescription: input.incidentType === IncidentType.OTHER ? input.otherTypeDescription : undefined, description: input.description, location: { latitude: input.latitude, longitude: input.longitude, timestamp: reportedAt.toISOString(), source: input.locationSource || LocationSource.GPS, ...(placeName !== undefined ? { placeName } : {}) }, reportedBy: rangerId, rangerName, reportedAt, patrolSessionId, status: IncidentStatus.REPORTED as any, syncStatus: SyncStatus.SYNCED as any, evidence: { create: input.evidence.map((ev, idx) => toEvidenceRow(ev, idx, reportedAt)) } }, include: incidentInclude });
     return shapeIncident(incident);
   }
 
   async getRangerIncidents(rangerId: string): Promise<any[]> {
     const incidents = await prisma.conservationIncident.findMany({ where: { reportedBy: rangerId, deletedAt: null }, include: incidentInclude, orderBy: { reportedAt: 'desc' } });
+    // Reports still missing a place name get one in the background (shown on a later refresh)
+    placeNameBackfill.schedule(incidents);
     const now = new Date();
     return incidents.map(incident => shapeIncident(incident, now));
   }
@@ -270,7 +292,14 @@ export class IncidentService {
           }
         }
         changes.location = { from: { latitude: from.latitude, longitude: from.longitude, source: from.source }, to };
-        data.location = { latitude: to.latitude, longitude: to.longitude, timestamp: editedAt.toISOString(), source: to.source };
+        const placeName = await lookupPlaceName(to);
+        data.location = {
+          latitude: to.latitude,
+          longitude: to.longitude,
+          timestamp: editedAt.toISOString(),
+          source: to.source,
+          ...(placeName !== undefined ? { placeName } : {})
+        };
       }
     }
 

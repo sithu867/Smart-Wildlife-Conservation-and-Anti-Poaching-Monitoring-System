@@ -9,6 +9,7 @@ import { EDIT_LOCK_MESSAGES, buildSubmitIssue } from '../utils/incidentFormIssue
 import { buildDeletePayload, incidentDisplayName } from '../utils/incidentEdit';
 import { DeleteIncidentDialog } from '../components/DeleteIncidentDialog';
 import { UndoToast } from '../components/UndoToast';
+import { IncidentLocationLabel } from '../components/IncidentLocationLabel';
 import { ValidationErrorDialog, type DialogOverrides, type ValidationIssue } from '../components/ValidationErrorDialog';
 
 /** Router state passed by the edit page after it withdrew a report, so this page can offer Undo. */
@@ -234,11 +235,9 @@ export const IncidentHistoryPage: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 block uppercase font-sans">
-                      Coordinates ({inc.location?.source || 'GPS'})
+                      Location ({inc.location?.source || 'GPS'})
                     </span>
-                    <span className="text-emerald-400">
-                      {inc.location.latitude.toFixed(4)}°, {inc.location.longitude.toFixed(4)}°
-                    </span>
+                    <IncidentLocationLabel location={inc.location} />
                   </div>
                 </div>
 
@@ -306,6 +305,8 @@ export const IncidentHistoryPage: React.FC = () => {
               </div>
             );
           })}
+          {/* Required attribution for place names from OpenStreetMap (ODbL) */}
+          <p className="text-[10px] text-slate-500 text-center">Place names © OpenStreetMap contributors</p>
         </div>
       )}
 

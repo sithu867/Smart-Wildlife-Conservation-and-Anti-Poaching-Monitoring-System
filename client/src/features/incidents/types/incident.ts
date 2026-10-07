@@ -39,6 +39,8 @@ export interface ConservationIncident {
     timestamp: string;
     source: LocationSource;
     accuracy?: number;
+    /** Server-resolved name, e.g. "Pannipitiya, Sri Lanka". Absent until resolved; null when the spot has no named place. */
+    placeName?: string | null;
   };
   reportedBy: string;
   rangerName: string;
@@ -66,6 +68,8 @@ export interface ConservationIncident {
 
 export interface CreateIncidentPayload {
   clientIncidentId?: string;
+  /** Device time of the report; only sent to the server when an offline report is synced */
+  reportedAt?: string;
   incidentType: IncidentType;
   otherTypeDescription?: string;
   description: string;
