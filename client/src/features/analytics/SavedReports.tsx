@@ -1,18 +1,31 @@
-﻿import { useEffect, useRef } from 'react';
+﻿import { useEffect, useImperativeHandle, useRef, type Ref } from 'react';
 import { ConservationReportPreview } from './ConservationReport';
 import { ReportMetadataForm } from './ReportMetadataForm';
-import { ArchiveReportDialog, ReportHistoryCards } from './SavedReportViews';
+import {
+  ArchiveReportDialog,
+  DiscardMetadataDialog,
+  ReportHistoryCards,
+} from './SavedReportViews';
 import { useSavedReports } from './useSavedReports';
 import type { SavedStatisticalReport } from '../../../../server/src/modules/analytics/savedReportContract';
+
+export interface SavedReportsHandle {
+  requestLeave: (action: () => void) => void;
+}
 
 export function SavedReports({
   onChanged,
   onArchived,
+  onWritePendingChange,
+  ref,
 }: {
   onChanged?: (report: SavedStatisticalReport) => void;
   onArchived?: (id: string) => void;
+  onWritePendingChange?: (pending: boolean) => void;
+  ref?: Ref<SavedReportsHandle>;
 }) {
-  const reports = useSavedReports(onChanged, onArchived);
+  const reports = useSavedReports(onChanged, onArchived, onWritePendingChange);
+  useImperativeHandle(ref, () => ({ requestLeave: reports.requestLeave }));
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!reports.detail) heading.current?.focus();
@@ -33,7 +46,16 @@ export function SavedReports({
         Saved reports retain server-issued findings. Editing report details
         changes only title and notes.
       </p>
-      {reports.busy && <p role="status">{reports.busy}...</p>}
+      {reports.busy && (
+        <p role="status">
+          {reports.busy}... Please wait before leaving this view.
+        </p>
+      )}
+      {reports.recoveryRequired && (
+        <p role="status">
+          Refresh Report History before starting another saved-report write.
+        </p>
+      )}
       {reports.notice && (
         <p role="status" className="analytics-report-success">
           {reports.notice}
@@ -48,7 +70,9 @@ export function SavedReports({
             onClick={() => reports.retry?.()}
             className="button analytics-button analytics-button--secondary"
           >
-            Retry report request
+            {reports.recoveryRequired
+              ? 'Refresh Report History'
+              : 'Retry report request'}
           </button>
         </div>
       )}
@@ -74,6 +98,7 @@ export function SavedReports({
           onView={reports.open}
           onExport={reports.exportPdf}
           onArchive={reports.confirmArchive}
+          writesBlocked={reports.recoveryRequired}
         />
       )}
       {reports.detail && (
@@ -107,7 +132,7 @@ export function SavedReports({
               </button>
               <button
                 type="button"
-                disabled={!!reports.busy}
+                disabled={!!reports.busy || reports.recoveryRequired}
                 onClick={reports.regenerate}
                 className="button analytics-button analytics-button--primary"
               >
@@ -115,7 +140,7 @@ export function SavedReports({
               </button>
               <button
                 type="button"
-                disabled={!!reports.busy}
+                disabled={!!reports.busy || reports.recoveryRequired}
                 onClick={() => reports.confirmArchive(reports.detail!)}
                 className="button analytics-button analytics-button--danger"
               >
@@ -132,8 +157,11 @@ export function SavedReports({
             <ReportMetadataForm
               report={reports.detail}
               busy={!!reports.busy}
+              saveBlocked={reports.recoveryRequired}
               onSave={reports.saveMetadata}
               onCancel={reports.cancelEdit}
+              onDirtyChange={reports.setMetadataDirty}
+              serverErrors={reports.metadataErrors}
             />
           )}
           <ConservationReportPreview
@@ -150,6 +178,12 @@ export function SavedReports({
           />
         </>
       )}
+      {reports.discardPending && (
+        <DiscardMetadataDialog
+          onStay={reports.stayEditing}
+          onDiscard={reports.discardEdits}
+        />
+      )}
       {reports.archiveTarget && (
         <ArchiveReportDialog
           report={reports.archiveTarget}
@@ -157,6 +191,8 @@ export function SavedReports({
           error={reports.error}
           onCancel={reports.cancelArchive}
           onArchive={reports.archive}
+          recoveryRequired={reports.recoveryRequired}
+          onRecover={reports.recover}
         />
       )}
     </section>

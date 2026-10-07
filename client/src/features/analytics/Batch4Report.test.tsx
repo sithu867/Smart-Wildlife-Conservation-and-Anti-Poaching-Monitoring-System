@@ -414,14 +414,14 @@ describe('selected report content and shared document rendering', () => {
   test.each([
     [
       'INCIDENT_STATISTICS',
-      ['Total incidents: 2', 'SNARE: 2', 'REPORTED: 1', 'Incidents over time'],
+      ['Total incidents: 2', 'Snare: 2', 'Reported: 1', 'Incidents over time'],
     ],
     [
       'INCIDENT_HOTSPOTS',
       [
         'Hotspot count: 1',
         'Rank 1: -2.15200, 34.82200',
-        'LOW concentration',
+        'Low concentration',
         '2 incidents',
       ],
     ],

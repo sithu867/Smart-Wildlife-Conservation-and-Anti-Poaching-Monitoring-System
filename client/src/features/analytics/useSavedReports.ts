@@ -10,6 +10,16 @@ import {
   REPORT_FORMAT_LABELS,
   type ReportExportFormat,
 } from '../../../../server/src/modules/analytics/reportContract';
+import {
+  safeMetadataErrors,
+  type ReportMetadataErrors,
+} from '../../../../server/src/modules/analytics/metadataValidation';
+
+const WRITE_OPERATIONS = new Set([
+  'Saving changes',
+  'Creating new version',
+  'Archiving report',
+]);
 
 function failureMessage(error: unknown) {
   if (isAxiosError(error)) {
@@ -28,6 +38,7 @@ function failureMessage(error: unknown) {
 export function useSavedReports(
   onChanged?: (report: SavedStatisticalReport) => void,
   onArchived?: (id: string) => void,
+  onWritePendingChange?: (pending: boolean) => void,
 ) {
   const [history, setHistory] = useState<ReportHistory>({
     items: [],
@@ -46,6 +57,24 @@ export function useSavedReports(
   const [exportError, setExportError] = useState('');
   const [retry, setRetry] = useState<(() => void) | null>(null);
   const pending = useRef<AbortController | null>(null);
+  const metadataDirty = useRef(false);
+  const [metadataErrors, setMetadataErrors] = useState<ReportMetadataErrors>(
+    {},
+  );
+  const [discardAction, setDiscardAction] = useState<(() => void) | null>(null);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
+  const writeUncertain = useRef(false);
+
+  function requestLeave(action: () => void) {
+    if (pending.current) return;
+    if (metadataDirty.current) setDiscardAction(() => action);
+    else action();
+  }
+  function clearEdits() {
+    metadataDirty.current = false;
+    setMetadataErrors({});
+    setEditing(false);
+  }
 
   async function run<T>(
     name: string,
@@ -57,11 +86,20 @@ export function useSavedReports(
     if (pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
+    const writing = WRITE_OPERATIONS.has(name);
+    if (writing && writeUncertain.current) {
+      pending.current = null;
+      return;
+    }
+    // Aborting transport does not roll back a committed server write. Keep UC-D
+    // view navigation disabled until its outcome is known, including failures.
+    if (writing) onWritePendingChange?.(true);
     setBusy(name);
     setError('');
     setRetry(null);
     setNotice('');
     setExportError('');
+    setMetadataErrors({});
     try {
       const value = await request(controller.signal);
       if (!controller.signal.aborted) success(value);
@@ -73,13 +111,42 @@ export function useSavedReports(
           setExportError(
             `${name.replace('Exporting ', '')} export could not be completed. The saved report is still available. ${failureMessage(cause)}`,
           );
-        } else setError(failureMessage(cause));
+        } else {
+          const fields =
+            name === 'Saving changes' &&
+            isAxiosError<{ error?: { fieldErrors?: unknown } }>(cause) &&
+            cause.response?.status === 400
+              ? safeMetadataErrors(cause.response.data?.error?.fieldErrors)
+              : {};
+          setMetadataErrors(fields);
+          const uncertain =
+            writing &&
+            (!isAxiosError(cause) ||
+              !cause.response ||
+              cause.response.status >= 500);
+          // A lost response can follow a successful commit. Do not offer a blind
+          // duplicate write as recovery or suggest the original was rolled back.
+          setError(
+            Object.keys(fields).length
+              ? ''
+              : uncertain
+                ? 'The request may have completed. Refresh Report History before trying again.'
+                : failureMessage(cause),
+          );
+          if (uncertain) {
+            writeUncertain.current = true;
+            setRecoveryRequired(true);
+            setRetry(() => recover);
+            return;
+          }
+        }
         setRetry(() => again);
       }
     } finally {
       if (!controller.signal.aborted) {
         pending.current = null;
         setBusy('');
+        if (writing) onWritePendingChange?.(false);
       }
     }
   }
@@ -93,6 +160,12 @@ export function useSavedReports(
           nextCursor: page.nextCursor,
         }));
         setLoaded(true);
+        // Only a fresh first page can reconcile a possibly committed new version;
+        // loading older pages must not unlock another write against stale history.
+        if (!cursor) {
+          writeUncertain.current = false;
+          setRecoveryRequired(false);
+        }
       },
       () => load(cursor),
     );
@@ -112,7 +185,7 @@ export function useSavedReports(
       (signal) => analyticsApi.getReport(id, signal),
       (report) => {
         setDetail(report);
-        setEditing(false);
+        clearEdits();
         setExportedFilename('');
       },
       () => open(id),
@@ -146,7 +219,7 @@ export function useSavedReports(
       (report) => {
         // UPDATE changes displayed metadata only; returned findings remain the saved snapshot.
         setDetail(report);
-        setEditing(false);
+        clearEdits();
         setNotice('Report details saved. Analytical findings are unchanged.');
         onChanged?.(report);
         setHistory((current) => ({
@@ -166,7 +239,7 @@ export function useSavedReports(
       (signal) => analyticsApi.regenerateReport(detail.id, signal),
       (report) => {
         setDetail(report);
-        setEditing(false);
+        clearEdits();
         setExportedFilename('');
         setHistory((current) => ({
           ...current,
@@ -193,7 +266,7 @@ export function useSavedReports(
         }));
         if (detail?.id === archiveTarget.id) {
           setDetail(null);
-          setEditing(false);
+          clearEdits();
         }
         setArchiveTarget(null);
         setNotice(
@@ -206,12 +279,19 @@ export function useSavedReports(
   function back() {
     if (pending.current) return;
     setDetail(null);
-    setEditing(false);
+    clearEdits();
     setError('');
     setRetry(null);
     setExportedFilename('');
     setExportError('');
     setNotice('');
+  }
+  function recover() {
+    requestLeave(() => {
+      setArchiveTarget(null);
+      back();
+      load();
+    });
   }
   return {
     history,
@@ -224,6 +304,21 @@ export function useSavedReports(
     notice,
     exportedFilename,
     retry,
+    metadataErrors,
+    recoveryRequired,
+    recover,
+    setMetadataDirty: (dirty: boolean) => {
+      metadataDirty.current = dirty;
+    },
+    requestLeave,
+    discardPending: !!discardAction,
+    stayEditing: () => setDiscardAction(null),
+    discardEdits: () => {
+      const action = discardAction;
+      setDiscardAction(null);
+      clearEdits();
+      action?.();
+    },
     load,
     open,
     exportReport,
@@ -240,15 +335,22 @@ export function useSavedReports(
       setNotice('');
     },
     saveMetadata,
-    regenerate,
+    regenerate: () => requestLeave(regenerate),
     archive,
-    back,
-    edit: () => setEditing((value) => !value),
-    cancelEdit: () => setEditing(false),
+    back: () => requestLeave(back),
+    edit: () =>
+      requestLeave(() => {
+        setMetadataErrors({});
+        setEditing(!editing);
+      }),
+    cancelEdit: () => requestLeave(clearEdits),
     confirmArchive: (report: StatisticalReportSummary) => {
-      setError('');
-      setRetry(null);
-      setArchiveTarget(report);
+      requestLeave(() => {
+        clearEdits();
+        setError('');
+        setRetry(null);
+        setArchiveTarget(report);
+      });
     },
     cancelArchive: () => {
       setArchiveTarget(null);

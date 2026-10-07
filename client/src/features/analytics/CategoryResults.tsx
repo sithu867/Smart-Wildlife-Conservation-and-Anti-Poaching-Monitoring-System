@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { ConflictLocationResults } from './ConflictLocationResults';
+import { formatEnumLabel } from './formatting';
 import type {
   AnalyticsResult,
   IncidentHotspotAnalysis,
@@ -95,7 +96,9 @@ export function IncidentHotspotResults({
                 <p>
                   Types:{' '}
                   {point.byType
-                    .map((type) => `${type.name}: ${type.count}`)
+                    .map(
+                      (type) => `${formatEnumLabel(type.name)}: ${type.count}`,
+                    )
                     .join(', ')}
                 </p>
               </li>

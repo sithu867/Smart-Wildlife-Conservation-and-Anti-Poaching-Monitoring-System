@@ -63,12 +63,12 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     expect(
       within(
         screen.getByRole('table', { name: 'Incidents by status' }),
-      ).getByRole('row', { name: 'RESOLVED 1' }),
+      ).getByRole('row', { name: 'Resolved 1' }),
     ).toBeInTheDocument();
     expect(
       within(
         screen.getByRole('table', { name: 'Incidents by type' }),
-      ).getByRole('row', { name: 'SNARE 2' }),
+      ).getByRole('row', { name: 'Snare 2' }),
     ).toBeInTheDocument();
     const chart = screen.getByRole('img', {
       name: 'Incidents Over Time chart',
@@ -98,7 +98,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     const list = screen.getByRole('list', { name: 'Ranked incident hotspots' });
     expect(list).toHaveTextContent('Rank 1: 2 incidents');
     expect(list).toHaveTextContent('Latitude -2.152000');
-    expect(list).toHaveTextContent('SNARE: 2');
+    expect(list).toHaveTextContent('Snare: 2');
     expect(
       screen.queryByRole('region', { name: 'Incident Statistics results' }),
     ).not.toBeInTheDocument();
@@ -178,11 +178,11 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.getByRole('img', { name: 'Conflict Responses Over Time chart' }),
     ).toBeInTheDocument();
     for (const [table, row] of [
-      ['Alerts by severity', 'HIGH 1'],
-      ['Alerts by status', 'OPEN 1'],
-      ['Alerts by source', 'COLLAR 1'],
-      ['Alerts by type', 'CROP_RAID 1'],
-      ['Responses by action', 'INVESTIGATED_AREA 1'],
+      ['Alerts by severity', 'High 1'],
+      ['Alerts by status', 'Open 1'],
+      ['Alerts by source', 'Collar 1'],
+      ['Alerts by type', 'Crop Raid 1'],
+      ['Responses by action', 'Investigated Area 1'],
     ]) {
       expect(
         within(screen.getByRole('table', { name: table })).getByRole('row', {

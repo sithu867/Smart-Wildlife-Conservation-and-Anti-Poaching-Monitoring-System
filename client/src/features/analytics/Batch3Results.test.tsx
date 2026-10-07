@@ -69,7 +69,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
     expect(items[1]).toHaveTextContent('River routeLimited activity');
     expect(items[2]).toHaveTextContent('Forest routeNeglected');
     expect(items[2]).toHaveTextContent('No activity in period');
-    expect(items[0]).toHaveTextContent('2026-09-30 12:00:00');
+    expect(items[0]).toHaveTextContent('30 Sept 2026, 12:00:00 UTC');
   });
   test('maps only usable geometry, with distinct solid/dashed paths and all routes retained in the list', () => {
     render(<PatrolCoverageResults analysis={patrolCoverageFixture()} />);

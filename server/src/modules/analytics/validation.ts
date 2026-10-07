@@ -4,6 +4,10 @@ import {
   isValidAnalysisDate,
   isValidAnalysisId,
   isAnalysisDateRangeOrdered,
+  includesElapsedAnalysisDay,
+  MIN_ANALYSIS_DATE,
+  SUPPORTED_DATE_MESSAGE,
+  FUTURE_PERIOD_MESSAGE,
 } from './contract.js';
 import {
   AlertSeverity,
@@ -20,7 +24,12 @@ const analysisDate = (label: string) =>
       required_error: `${label} is required.`,
       invalid_type_error: `${label} must be a valid date.`,
     })
-    .refine(isValidAnalysisDate, `${label} must be a valid date (YYYY-MM-DD).`);
+    .refine(isValidAnalysisDate, (value) => ({
+      message:
+        /^\d{4}-\d{2}-\d{2}$/.test(value) && value < MIN_ANALYSIS_DATE
+          ? SUPPORTED_DATE_MESSAGE
+          : `${label} must be a valid date (YYYY-MM-DD).`,
+    }));
 
 export const analysisParkIdSchema = z
   .string({
@@ -71,7 +80,7 @@ export const analysisFilterSchemas = {
     .optional(),
 };
 
-export const analysisCriteriaSchema = z
+export const storedAnalysisCriteriaSchema = z
   .object({
     parkId: analysisParkIdSchema,
     start: analysisDate('Start Date'),
@@ -98,6 +107,13 @@ export const analysisCriteriaSchema = z
       path: ['end'],
     },
   );
+
+// Both the browser form and authoritative server entry points use this rule.
+// Evaluate now at parse time so long-lived processes also honor UTC rollover.
+export const analysisCriteriaSchema = storedAnalysisCriteriaSchema.refine(
+  (criteria) => includesElapsedAnalysisDay(criteria.start),
+  { message: FUTURE_PERIOD_MESSAGE, path: ['start'] },
+);
 
 export function analysisDateRange(criteria: { start: string; end: string }) {
   // Expand the inclusive end date to the end of its selected UTC day so records

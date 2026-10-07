@@ -859,6 +859,22 @@
   padding: .75rem;
   font: inherit;
 }
+.analytics-metadata-form textarea { resize: vertical; }
+.analytics-metadata-form :is(input, textarea):focus-visible,
+.analytics-archive-dialog button:focus-visible {
+  outline: 3px solid #a7f3d0;
+  outline-offset: 3px;
+}
+.analytics-field-error { overflow-wrap: anywhere; }
+.analytics-archive-dialog .analytics-actions > button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .analytics-archive-dialog .analytics-actions { flex-direction: column; }
+  .analytics-archive-dialog .analytics-actions > button { width: 100%; }
+}
 .analytics-archive-dialog {
   width: min(32rem, calc(100% - 2rem));
   max-height: calc(100dvh - 2rem);

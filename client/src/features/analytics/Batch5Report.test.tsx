@@ -74,7 +74,7 @@ test('saved preview shows identity, inclusive UTC scope, meaningful filters, exe
     'Version: 1',
     'End Date: 2026-09-30 (inclusive, UTC)',
     'Ranger ID: R-101',
-    'Incident type: SNARE',
+    'Incident type: Snare',
     'Total incidents: 2',
   ])
     expect(preview).toHaveTextContent(text);
@@ -94,7 +94,7 @@ test('saved preview shows identity, inclusive UTC scope, meaningful filters, exe
   ).toBeInTheDocument();
   expect(
     screen.getByRole('table', { name: 'Incidents by type' }),
-  ).toHaveTextContent('SNARE2');
+  ).toHaveTextContent('Snare2');
   expect(screen.getByRole('radio', { name: 'PDF' })).toBeChecked();
   expect(analyze).not.toHaveBeenCalled();
 });

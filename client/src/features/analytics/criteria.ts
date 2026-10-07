@@ -1,6 +1,8 @@
 import {
   normalizeAnalysisControls,
   isAnalysisDateRangeOrdered,
+  FUTURE_PERIOD_MESSAGE,
+  SUPPORTED_DATE_MESSAGE,
   type AnalysisCriteria,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
@@ -83,7 +85,9 @@ export function validateDraftCriteriaIssues(
           field === 'parkId' && !criteria.parkId
             ? 'Select a Park / Conservation Area.'
             : (field === 'start' || field === 'end') &&
-                !issue.message.includes('on or before')
+                !issue.message.includes('on or before') &&
+                issue.message !== FUTURE_PERIOD_MESSAGE &&
+                issue.message !== SUPPORTED_DATE_MESSAGE
               ? `Enter a valid ${field === 'start' ? 'Start' : 'End'} Date.`
               : issue.message;
         return { field, message };

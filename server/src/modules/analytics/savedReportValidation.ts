@@ -1,17 +1,9 @@
 import { z } from 'zod';
 import { analysisCriteriaSchema, analysisParkIdSchema } from './validation.js';
 import { normalizeAnalysisControls } from './contract.js';
+import { reportMetadataFields } from './metadataValidation.js';
 
-const title = z
-  .string()
-  .trim()
-  .min(1, 'Enter a report title.')
-  .max(200, 'Title must be at most 200 characters.');
-const notes = z
-  .string()
-  .trim()
-  .max(5000, 'Notes must be at most 5000 characters.')
-  .nullable();
+const { title, notes } = reportMetadataFields;
 export const createStatisticalReportSchema = z
   .object({
     criteria: z.preprocess(normalizeAnalysisControls, analysisCriteriaSchema),

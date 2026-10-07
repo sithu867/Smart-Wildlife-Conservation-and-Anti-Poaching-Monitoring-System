@@ -175,13 +175,30 @@ export interface AnalyticsResult {
   patrolCoverage?: PatrolCoverageAnalysis;
 }
 
+// No domain-specific historical cutoff exists. Support the full four-digit
+// civil calendar from year 1; year 0 is not a supported conservation date.
+export const MIN_ANALYSIS_DATE = '0001-01-01';
+export const SUPPORTED_DATE_MESSAGE = `Choose a supported date on or after ${MIN_ANALYSIS_DATE}.`;
+export const FUTURE_PERIOD_MESSAGE =
+  'The selected period is entirely in the future. Choose a period that includes today or an earlier date.';
+
 export function isValidAnalysisDate(value: string): boolean {
   // Date.parse alone normalizes impossible dates such as February 30.
   return (
     /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    value >= MIN_ANALYSIS_DATE &&
     Number.isFinite(Date.parse(value)) &&
     new Date(value).toISOString().slice(0, 10) === value
   );
+}
+
+export function includesElapsedAnalysisDay(
+  start: string,
+  now = new Date(),
+): boolean {
+  // Compare UTC calendar dates, not local midnights. Today remains valid even
+  // before its last records arrive; future-only routes cannot be called neglected.
+  return !isValidAnalysisDate(start) || start <= now.toISOString().slice(0, 10);
 }
 
 export function isValidAnalysisId(value: string): boolean {

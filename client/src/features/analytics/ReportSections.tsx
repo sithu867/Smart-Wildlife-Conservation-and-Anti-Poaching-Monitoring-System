@@ -12,6 +12,7 @@ import { TimeSeriesChart } from './AnalyticsCharts';
 import { HotspotMap } from './HotspotMap';
 import { PatrolCoverageMap } from './PatrolCoverageMap';
 import { ConflictLocationResults } from './ConflictLocationResults';
+import { formatReportCell, REPORT_PRESENTATION } from './formatting';
 
 export function ReportSections({
   snapshot,
@@ -30,7 +31,7 @@ export function ReportSections({
     [snapshot],
   );
   const narrative = useMemo(
-    () => buildReportDocument(snapshot).sections,
+    () => buildReportDocument(snapshot, REPORT_PRESENTATION).sections,
     [snapshot],
   );
   return (
@@ -111,10 +112,12 @@ export function ReportSections({
                         {row.map((value, column) =>
                           column === 0 ? (
                             <th key={column} scope="row">
-                              {value}
+                              {formatReportCell(value, table.columns[column])}
                             </th>
                           ) : (
-                            <td key={column}>{value}</td>
+                            <td key={column}>
+                              {formatReportCell(value, table.columns[column])}
+                            </td>
                           ),
                         )}
                       </tr>

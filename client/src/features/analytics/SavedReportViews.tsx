@@ -4,6 +4,7 @@ import type {
   StatisticalReportSummary,
 } from '../../../../server/src/modules/analytics/savedReportContract';
 import { CATEGORY_LABELS } from '../../../../server/src/modules/analytics/contract';
+import { formatAnalysisTimestamp } from './formatting';
 
 export function ReportHistoryCards({
   history,
@@ -14,6 +15,7 @@ export function ReportHistoryCards({
   onView,
   onExport,
   onArchive,
+  writesBlocked = false,
 }: {
   history: ReportHistory;
   loaded: boolean;
@@ -23,6 +25,7 @@ export function ReportHistoryCards({
   onView: (id: string) => void;
   onExport: (report: StatisticalReportSummary) => void;
   onArchive: (report: StatisticalReportSummary) => void;
+  writesBlocked?: boolean;
 }) {
   return (
     <>
@@ -63,8 +66,8 @@ export function ReportHistoryCards({
                 .map((category) => CATEGORY_LABELS[category])
                 .join(', ')}
             </p>
-            <p>Generated: {report.generatedAt}</p>
-            <p>Details updated: {report.updatedAt}</p>
+            <p>Generated: {formatAnalysisTimestamp(report.generatedAt)}</p>
+            <p>Details updated: {formatAnalysisTimestamp(report.updatedAt)}</p>
             <p>Version {report.version} | Active</p>
             <p>Report ID: {report.id}</p>
             <div className="analytics-actions">
@@ -86,7 +89,7 @@ export function ReportHistoryCards({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || writesBlocked}
                 onClick={() => onArchive(report)}
                 className="button analytics-button analytics-button--danger"
               >
@@ -110,18 +113,81 @@ export function ReportHistoryCards({
   );
 }
 
+export function DiscardMetadataDialog({
+  onStay,
+  onDiscard,
+}: {
+  onStay: () => void;
+  onDiscard: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const modal = dialog.current;
+    const trigger =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    // Match the existing archive dialog: native focus trapping and an inert
+    // background keep the decision usable with a keyboard or screen reader.
+    modal?.showModal();
+    modal?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => {
+      modal?.close();
+      if (trigger?.isConnected) trigger.focus();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={dialog}
+      className="analytics-archive-dialog"
+      aria-labelledby="discard-metadata-title"
+      aria-describedby="discard-metadata-description"
+      onCancel={(event) => {
+        event.preventDefault();
+        onStay();
+      }}
+    >
+      <h2 id="discard-metadata-title">Discard unsaved report details?</h2>
+      <p id="discard-metadata-description">
+        Your title and notes have unsaved changes. Stay to continue editing, or
+        discard these changes to continue.
+      </p>
+      <div className="analytics-actions">
+        <button
+          type="button"
+          className="button analytics-button analytics-button--secondary"
+          onClick={onStay}
+        >
+          Stay and Continue Editing
+        </button>
+        <button
+          type="button"
+          className="button analytics-button analytics-button--danger"
+          onClick={onDiscard}
+        >
+          Discard Changes
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 export function ArchiveReportDialog({
   report,
   busy,
   error,
   onCancel,
   onArchive,
+  recoveryRequired = false,
+  onRecover,
 }: {
   report: StatisticalReportSummary;
   busy: boolean;
   error: string;
   onCancel: () => void;
   onArchive: () => void;
+  recoveryRequired?: boolean;
+  onRecover?: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -168,14 +234,16 @@ export function ArchiveReportDialog({
         <button
           type="button"
           disabled={busy}
-          onClick={onArchive}
+          onClick={recoveryRequired ? onRecover : onArchive}
           className="button analytics-button analytics-button--danger"
         >
           {busy
             ? 'Archiving...'
-            : error
-              ? 'Retry Archive Report'
-              : 'Archive Report'}
+            : recoveryRequired
+              ? 'Refresh Report History'
+              : error
+                ? 'Retry Archive Report'
+                : 'Archive Report'}
         </button>
       </div>
     </dialog>

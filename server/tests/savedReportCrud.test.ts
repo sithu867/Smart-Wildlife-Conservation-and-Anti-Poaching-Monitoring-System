@@ -51,6 +51,103 @@ async function create() {
     notes: string;
   };
 }
+test.each(['pdf', 'csv', 'xlsx'] as const)(
+  'saved %s filenames use each persisted version',
+  async (format) => {
+    const first = await create();
+    const secondResponse = await endpoint(
+      'post',
+      `/${first.id}/regenerate`,
+    ).send({});
+    expect(secondResponse.status).toBe(201);
+    const second = secondResponse.body.data;
+    const thirdResponse = await endpoint(
+      'post',
+      `/${second.id}/regenerate`,
+    ).send({});
+    expect(thirdResponse.status).toBe(201);
+    for (const report of [first, second, thirdResponse.body.data]) {
+      const response =
+        format === 'xlsx'
+          ? await excel(report.id)
+          : format === 'pdf'
+            ? await endpoint('get', `/${report.id}/pdf`)
+            : await endpoint('get', `/${report.id}/export`).query({ format });
+      expect(response.status).toBe(200);
+      expect(response.headers['content-disposition']).toMatch(
+        new RegExp(`-v${report.version}\\.${format}"$`),
+      );
+    }
+    expect(store.size).toBe(3);
+  },
+);
+
+test.each([
+  [{ title: ' ' }, 'title', 'Enter a report title (1-200 characters).'],
+  [
+    { title: 'x'.repeat(201) },
+    'title',
+    'Title must be at most 200 characters.',
+  ],
+  [
+    { notes: 'x'.repeat(5001) },
+    'notes',
+    'Notes must be at most 5000 characters.',
+  ],
+] as const)(
+  'HTTP metadata rejection reports the affected field',
+  async (metadata, field, message) => {
+    const report = await create();
+    const original = clone(store.get(report.id));
+    const response = await endpoint('patch', `/${report.id}`).send(metadata);
+    expect(response.status).toBe(400);
+    expect(response.body.error.fieldErrors).toEqual({ [field]: message });
+    expect(store.get(report.id)).toEqual(original);
+  },
+);
+
+test.each(['0000-01-01', '9999-10-20'])(
+  'HTTP analysis and generation reject unsupported start %s before reading sources',
+  async (start) => {
+    const input = { ...criteria, start, end: start };
+    const { categories, ...query } = input;
+    const analysis = await request(app)
+      .get('/api/analytics')
+      .set('x-user-role', 'MANAGER')
+      .query({ ...query, 'categories[]': categories });
+    expect(analysis.status).toBe(400);
+    expect(analysis.body.error.message).toContain(
+      start.startsWith('0000') ? 'supported date' : 'entirely in the future',
+    );
+    const generated = await endpoint('post').send({ criteria: input });
+    expect(generated.status).toBe(400);
+    expect(generated.body.error.message).toContain(
+      start.startsWith('0000') ? 'supported date' : 'entirely in the future',
+    );
+    expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
+    expect(prisma.statisticalReport.create).not.toHaveBeenCalled();
+  },
+);
+
+test('reading/exporting old future-period evidence stays possible but regeneration revalidates today', async () => {
+  const report = await create();
+  const row = store.get(report.id)!;
+  const future = { ...criteria, start: '9999-10-20', end: '9999-10-30' };
+  const snapshot = row.snapshot as Record<string, Prisma.JsonValue>;
+  row.criteria = future;
+  row.startDate = new Date('9999-10-20T00:00:00Z');
+  row.endDate = new Date('9999-10-30T00:00:00Z');
+  snapshot.appliedCriteria = future;
+  (snapshot.analyticsResult as Record<string, Prisma.JsonValue>).filters =
+    future;
+  expect((await endpoint('get', `/${report.id}`)).status).toBe(200);
+  expect((await endpoint('get', `/${report.id}/pdf`)).status).toBe(200);
+  expect(
+    (await endpoint('post', `/${report.id}/regenerate`).send({})).status,
+  ).toBe(400);
+  expect(store.size).toBe(1);
+});
+
 function excel(id: string) {
   return endpoint('get', `/${id}/export`)
     .query({ format: 'xlsx' })
@@ -256,7 +353,7 @@ test('READ detail and PDF retain saved evidence when source data and park labels
   expect(pdf.status).toBe(200);
   expect(pdf.headers['content-type']).toContain('application/pdf');
   expect(pdf.headers['content-disposition']).toMatch(
-    /^attachment; filename="conservation-report-snap-\d{4}-\d{2}-\d{2}\.pdf"$/,
+    /^attachment; filename="conservation-report-snap-\d{4}-\d{2}-\d{2}-v1\.pdf"$/,
   );
   expect((pdf.body as Buffer).toString()).toContain('Total incidents: 1');
   expect((pdf.body as Buffer).toString()).toContain('Snapshot Park');
@@ -528,7 +625,7 @@ describe('Batch 5 persisted report lifecycle', () => {
       expect(response.headers['cache-control']).toBe('no-store');
       expect(response.headers['content-disposition']).toMatch(
         new RegExp(
-          `^attachment; filename="conservation-report-snap-\\d{4}-\\d{2}-\\d{2}\\.${format}"$`,
+          `^attachment; filename="conservation-report-snap-\\d{4}-\\d{2}-\\d{2}-v1\\.${format}"$`,
         ),
       );
       let content: string;

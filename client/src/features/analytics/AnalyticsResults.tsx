@@ -8,6 +8,7 @@ import { FeedbackPanel } from './AnalyticsFeedback';
 import { hasIncidentCategory } from './criteria';
 import { hasReportableFindings } from '../../../../server/src/modules/analytics/reportEligibility';
 import { PatrolCoverageResults } from './PatrolCoverageResults';
+import { formatAnalysisTimestamp, formatEnumLabel } from './formatting';
 import {
   IncidentStatisticsResults,
   IncidentHotspotResults,
@@ -99,7 +100,10 @@ export function AnalyticsResults({
                     conflictStatus: 'Conflict status',
                   }[key]
                 }
-                : {appliedCriteria[key]}
+                :{' '}
+                {key === 'rangerId'
+                  ? appliedCriteria[key]
+                  : formatEnumLabel(appliedCriteria[key]!)}
               </p>
             ),
         )}
@@ -109,7 +113,7 @@ export function AnalyticsResults({
             incidents, alerts and their responses are excluded.
           </p>
         )}
-        <p>Analyzed at {data.generatedAt}</p>
+        <p>Analyzed at {formatAnalysisTimestamp(data.generatedAt)}</p>
       </section>
       {data.status === 'NO_MATCHING_DATA' ? (
         <FeedbackPanel tone="info" title="No matching conservation data">

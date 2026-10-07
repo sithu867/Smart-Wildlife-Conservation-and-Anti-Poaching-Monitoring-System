@@ -6,7 +6,10 @@ import {
   PATROL_COVERAGE_STATUSES,
   normalizeAnalysisControls,
 } from './contract.js';
-import { analysisCriteriaSchema, analysisParkIdSchema } from './validation.js';
+import {
+  storedAnalysisCriteriaSchema,
+  analysisParkIdSchema,
+} from './validation.js';
 import type { ConservationReportSnapshot } from './reportContract.js';
 import { hasReportableFindings } from './reportEligibility.js';
 
@@ -34,7 +37,9 @@ const series = z
 // while retaining the original payload verbatim after successful validation.
 const criteria = z.preprocess(
   normalizeAnalysisControls,
-  analysisCriteriaSchema,
+  // Reading immutable evidence must not reapply a moving current-day policy.
+  // New analyses and versions still pass the authoritative live criteria schema.
+  storedAnalysisCriteriaSchema,
 );
 const park = z
   .object({ id: analysisParkIdSchema, name: text, code: text })

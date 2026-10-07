@@ -181,9 +181,10 @@ test('edit validation blocks whitespace title, supports cancel, and safely retri
   fireEvent.change(screen.getByLabelText('Report Title'), {
     target: { value: 'Retry title' },
   });
-  vi.mocked(analyticsApi.updateReport).mockRejectedValueOnce(
-    new Error('Prisma secret'),
-  );
+  vi.mocked(analyticsApi.updateReport).mockRejectedValueOnce({
+    isAxiosError: true,
+    response: { status: 400, data: { error: { message: 'Prisma secret' } } },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
   expect(await screen.findByRole('alert')).not.toHaveTextContent('Prisma');
   expect(screen.getByLabelText('Report Title')).toHaveValue('Retry title');
@@ -228,7 +229,7 @@ test('confirmed archive prevents double submission and removes active history', 
     screen.getByText(/Report archived. Conservation source records/),
   ).toHaveAttribute('role', 'status');
 });
-test('archive failure retains the modal and permits safe retry', async () => {
+test('uncertain archive retains the modal and offers history refresh before another write', async () => {
   vi.mocked(analyticsApi.archiveReport).mockRejectedValueOnce(
     new Error('secret'),
   );
@@ -241,8 +242,17 @@ test('archive failure retains the modal and permits safe retry', async () => {
   );
   expect(await screen.findByRole('alert')).not.toHaveTextContent('secret');
   expect(screen.getByRole('dialog')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Retry Archive Report' }));
-  await screen.findByRole('heading', { name: 'No saved reports yet' });
+  expect(screen.getByRole('alert')).toHaveTextContent(
+    'The request may have completed',
+  );
+  fireEvent.click(
+    within(screen.getByRole('dialog')).getByRole('button', {
+      name: 'Refresh Report History',
+    }),
+  );
+  await screen.findByRole('button', { name: 'View Report' });
+  expect(analyticsApi.archiveReport).toHaveBeenCalledTimes(1);
+  expect(analyticsApi.listReports).toHaveBeenCalledTimes(2);
 });
 test('regeneration creates a new ID/version and keeps the original in history; duplicate clicks are blocked', async () => {
   await detail();

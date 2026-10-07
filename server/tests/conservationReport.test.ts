@@ -352,7 +352,7 @@ describe('UC-D PDF snapshot export', () => {
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('application/pdf');
     expect(response.headers['content-disposition']).toBe(
-      'attachment; filename="conservation-report-park-a-2026-10-05.pdf"',
+      'attachment; filename="conservation-report-park-a-2026-10-05-v1.pdf"',
     );
     const pdf = (response.body as Buffer).toString('ascii');
     expect(pdf.startsWith('%PDF-1.4')).toBe(true);
@@ -464,9 +464,9 @@ describe('UC-D PDF snapshot export', () => {
   test('filenames and download headers safely handle hostile park code characters', async () => {
     const snapshot = fixture(['INCIDENT_STATISTICS']);
     snapshot.park.code = '../Park "name"\r\nX-Injected: yes/../../';
-    const filename = reportFilename(snapshot);
+    const filename = reportFilename({ ...snapshot, version: 1 });
     expect(filename).toMatch(
-      /^conservation-report-[a-z0-9_-]+-2026-10-05\.pdf$/,
+      /^conservation-report-[a-z0-9_-]+-2026-10-05-v1\.pdf$/,
     );
     expect(filename).not.toMatch(/[\r\n"/\\]/);
     const response = await post('/pdf', snapshot);

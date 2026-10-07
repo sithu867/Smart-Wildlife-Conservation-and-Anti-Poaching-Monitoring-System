@@ -10,6 +10,8 @@ import {
 } from './savedReportValidation.js';
 import { REPORT_EXPORT_FORMATS } from './reportContract.js';
 import { exportSavedReport } from './reportExportService.js';
+import { metadataIssueErrors } from './metadataValidation.js';
+import { FUTURE_PERIOD_MESSAGE, SUPPORTED_DATE_MESSAGE } from './contract.js';
 
 function reportError(error: unknown, res: Response) {
   const status =
@@ -21,12 +23,20 @@ function reportError(error: unknown, res: Response) {
   res.status(status).json({
     success: false,
     error: {
+      ...(error instanceof z.ZodError
+        ? { fieldErrors: metadataIssueErrors(error.issues) }
+        : {}),
       message:
         error instanceof SavedReportError ||
         error instanceof AnalyticsCriteriaError
           ? error.message
           : error instanceof z.ZodError
-            ? 'Check the report criteria, title, notes and report ID. Unsupported fields are not allowed.'
+            ? (error.issues.find((issue) =>
+                [FUTURE_PERIOD_MESSAGE, SUPPORTED_DATE_MESSAGE].includes(
+                  issue.message,
+                ),
+              )?.message ??
+              'Check the report criteria, title, notes and report ID. Unsupported fields are not allowed.')
             : 'Unable to complete the saved report request. Please try again.',
     },
   });

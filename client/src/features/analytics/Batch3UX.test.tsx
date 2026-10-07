@@ -116,8 +116,8 @@ test('inactive filters explain their category and retain values when reselected'
   });
   fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
   const scope = await screen.findByRole('region', { name: 'Applied scope' });
-  expect(scope).toHaveTextContent('Severity: HIGH');
-  expect(scope).not.toHaveTextContent('Incident type: SNARE');
+  expect(scope).toHaveTextContent('Severity: High');
+  expect(scope).not.toHaveTextContent('Incident type: Snare');
   fireEvent.click(screen.getByLabelText('Incident Statistics'));
   expect(screen.getByLabelText('Incident type')).toBeEnabled();
   expect(screen.getByLabelText('Incident type')).toHaveValue('SNARE');

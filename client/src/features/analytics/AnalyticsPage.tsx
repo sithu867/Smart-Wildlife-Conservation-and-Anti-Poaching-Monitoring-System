@@ -31,17 +31,24 @@ import {
 } from './useConservationReport';
 import { matchesReviewedReportScope } from '../../../../server/src/modules/analytics/reportContract';
 import './analytics.css';
-import { SavedReports } from './SavedReports';
+import { SavedReports, type SavedReportsHandle } from './SavedReports';
+import {
+  FUTURE_PERIOD_MESSAGE,
+  SUPPORTED_DATE_MESSAGE,
+} from '../../../../server/src/modules/analytics/contract';
 
 type AnalysisRequestError = { kind: 'validation' | 'system'; message: string };
 
 function requestMessage(error: unknown): AnalysisRequestError {
   // Even a 400 response can come from a proxy or an unexpected backend failure.
-  // Only recognize the park-existence error; never echo arbitrary server text.
+  // Recognize only approved park/date rules; never echo arbitrary server text.
   if (
     isAxiosError<{ error?: { message?: string } }>(error) &&
     error.response?.status === 400
   ) {
+    const message = error.response.data?.error?.message;
+    if (message === FUTURE_PERIOD_MESSAGE || message === SUPPORTED_DATE_MESSAGE)
+      return { kind: 'validation', message };
     return {
       kind: 'validation',
       message: [
@@ -60,6 +67,14 @@ function requestMessage(error: unknown): AnalysisRequestError {
 
 export function AnalyticsPage() {
   const [showHistory, setShowHistory] = useState(false);
+  const [savedWritePending, setSavedWritePending] = useState(false);
+  const savedReports = useRef<SavedReportsHandle>(null);
+  function switchView(history: boolean) {
+    if (savedWritePending || history === showHistory) return;
+    if (showHistory)
+      savedReports.current?.requestLeave(() => setShowHistory(history));
+    else setShowHistory(history);
+  }
   const [draftCriteria, setDraftCriteria] = useState(createDraftCriteria);
   // Criteria and results commit together. Draft edits or failed requests cannot
   // relabel existing results with criteria that did not produce them.
@@ -198,7 +213,14 @@ export function AnalyticsPage() {
       if (sequence === requestId.current) {
         // A failed refresh changes feedback only. Previously reviewed data and
         // applied criteria remain paired, while the current draft stays editable.
-        setRequestError(requestMessage(error));
+        const failure = requestMessage(error);
+        setRequestError(failure);
+        // The authoritative server can cross UTC midnight or have a different
+        // clock from the browser. Keep its recognized date rule actionable.
+        if (failure.message === FUTURE_PERIOD_MESSAGE) {
+          setValidationErrors([{ field: 'start', message: failure.message }]);
+          setCriteriaFocusRequest((value) => value + 1);
+        }
       }
     } finally {
       if (sequence === requestId.current) {
@@ -264,8 +286,8 @@ export function AnalyticsPage() {
           type="button"
           aria-pressed={!showHistory}
           className="button analytics-button analytics-button--secondary"
-          disabled={report.generating || report.exporting}
-          onClick={() => setShowHistory(false)}
+          disabled={report.generating || report.exporting || savedWritePending}
+          onClick={() => switchView(false)}
         >
           Analysis
         </button>
@@ -273,14 +295,16 @@ export function AnalyticsPage() {
           type="button"
           aria-pressed={showHistory}
           className="button analytics-button analytics-button--secondary"
-          disabled={report.generating || report.exporting}
-          onClick={() => setShowHistory(true)}
+          disabled={report.generating || report.exporting || savedWritePending}
+          onClick={() => switchView(true)}
         >
           Saved Reports
         </button>
       </nav>
       {showHistory && (
         <SavedReports
+          ref={savedReports}
+          onWritePendingChange={setSavedWritePending}
           onChanged={report.synchronizeSavedReport}
           onArchived={report.forgetArchivedReport}
         />

@@ -10,6 +10,7 @@ import {
   type ReportExportFormat,
 } from '../../../../server/src/modules/analytics/reportContract';
 import { ReportSections } from './ReportSections';
+import { REPORT_PRESENTATION } from './formatting';
 
 export function ReportGeneration({
   canGenerate,
@@ -122,7 +123,7 @@ export function ConservationReportPreview({
     heading.current?.focus({ preventScroll: true });
     heading.current?.scrollIntoView?.({ block: 'start' });
   }, [snapshot]);
-  const report = buildReportDocument(snapshot);
+  const report = buildReportDocument(snapshot, REPORT_PRESENTATION);
   function lines(values: string[]) {
     return (
       <ul>

@@ -9,6 +9,7 @@ import {
 } from 'react-leaflet';
 import type { ConflictLocationAnalysis } from '../../../../server/src/modules/analytics/contract';
 import 'leaflet/dist/leaflet.css';
+import { formatEnumLabel } from './formatting';
 
 type Location = ConflictLocationAnalysis['locations'][number];
 function FitLocations({ locations }: { locations: Location[] }) {
@@ -97,13 +98,13 @@ export function ConflictLocationResults({
                 <p>
                   Severity:{' '}
                   {cell.bySeverity
-                    .map((row) => `${row.name}: ${row.count}`)
+                    .map((row) => `${formatEnumLabel(row.name)}: ${row.count}`)
                     .join(', ')}
                 </p>
                 <p>
                   Types:{' '}
                   {cell.byType
-                    .map((row) => `${row.name}: ${row.count}`)
+                    .map((row) => `${formatEnumLabel(row.name)}: ${row.count}`)
                     .join(', ')}
                 </p>
               </li>

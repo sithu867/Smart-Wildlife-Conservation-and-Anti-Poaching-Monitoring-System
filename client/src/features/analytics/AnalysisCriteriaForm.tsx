@@ -3,6 +3,7 @@ import {
   ANALYSIS_CATEGORIES,
   CATEGORY_LABELS,
   isValidAnalysisDate,
+  MIN_ANALYSIS_DATE,
   type AnalysisCriteria,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
@@ -17,6 +18,7 @@ import {
   type DatePresetDays,
 } from './criteria';
 import { FeedbackPanel } from './AnalyticsFeedback';
+import { formatEnumLabel } from './formatting';
 
 interface Props {
   formRef?: Ref<HTMLFormElement>;
@@ -142,6 +144,7 @@ export function AnalysisCriteriaForm({
             <input
               type="date"
               required
+              min={MIN_ANALYSIS_DATE}
               max={isValidAnalysisDate(criteria.end) ? criteria.end : undefined}
               onClick={(event) => openCalendar(event.currentTarget)}
               {...fieldAccessibility('start')}
@@ -158,7 +161,9 @@ export function AnalysisCriteriaForm({
               type="date"
               required
               min={
-                isValidAnalysisDate(criteria.start) ? criteria.start : undefined
+                isValidAnalysisDate(criteria.start)
+                  ? criteria.start
+                  : MIN_ANALYSIS_DATE
               }
               onClick={(event) => openCalendar(event.currentTarget)}
               {...fieldAccessibility('end')}
@@ -251,7 +256,9 @@ export function AnalysisCriteriaForm({
               >
                 <option value="">All types</option>
                 {Object.values(IncidentType).map((type) => (
-                  <option key={type}>{type}</option>
+                  <option key={type} value={type}>
+                    {formatEnumLabel(type)}
+                  </option>
                 ))}
               </select>
             </label>
@@ -271,7 +278,9 @@ export function AnalysisCriteriaForm({
               >
                 <option value="">All severities</option>
                 {Object.values(AlertSeverity).map((severity) => (
-                  <option key={severity}>{severity}</option>
+                  <option key={severity} value={severity}>
+                    {formatEnumLabel(severity)}
+                  </option>
                 ))}
               </select>
             </label>
@@ -293,7 +302,9 @@ export function AnalysisCriteriaForm({
               >
                 <option value="">All statuses</option>
                 {Object.values(AlertStatus).map((status) => (
-                  <option key={status}>{status}</option>
+                  <option key={status} value={status}>
+                    {formatEnumLabel(status)}
+                  </option>
                 ))}
               </select>
             </label>

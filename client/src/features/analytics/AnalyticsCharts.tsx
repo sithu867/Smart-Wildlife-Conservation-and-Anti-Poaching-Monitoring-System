@@ -13,6 +13,8 @@ import type {
   AnalyticsTimeSeries,
 } from '../../../../server/src/modules/analytics/contract';
 
+import { formatEnumLabel } from './formatting';
+
 export function BreakdownTable({
   title,
   rows,
@@ -34,7 +36,7 @@ export function BreakdownTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.name}>
-              <th scope="row">{row.name}</th>
+              <th scope="row">{formatEnumLabel(row.name)}</th>
               <td>{row.count}</td>
             </tr>
           ))}
