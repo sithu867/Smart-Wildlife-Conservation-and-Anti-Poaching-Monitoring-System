@@ -18,6 +18,10 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   const message = error instanceof Error ? error.message : 'Internal server error';
-  const statusCode = error.message && error.message.includes('Unauthorized') ? 403 : 500;
+  const statusCode = error.message && error.message.includes('Unauthorized')
+    ? 403
+    : error.message && error.message.includes('not found')
+      ? 404
+      : 500;
   return res.status(statusCode).json({ success: false, error: { message } });
 };

@@ -50,6 +50,8 @@ export const CONFIG_RISK_ZONES: RiskZone[] = [
   }
 ];
 
+const ACTIVE_ALERT_LIMIT = 5;
+
 function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371; // Earth's radius in km
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -197,16 +199,30 @@ export class ConflictAlertService {
   }
 
   async getAlerts(filters?: { status?: string; severity?: string; alertType?: string; includeDeleted?: boolean }): Promise<any[]> {
-    const alerts = await prisma.wildlifeConflictAlert.findMany({
-      where: {
-        status: filters?.status as any,
-        severity: filters?.severity as any,
-        alertType: filters?.alertType as any
-        , isDeleted: filters?.includeDeleted ? undefined : false
-      },
-      include: alertInclude,
-      orderBy: { createdAt: 'desc' }
-    });
+    const baseWhere = {
+      severity: filters?.severity as any,
+      alertType: filters?.alertType as any,
+      isDeleted: filters?.includeDeleted ? undefined : false
+    };
+    const activeStatuses = [AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED, AlertStatus.RESPONDING] as any[];
+    const requestedStatus = filters?.status as any;
+    const activeRequested = !requestedStatus || activeStatuses.includes(requestedStatus);
+    const activeAlerts = activeRequested
+      ? await prisma.wildlifeConflictAlert.findMany({
+          where: { ...baseWhere, status: requestedStatus || { in: activeStatuses } },
+          include: alertInclude,
+          orderBy: { createdAt: 'desc' },
+          take: ACTIVE_ALERT_LIMIT
+        })
+      : [];
+    const historicalAlerts = !requestedStatus || !activeRequested
+      ? await prisma.wildlifeConflictAlert.findMany({
+          where: { ...baseWhere, status: requestedStatus || { in: [AlertStatus.RESOLVED, AlertStatus.CANCELLED] } },
+          include: alertInclude,
+          orderBy: { createdAt: 'desc' }
+        })
+      : [];
+    const alerts = [...activeAlerts, ...historicalAlerts].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     return alerts.map(shapeAlert);
   }
 

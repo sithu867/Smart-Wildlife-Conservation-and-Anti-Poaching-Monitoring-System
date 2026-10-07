@@ -11,13 +11,33 @@ export class SyncService {
 
   constructor() {
     if (typeof window !== 'undefined') {
+      // A tab can close or reload while a request is in flight. Those queue
+      // rows must not remain permanently stuck in SYNCING; they are safe to
+      // retry because the server operations use client ids for idempotency.
+      void offlineDb.syncQueue
+        .where('status')
+        .equals(SyncStatus.SYNCING)
+        .modify({ status: SyncStatus.PENDING, lastError: 'Recovered after interrupted sync' })
+        .then(() => this.processAll())
+        .catch(error => console.warn('Unable to recover interrupted sync items:', error));
+
       window.addEventListener('online', () => {
         this.online = true;
         void this.processAll();
       });
       window.addEventListener('offline', () => {
         this.online = false;
+        void offlineDb.syncQueue.where('status').equals(SyncStatus.SYNCING).modify({ status: SyncStatus.PENDING });
       });
+      // Browser DevTools offline mode and some mobile browsers do not always
+      // emit online/offline events. Polling lets queued field actions recover
+      // without requiring a page refresh.
+      window.setInterval(() => {
+        if (navigator.onLine) {
+          this.online = true;
+          void this.processAll();
+        }
+      }, 5000);
     }
   }
 
@@ -88,11 +108,19 @@ export class SyncService {
           await transport(item);
           await offlineDb.syncQueue.update(item.id, { status: SyncStatus.SYNCED });
         } catch (error) {
+          const isNetworkFailure = this.isNetworkFailure(error);
           await offlineDb.syncQueue.update(item.id, {
-            status: SyncStatus.FAILED,
+            // A lost connection is expected during field work. Keep the
+            // action pending so it is retried automatically when connectivity
+            // returns. Only server/application errors become FAILED.
+            status: isNetworkFailure ? SyncStatus.PENDING : SyncStatus.FAILED,
             attempts: (item.attempts || 0) + 1,
             lastError: error instanceof Error ? error.message : 'Sync transport failure'
           });
+          if (isNetworkFailure && navigator.onLine === false) {
+            this.online = false;
+            break;
+          }
         }
       }
     } catch (err) {
@@ -100,6 +128,16 @@ export class SyncService {
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  private isNetworkFailure(error: unknown): boolean {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    const axiosError = error as { response?: unknown; code?: string };
+    if (axiosError?.code === 'ERR_NETWORK' || axiosError?.code === 'ECONNABORTED') return true;
+    // Axios network failures have no response; HTTP 5xx/429 are retryable too.
+    if (!axiosError?.response) return true;
+    const status = (axiosError.response as { status?: number })?.status;
+    return status === 408 || status === 429 || (typeof status === 'number' && status >= 500);
   }
 }
 

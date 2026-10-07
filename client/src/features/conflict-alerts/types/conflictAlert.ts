@@ -60,6 +60,7 @@ export interface UpdateResponseInput { action?: ResponseAction; notes?: string; 
 export interface ConflictAuditEntry { id: string; alertId: string; responseId?: string; action: string; performedBy: string; performedName?: string; timestamp: string; oldValue?: unknown; newValue?: unknown; reason?: string; }
 
 export interface SimulateCollarInput {
+  sourceEventId?: string;
   animalId: string;
   latitude: number;
   longitude: number;
@@ -69,6 +70,7 @@ export interface SimulateCollarInput {
 }
 
 export interface CommunityReportInput {
+  sourceEventId?: string;
   reporterName?: string;
   latitude: number;
   longitude: number;

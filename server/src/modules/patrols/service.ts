@@ -102,15 +102,23 @@ export class PatrolService {
 
   async syncPatrolSession(rangerId: string, rangerName: string, payload: { clientSessionId: string; patrolAssignmentId?: string; patrolRouteId?: string; startTime: Date; endTime?: Date | null; status: PatrolStatus; waypoints: IWaypoint[]; totalDistanceKm?: number; durationSeconds?: number }) {
     const existing = await prisma.patrolSession.findFirst({ where: { clientSessionId: payload.clientSessionId, rangerId }, include: sessionInclude });
-    const assignment = payload.patrolAssignmentId ? await prisma.patrolAssignment.findUnique({ where: { id: payload.patrolAssignmentId } }) : await ensureSeedData(rangerId, rangerName);
+    // A locally-created offline patrol can contain a client-only assignment
+    // id (for example the offline seed assignment). Resolve it again on the
+    // server instead of failing the whole sync. This also makes retries
+    // idempotent when the original assignment id is stale or was recreated.
+    let assignment = payload.patrolAssignmentId
+      ? await prisma.patrolAssignment.findUnique({ where: { id: payload.patrolAssignmentId } })
+      : null;
+    if (!assignment) assignment = await ensureSeedData(rangerId, rangerName);
     if (!assignment) throw new Error('Failed to resolve assignment for sync.');
+    if (assignment.rangerId !== rangerId) throw new Error('Unauthorized: Patrol assignment does not belong to this ranger.');
     if (existing) {
       await prisma.waypoint.deleteMany({ where: { patrolSessionId: existing.id } });
       const updated = await prisma.patrolSession.update({ where: { id: existing.id }, data: { status: payload.status as any, endTime: payload.endTime ?? null, durationSeconds: payload.durationSeconds ?? existing.durationSeconds, totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints), syncStatus: SyncStatus.SYNCED as any, waypoints: { create: payload.waypoints.map(point => ({ latitude: point.latitude, longitude: point.longitude, timestamp: point.timestamp, source: point.source as any, accuracy: point.accuracy, note: point.note })) } }, include: sessionInclude });
       return sessionShape(updated);
     }
     const calculatedDuration = payload.endTime ? Math.max(0, Math.round((payload.endTime.getTime() - payload.startTime.getTime()) / 1000)) : payload.durationSeconds ?? 0;
-    const session = await prisma.patrolSession.create({ data: { clientSessionId: payload.clientSessionId, rangerId, rangerName, patrolAssignmentId: assignment.id, patrolRouteId: payload.patrolRouteId ?? assignment.patrolRouteId, startTime: payload.startTime, endTime: payload.endTime ?? null, status: payload.status as any, syncStatus: SyncStatus.SYNCED as any, totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints), durationSeconds: calculatedDuration, waypoints: { create: payload.waypoints.map(point => ({ latitude: point.latitude, longitude: point.longitude, timestamp: point.timestamp, source: point.source as any, accuracy: point.accuracy, note: point.note })) } }, include: sessionInclude });
+    const session = await prisma.patrolSession.create({ data: { clientSessionId: payload.clientSessionId, rangerId, rangerName, patrolAssignmentId: assignment.id, patrolRouteId: assignment.patrolRouteId, startTime: payload.startTime, endTime: payload.endTime ?? null, status: payload.status as any, syncStatus: SyncStatus.SYNCED as any, totalDistanceKm: calculateTotalWaypointsDistanceKm(payload.waypoints), durationSeconds: calculatedDuration, waypoints: { create: payload.waypoints.map(point => ({ latitude: point.latitude, longitude: point.longitude, timestamp: point.timestamp, source: point.source as any, accuracy: point.accuracy, note: point.note })) } }, include: sessionInclude });
     await prisma.patrolAssignment.update({ where: { id: assignment.id }, data: { status: payload.status === PatrolStatus.COMPLETED ? PatrolStatus.COMPLETED as any : PatrolStatus.ACTIVE as any } });
     return sessionShape(session);
   }

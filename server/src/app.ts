@@ -8,6 +8,7 @@ import { patrolRoutes, patrolSessionRoutes } from './modules/patrols/routes.js';
 import { incidentRoutes } from './modules/incidents/routes.js';
 import { conflictAlertRoutes } from './modules/conflict-alerts/routes.js';
 import { analyticsRoutes } from './modules/analytics/routes.js';
+import { collarIngestionRoutes } from './modules/collar-ingestion/routes.js';
 
 export function createApp() {
   const app = express();
@@ -36,6 +37,7 @@ export function createApp() {
   app.use('/api/incidents', incidentRoutes);
   app.use('/api/conflict-alerts', conflictAlertRoutes);
   app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/device-ingestion', collarIngestionRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

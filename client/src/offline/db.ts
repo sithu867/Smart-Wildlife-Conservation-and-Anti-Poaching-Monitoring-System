@@ -13,7 +13,7 @@ export type OfflineRecord = {
 export type SyncQueueItem = {
   id?: number;
   entity: string;
-  operation: 'CREATE' | 'UPDATE' | 'DELETE' | 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT' | 'UPDATE_ALERT' | 'DELETE_ALERT' | 'CANCEL_ALERT' | 'UPDATE_RESPONSE' | 'DELETE_RESPONSE';
+  operation: 'CREATE' | 'UPDATE' | 'DELETE' | 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT' | 'UPDATE_ALERT' | 'DELETE_ALERT' | 'CANCEL_ALERT' | 'UPDATE_RESPONSE' | 'DELETE_RESPONSE' | 'SIMULATE_COLLAR' | 'COMMUNITY_REPORT';
   recordId: number;
   clientId?: string;
   status: SyncStatus;

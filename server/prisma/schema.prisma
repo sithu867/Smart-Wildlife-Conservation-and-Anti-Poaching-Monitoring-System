@@ -200,6 +200,23 @@ model IncidentEvidence {
   @@index([incidentId])
 }
 
+model CollarTelemetry {
+  id              String   @id @default(cuid())
+  eventId         String   @unique
+  deviceId        String
+  animalId        String
+  latitude        Float
+  longitude       Float
+  recordedAt      DateTime
+  batteryPercent  Int?
+  accuracyMeters  Float?
+  receivedAt      DateTime @default(now())
+  alertCreated    Boolean  @default(false)
+
+  @@index([deviceId, recordedAt])
+  @@index([animalId, recordedAt])
+}
+
 model WildlifeConflictAlert {
   id                      String               @id @default(cuid())
   clientAlertId           String?
