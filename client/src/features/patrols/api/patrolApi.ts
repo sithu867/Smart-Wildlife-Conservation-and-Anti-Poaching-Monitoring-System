@@ -1,7 +1,7 @@
 import { http } from '../../../shared/api/http';
 import { offlineDb, type OfflineRecord } from '../../../offline/db';
 import { syncService } from '../../../offline/syncService';
-import { SyncStatus, PatrolStatus } from '../../../shared/types/enums';
+import { SyncStatus, PatrolStatus, LocationSource } from '../../../shared/types/enums';
 import type { PatrolAssignment, PatrolSession, PatrolRoute, Waypoint } from '../types/patrol';
 
 async function findLocalRecordByRemoteId(table: typeof offlineDb.patrolSessions, remoteId: string): Promise<OfflineRecord | undefined> {
@@ -43,69 +43,69 @@ export function calculateTotalWaypointsDistanceKm(waypoints: Waypoint[]): number
 
 const DEFAULT_SEED_ROUTES: PatrolRoute[] = [
   {
-    _id: 'route-seed-north-01',
-    name: 'Northern Boundary Patrol',
+    _id: 'route-seed-yala-01',
+    name: 'Yala Block I Coastal & River Corridor',
     park: {
-      _id: 'park-seed-serengeti-01',
-      name: 'Serengeti Northern Sector',
-      code: 'SERENGETI-NORTH',
-      description: 'Northern conservation sector guarding wildlife corridors.'
+      _id: 'park-seed-yala-01',
+      name: 'Yala National Park (Ruhuna)',
+      code: 'YALA-NP',
+      description: 'Southern Sri Lanka conservation park guarding Asian elephant and leopard habitats.'
     },
-    description: '12km boundary patrol along the northern river sector to prevent poaching.',
+    description: '12.5km coastal sector sweep guarding Asian elephant corridors and river crossings.',
     distanceKm: 12.5,
     estimatedDurationHours: 3.5,
     geometry: {
       type: 'LineString',
       coordinates: [
-        [34.8214, -2.1523],
-        [34.8320, -2.1480],
-        [34.8450, -2.1410],
-        [34.8580, -2.1350],
-        [34.8700, -2.1300]
+        [81.5100, 6.3750],
+        [81.5220, 6.3820],
+        [81.5350, 6.3900],
+        [81.5480, 6.3980],
+        [81.5600, 6.4060]
       ]
     }
   },
   {
-    _id: 'route-seed-mara-02',
-    name: 'Mara River Savanna Corridor',
+    _id: 'route-seed-wilpattu-02',
+    name: 'Wilpattu Willu Basin Sweep',
     park: {
-      _id: 'park-seed-serengeti-01',
-      name: 'Serengeti Northern Sector',
-      code: 'SERENGETI-NORTH',
-      description: 'Northern conservation sector guarding wildlife corridors.'
+      _id: 'park-seed-wilpattu-02',
+      name: 'Wilpattu National Park',
+      code: 'WILPATTU-NP',
+      description: 'North Western conservation zone guarding sloth bear and elephant watering holes.'
     },
-    description: '8km high-density wildlife corridor along the Mara river basin.',
-    distanceKm: 8.0,
+    description: '8.2km natural lake basin sweep guarding sloth bear and leopard habitats.',
+    distanceKm: 8.2,
     estimatedDurationHours: 2.5,
     geometry: {
       type: 'LineString',
       coordinates: [
-        [34.8100, -2.1600],
-        [34.8180, -2.1550],
-        [34.8290, -2.1510],
-        [34.8400, -2.1450]
+        [80.0500, 8.4500],
+        [80.0620, 8.4580],
+        [80.0750, 8.4660],
+        [80.0880, 8.4740]
       ]
     }
   },
   {
-    _id: 'route-seed-rhino-03',
-    name: 'Rhino Sanctuary Perimeter Sweep',
+    _id: 'route-seed-udawalawe-03',
+    name: 'Udawalawe Reservoir Elephant Patrol',
     park: {
-      _id: 'park-seed-serengeti-01',
-      name: 'Serengeti Northern Sector',
-      code: 'SERENGETI-NORTH',
-      description: 'Northern conservation sector guarding wildlife corridors.'
+      _id: 'park-seed-udawalawe-03',
+      name: 'Udawalawe National Park',
+      code: 'UDAWALAWE-NP',
+      description: 'Sabaragamuwa sanctuary protecting high-density Sri Lankan elephant populations.'
     },
-    description: '15km perimeter security check around endangered black rhino protection zone.',
-    distanceKm: 15.2,
-    estimatedDurationHours: 4.5,
+    description: '15.0km reservoir perimeter check guarding elephant sanctuary boundary fence.',
+    distanceKm: 15.0,
+    estimatedDurationHours: 4.0,
     geometry: {
       type: 'LineString',
       coordinates: [
-        [34.8500, -2.1700],
-        [34.8620, -2.1650],
-        [34.8750, -2.1600],
-        [34.8880, -2.1520]
+        [80.8800, 6.4750],
+        [80.8950, 6.4820],
+        [80.9100, 6.4900],
+        [80.9250, 6.4980]
       ]
     }
   }
@@ -119,7 +119,7 @@ const DEFAULT_SEED_ASSIGNMENTS: PatrolAssignment[] = [
     patrolRoute: DEFAULT_SEED_ROUTES[0],
     assignedDate: new Date().toISOString(),
     status: PatrolStatus.ASSIGNED,
-    notes: 'Scheduled morning anti-poaching patrol.'
+    notes: 'Scheduled morning anti-poaching sweep in Yala Block I.'
   },
   {
     _id: 'assign-seed-02',
@@ -128,7 +128,7 @@ const DEFAULT_SEED_ASSIGNMENTS: PatrolAssignment[] = [
     patrolRoute: DEFAULT_SEED_ROUTES[1],
     assignedDate: new Date().toISOString(),
     status: PatrolStatus.ASSIGNED,
-    notes: 'River corridor wildlife monitoring sweep.'
+    notes: 'Willu lake basin wildlife monitoring sweep.'
   },
   {
     _id: 'assign-seed-03',
@@ -137,9 +137,112 @@ const DEFAULT_SEED_ASSIGNMENTS: PatrolAssignment[] = [
     patrolRoute: DEFAULT_SEED_ROUTES[2],
     assignedDate: new Date().toISOString(),
     status: PatrolStatus.ASSIGNED,
-    notes: 'High-priority perimeter defense for Rhino Sanctuary.'
+    notes: 'High-priority perimeter defense for Udawalawe Elephant Sanctuary.'
   }
 ];
+
+const DEFAULT_SEED_HISTORY: PatrolSession[] = [
+  {
+    _id: 'sess-demo-yala-01',
+    clientSessionId: 'sess-demo-yala-01',
+    rangerId: 'R-101',
+    rangerName: 'Ranger John',
+    patrolAssignment: 'assign-seed-01',
+    patrolRoute: DEFAULT_SEED_ROUTES[0],
+    startTime: new Date(Date.now() - 3600 * 5 * 1000).toISOString(),
+    endTime: new Date(Date.now() - 3600 * 1.5 * 1000).toISOString(),
+    status: PatrolStatus.COMPLETED,
+    syncStatus: SyncStatus.SYNCED,
+    totalDistanceKm: 12.5,
+    durationSeconds: 12600,
+    waypoints: [
+      {
+        _id: 'wp-demo-1',
+        latitude: 6.3750,
+        longitude: 81.5100,
+        timestamp: new Date(Date.now() - 3600 * 5 * 1000).toISOString(),
+        source: LocationSource.GPS,
+        accuracy: 5
+      },
+      {
+        _id: 'wp-demo-2',
+        latitude: 6.3820,
+        longitude: 81.5220,
+        timestamp: new Date(Date.now() - 3600 * 4 * 1000).toISOString(),
+        source: LocationSource.MANUAL,
+        accuracy: 8,
+        note: 'Spotted herd of 6 Asian Elephants near watering hole.'
+      },
+      {
+        _id: 'wp-demo-3',
+        latitude: 6.3900,
+        longitude: 81.5350,
+        timestamp: new Date(Date.now() - 3600 * 3 * 1000).toISOString(),
+        source: LocationSource.GPS,
+        accuracy: 4
+      },
+      {
+        _id: 'wp-demo-4',
+        latitude: 6.3980,
+        longitude: 81.5480,
+        timestamp: new Date(Date.now() - 3600 * 2 * 1000).toISOString(),
+        source: LocationSource.MANUAL,
+        accuracy: 10,
+        note: 'Unlawful wire snare identified and safely disarmed near perimeter fence.'
+      },
+      {
+        _id: 'wp-demo-5',
+        latitude: 6.4060,
+        longitude: 81.5600,
+        timestamp: new Date(Date.now() - 3600 * 1.5 * 1000).toISOString(),
+        source: LocationSource.GPS,
+        accuracy: 6
+      }
+    ]
+  },
+  {
+    _id: 'sess-demo-wilpattu-02',
+    clientSessionId: 'sess-demo-wilpattu-02',
+    rangerId: 'R-101',
+    rangerName: 'Ranger John',
+    patrolAssignment: 'assign-seed-02',
+    patrolRoute: DEFAULT_SEED_ROUTES[1],
+    startTime: new Date(Date.now() - 86400 * 1000).toISOString(),
+    endTime: new Date(Date.now() - 86400 * 1000 + 9000 * 1000).toISOString(),
+    status: PatrolStatus.COMPLETED,
+    syncStatus: SyncStatus.SYNCED,
+    totalDistanceKm: 8.2,
+    durationSeconds: 9000,
+    waypoints: [
+      {
+        _id: 'wp-wilp-1',
+        latitude: 8.4500,
+        longitude: 80.0500,
+        timestamp: new Date(Date.now() - 86400 * 1000).toISOString(),
+        source: LocationSource.GPS,
+        accuracy: 4
+      },
+      {
+        _id: 'wp-wilp-2',
+        latitude: 8.4580,
+        longitude: 80.0620,
+        timestamp: new Date(Date.now() - 86400 * 1000 + 3000 * 1000).toISOString(),
+        source: LocationSource.MANUAL,
+        accuracy: 6,
+        note: 'Fresh sloth bear footprints recorded near Kali Villu lake.'
+      },
+      {
+        _id: 'wp-wilp-3',
+        latitude: 8.4740,
+        longitude: 80.0880,
+        timestamp: new Date(Date.now() - 86400 * 1000 + 9000 * 1000).toISOString(),
+        source: LocationSource.GPS,
+        accuracy: 5
+      }
+    ]
+  }
+];
+
 
 export const patrolApi = {
   async getMyAssignment(): Promise<{ assignment: PatrolAssignment | null; assignments: PatrolAssignment[]; activeSession: PatrolSession | null }> {
@@ -526,6 +629,18 @@ export const patrolApi = {
     }
 
     const cached = await offlineDb.patrolSessions.toArray();
+    if (cached.length === 0) {
+      for (const sess of DEFAULT_SEED_HISTORY) {
+        await offlineDb.patrolSessions.put({
+          remoteId: sess._id,
+          syncStatus: SyncStatus.SYNCED,
+          createdAt: sess.startTime,
+          updatedAt: new Date().toISOString(),
+          payload: sess
+        });
+      }
+      return DEFAULT_SEED_HISTORY;
+    }
     return cached
       .map(c => c.payload as PatrolSession)
       .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());

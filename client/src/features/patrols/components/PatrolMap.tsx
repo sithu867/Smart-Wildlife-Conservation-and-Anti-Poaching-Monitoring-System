@@ -1,5 +1,5 @@
-import React from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup } from 'react-leaflet';
+import React, { useEffect } from 'react';
+import { MapContainer, TileLayer, Polyline, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { PatrolRoute, Waypoint } from '../types/patrol';
@@ -12,30 +12,48 @@ const createCustomMarkerIcon = (bgGradient: string, iconSymbol: string, borderHe
     html: `
       <div style="
         background: ${bgGradient};
-        width: 32px;
-        height: 32px;
+        width: 34px;
+        height: 34px;
         border-radius: 50%;
         border: 2px solid ${borderHex};
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 14px;
+        font-size: 15px;
         color: white;
         transform: translate(-50%, -50%);
       ">
         ${iconSymbol}
       </div>
     `,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-    popupAnchor: [0, -16]
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+    popupAnchor: [0, -17]
   });
 };
 
+const routeStartIcon = createCustomMarkerIcon('linear-gradient(135deg, #16a34a, #15803d)', '🟢', '#dcfce7');
+const routeEndIcon = createCustomMarkerIcon('linear-gradient(135deg, #dc2626, #991b1b)', '🏁', '#fee2e2');
 const gpsWaypointIcon = createCustomMarkerIcon('linear-gradient(135deg, #10b981, #047857)', '📍', '#d1fae5');
 const manualWaypointIcon = createCustomMarkerIcon('linear-gradient(135deg, #f59e0b, #d97706)', '✍️', '#fef3c7');
 const currentLocationIcon = createCustomMarkerIcon('linear-gradient(135deg, #06b6d4, #0284c7)', '🎯', '#cffaff');
+
+// Component to dynamically auto-fit map view to include route & waypoints
+const MapBoundsFitter: React.FC<{ positions: [number, number][] }> = ({ positions }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (positions && positions.length > 0) {
+      try {
+        const bounds = L.latLngBounds(positions);
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      } catch (err) {
+        console.warn('Error fitting map bounds:', err);
+      }
+    }
+  }, [map, positions]);
+  return null;
+};
 
 interface PatrolMapProps {
   route?: PatrolRoute | null;
@@ -61,8 +79,14 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
 
   const waypointsPositions: [number, number][] = validWaypoints.map(w => [w.latitude, w.longitude]);
 
-  // Determine initial center
-  let center: [number, number] = [-2.1523, 34.8214]; // Default Serengeti coords
+  // Collect all coordinates for bounds fitting
+  const allPositions: [number, number][] = [...routePositions, ...waypointsPositions];
+  if (currentLocation && !isNaN(currentLocation.latitude) && !isNaN(currentLocation.longitude)) {
+    allPositions.push([currentLocation.latitude, currentLocation.longitude]);
+  }
+
+  // Determine initial center (Default to Sri Lanka Yala National Park coords if empty)
+  let center: [number, number] = [6.3750, 81.5100];
   if (currentLocation && !isNaN(currentLocation.latitude) && !isNaN(currentLocation.longitude)) {
     center = [currentLocation.latitude, currentLocation.longitude];
   } else if (waypointsPositions.length > 0) {
@@ -70,6 +94,9 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
   } else if (routePositions.length > 0) {
     center = routePositions[0];
   }
+
+  const startPoint = routePositions.length > 0 ? routePositions[0] : null;
+  const endPoint = routePositions.length > 1 ? routePositions[routePositions.length - 1] : null;
 
   return (
     <div style={{ height }} className="w-full rounded-xl overflow-hidden border border-slate-700 shadow-md relative z-0">
@@ -84,19 +111,54 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* Route Geometry Line */}
+        {/* Dynamic Bounds Fitter */}
+        {allPositions.length > 0 && <MapBoundsFitter positions={allPositions} />}
+
+        {/* Assigned Route Outer Glow Polyline */}
         {routePositions.length > 0 && (
           <Polyline
             positions={routePositions}
-            pathOptions={{ color: '#d4a24c', weight: 4, dashArray: '8, 8', opacity: 0.85 }}
+            pathOptions={{ color: '#2563eb', weight: 9, opacity: 0.35 }}
           />
+        )}
+
+        {/* Assigned Route Main Polyline */}
+        {routePositions.length > 0 && (
+          <Polyline
+            positions={routePositions}
+            pathOptions={{ color: '#3b82f6', weight: 5, opacity: 0.95 }}
+          />
+        )}
+
+        {/* Route Start Point Marker */}
+        {startPoint && (
+          <Marker position={startPoint} icon={routeStartIcon}>
+            <Popup>
+              <div className="text-xs p-1 text-slate-900 font-bold">
+                🟢 Route Start Point
+                <p className="text-[11px] font-normal text-slate-600 mt-0.5">{route?.name}</p>
+              </div>
+            </Popup>
+          </Marker>
+        )}
+
+        {/* Route End Point Marker */}
+        {endPoint && (
+          <Marker position={endPoint} icon={routeEndIcon}>
+            <Popup>
+              <div className="text-xs p-1 text-slate-900 font-bold">
+                🏁 Route End Point
+                <p className="text-[11px] font-normal text-slate-600 mt-0.5">Target Finish Line ({route?.distanceKm} km)</p>
+              </div>
+            </Popup>
+          </Marker>
         )}
 
         {/* Recorded Waypoints Track Line */}
         {waypointsPositions.length > 1 && (
           <Polyline
             positions={waypointsPositions}
-            pathOptions={{ color: '#10b981', weight: 4, opacity: 0.9 }}
+            pathOptions={{ color: '#10b981', weight: 5, opacity: 0.95 }}
           />
         )}
 
@@ -145,4 +207,5 @@ export const PatrolMap: React.FC<PatrolMapProps> = ({
     </div>
   );
 };
+
 

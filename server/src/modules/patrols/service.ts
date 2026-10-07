@@ -34,36 +34,36 @@ async function ensureSeedData(rangerId: string, rangerName = 'Ranger John') {
   }
 
   const park = await prisma.park.upsert({
-    where: { code: 'SERENGETI-NORTH' },
+    where: { code: 'YALA-NP' },
     update: {},
     create: {
-      name: 'Serengeti Northern Sector',
-      code: 'SERENGETI-NORTH',
-      description: 'Northern conservation sector guarding wildlife corridors.'
+      name: 'Yala National Park (Ruhuna)',
+      code: 'YALA-NP',
+      description: 'Southern Sri Lanka conservation park guarding Asian elephant and leopard habitats.'
     }
   });
 
   const routesData = [
     {
-      name: 'Northern Boundary Patrol',
-      description: '12km boundary patrol along the northern river sector to prevent poaching.',
+      name: 'Yala Block I Coastal & River Corridor',
+      description: '12.5km coastal sector sweep guarding Asian elephant corridors and river crossings.',
       distanceKm: 12.5,
       estimatedDurationHours: 3.5,
-      geometry: { type: 'LineString', coordinates: [[34.8214, -2.1523], [34.8320, -2.1480], [34.8450, -2.1410], [34.8580, -2.1350], [34.8700, -2.1300]] }
+      geometry: { type: 'LineString', coordinates: [[81.5100, 6.3750], [81.5220, 6.3820], [81.5350, 6.3900], [81.5480, 6.3980], [81.5600, 6.4060]] }
     },
     {
-      name: 'Mara River Savanna Corridor',
-      description: '8.2km reconnaissance patrol along Mara river wildlife crossing points.',
+      name: 'Wilpattu Willu Basin Sweep',
+      description: '8.2km natural lake basin sweep guarding sloth bear and leopard habitats.',
       distanceKm: 8.2,
       estimatedDurationHours: 2.5,
-      geometry: { type: 'LineString', coordinates: [[34.8100, -2.1600], [34.8250, -2.1550], [34.8400, -2.1500], [34.8550, -2.1450]] }
+      geometry: { type: 'LineString', coordinates: [[80.0500, 8.4500], [80.0620, 8.4580], [80.0750, 8.4660], [80.0880, 8.4740]] }
     },
     {
-      name: 'Rhino Sanctuary Perimeter Sweep',
-      description: '15km high-priority sweep protecting endangered rhino sanctuary perimeter.',
+      name: 'Udawalawe Reservoir Elephant Patrol',
+      description: '15.0km reservoir perimeter check guarding elephant sanctuary boundary fence.',
       distanceKm: 15.0,
       estimatedDurationHours: 4.0,
-      geometry: { type: 'LineString', coordinates: [[34.8300, -2.1700], [34.8420, -2.1620], [34.8550, -2.1580], [34.8680, -2.1510]] }
+      geometry: { type: 'LineString', coordinates: [[80.8800, 6.4750], [80.8950, 6.4820], [80.9100, 6.4900], [80.9250, 6.4980]] }
     }
   ];
 
@@ -72,6 +72,48 @@ async function ensureSeedData(rangerId: string, rangerName = 'Ranger John') {
     const existing = await prisma.patrolRoute.findFirst({ where: { parkId: park.id, name: r.name } });
     const route = existing ?? await prisma.patrolRoute.create({ data: { parkId: park.id, ...r } });
     createdRoutes.push(route);
+  }
+
+  // Pre-seed a completed demo session with GPS & Manual waypoints if history is empty
+  const sessionCount = await prisma.patrolSession.count({ where: { rangerId } });
+  if (sessionCount === 0 && createdRoutes.length > 0) {
+    const demoAssignment = await prisma.patrolAssignment.create({
+      data: {
+        rangerId,
+        rangerName,
+        patrolRouteId: createdRoutes[0].id,
+        status: PatrolStatus.COMPLETED as any,
+        notes: 'Pre-seeded demonstration patrol in Yala Block I.'
+      }
+    });
+
+    const startTime = new Date(Date.now() - 3600 * 5 * 1000);
+    const endTime = new Date(Date.now() - 3600 * 1.5 * 1000);
+
+    await prisma.patrolSession.create({
+      data: {
+        clientSessionId: 'sess-demo-yala-01',
+        rangerId,
+        rangerName,
+        patrolAssignmentId: demoAssignment.id,
+        patrolRouteId: createdRoutes[0].id,
+        startTime,
+        endTime,
+        status: PatrolStatus.COMPLETED as any,
+        syncStatus: SyncStatus.SYNCED as any,
+        totalDistanceKm: 12.5,
+        durationSeconds: 12600,
+        waypoints: {
+          create: [
+            { latitude: 6.3750, longitude: 81.5100, timestamp: new Date(startTime.getTime()), source: LocationSource.GPS as any, accuracy: 5 },
+            { latitude: 6.3820, longitude: 81.5220, timestamp: new Date(startTime.getTime() + 3600 * 1000), source: LocationSource.MANUAL as any, accuracy: 8, note: 'Spotted herd of 6 Asian Elephants near watering hole.' },
+            { latitude: 6.3900, longitude: 81.5350, timestamp: new Date(startTime.getTime() + 3600 * 2 * 1000), source: LocationSource.GPS as any, accuracy: 4 },
+            { latitude: 6.3980, longitude: 81.5480, timestamp: new Date(startTime.getTime() + 3600 * 3 * 1000), source: LocationSource.MANUAL as any, accuracy: 10, note: 'Unlawful wire snare identified and safely disarmed near perimeter fence.' },
+            { latitude: 6.4060, longitude: 81.5600, timestamp: new Date(endTime.getTime()), source: LocationSource.GPS as any, accuracy: 6 }
+          ]
+        }
+      }
+    });
   }
 
   const existingAssignments = await prisma.patrolAssignment.findMany({
