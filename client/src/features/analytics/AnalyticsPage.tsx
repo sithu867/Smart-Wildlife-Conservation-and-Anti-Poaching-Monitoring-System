@@ -9,8 +9,10 @@ import { analyticsApi } from './api';
 import {
   copyCriteria,
   createDraftCriteria,
+  datePresetRange,
   validateDraftCriteriaIssues,
   type CriteriaValidationIssue,
+  type DatePresetDays,
 } from './criteria';
 import { FeedbackPanel } from './AnalyticsFeedback';
 import {
@@ -33,17 +35,20 @@ import './analytics.css';
 type AnalysisRequestError = { kind: 'validation' | 'system'; message: string };
 
 function requestMessage(error: unknown): AnalysisRequestError {
-  // Surface intentional API validation messages; other failures use a stable
-  // message rather than exposing raw database or network exceptions.
+  // Even a 400 response can come from a proxy or an unexpected backend failure.
+  // Only recognize the park-existence error; never echo arbitrary server text.
   if (
     isAxiosError<{ error?: { message?: string } }>(error) &&
     error.response?.status === 400
   ) {
     return {
       kind: 'validation',
-      message:
-        error.response.data?.error?.message ||
-        'Please check the analysis criteria.',
+      message: [
+        'The selected Park / Conservation Area does not exist. Please select another park.',
+        'The selected park does not exist.',
+      ].includes(error.response.data?.error?.message ?? '')
+        ? 'The selected park does not exist. Select another Park / Conservation Area.'
+        : 'Check the park, dates, categories and optional filters, then try again.',
     };
   }
   return {
@@ -74,9 +79,22 @@ export function AnalyticsPage() {
   >([]);
   const requestId = useRef(0);
   const pendingRequest = useRef<AbortController | null>(null);
-  const failedCriteria = useRef<AnalysisCriteria | null>(null);
   const processingHeading = useRef<HTMLHeadingElement>(null);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
+  const criteriaForm = useRef<HTMLFormElement>(null);
+  const [criteriaFocusRequest, setCriteriaFocusRequest] = useState(0);
+
+  useEffect(() => {
+    if (!criteriaFocusRequest) return;
+    // Wait for inline errors to render before moving focus. Refine/Reset use
+    // the same destination so keyboard users can continue directly in the form.
+    const target = criteriaForm.current?.querySelector<HTMLElement>('h2');
+    const invalid = criteriaForm.current?.querySelector<HTMLElement>(
+      'input[aria-invalid="true"], select[aria-invalid="true"]',
+    );
+    (invalid ?? target)?.focus({ preventScroll: true });
+    (invalid ?? target)?.scrollIntoView?.({ block: 'start' });
+  }, [criteriaFocusRequest]);
 
   useEffect(() => {
     if (!loading) return;
@@ -122,11 +140,7 @@ export function AnalyticsPage() {
     [],
   );
 
-  function editCriteria<K extends keyof AnalysisCriteria>(
-    key: K,
-    value: AnalysisCriteria[K],
-  ) {
-    const nextCriteria = { ...draftCriteria, [key]: value };
+  function updateDraft(nextCriteria: AnalysisCriteria) {
     setDraftCriteria(nextCriteria);
     // Once validation is shown, recheck edits so correcting one field does not
     // hide outstanding errors elsewhere or discard the manager's draft.
@@ -137,18 +151,33 @@ export function AnalyticsPage() {
     );
   }
 
+  function editCriteria<K extends keyof AnalysisCriteria>(
+    key: K,
+    value: AnalysisCriteria[K],
+  ) {
+    updateDraft({ ...draftCriteria, [key]: value });
+  }
+
+  function applyDatePreset(days: DatePresetDays) {
+    // Both dates change atomically, without touching the reviewed scope/results.
+    updateDraft({ ...draftCriteria, ...datePresetRange(days) });
+  }
+
   async function analyze(criteria: AnalysisCriteria) {
     // This synchronous guard blocks double submits before React disables the
     // button. The sequence check protects Reset/unmount even if a transport
     // ignores cancellation and completes an older request later.
     if (pendingRequest.current) return;
+    if (parksLoading || parksError || !parks.length) return;
     // A new attempt replaces earlier failure feedback even if local validation
     // stops it. Keep the reviewed results and their applied scope intact.
     setRequestError(null);
-    failedCriteria.current = null;
     const errors = validateDraftCriteriaIssues(criteria, parks);
     setValidationErrors(errors);
-    if (errors.length) return;
+    if (errors.length) {
+      setCriteriaFocusRequest((value) => value + 1);
+      return;
+    }
     const appliedSnapshot = copyCriteria(criteria);
     const controller = new AbortController();
     pendingRequest.current = controller;
@@ -165,7 +194,8 @@ export function AnalyticsPage() {
         setReviewedAnalysis({ appliedCriteria: appliedSnapshot, data });
     } catch (error) {
       if (sequence === requestId.current) {
-        failedCriteria.current = appliedSnapshot;
+        // A failed refresh changes feedback only. Previously reviewed data and
+        // applied criteria remain paired, while the current draft stays editable.
         setRequestError(requestMessage(error));
       }
     } finally {
@@ -185,12 +215,13 @@ export function AnalyticsPage() {
     requestId.current += 1;
     pendingRequest.current?.abort();
     pendingRequest.current = null;
-    failedCriteria.current = null;
+    // Reset is local UI state only; it never calls a persistence/delete API.
     setDraftCriteria(createDraftCriteria());
     setReviewedAnalysis(null);
     setValidationErrors([]);
     setRequestError(null);
     setLoading(false);
+    setCriteriaFocusRequest((value) => value + 1);
   }
 
   const appliedCriteria = reviewedAnalysis?.appliedCriteria;
@@ -242,12 +273,15 @@ export function AnalyticsPage() {
               }
             >
               <p>{requestError.message}</p>
+              <p>Retry uses the criteria currently entered below.</p>
               <button
                 type="button"
-                disabled={loading}
-                onClick={() =>
-                  failedCriteria.current && void analyze(failedCriteria.current)
+                disabled={
+                  loading || parksLoading || !!parksError || !parks.length
                 }
+                // Corrections made after failure are intentional. Revalidate
+                // and snapshot the current draft through the normal submit path.
+                onClick={() => void analyze(draftCriteria)}
               >
                 Retry analysis
               </button>
@@ -258,6 +292,8 @@ export function AnalyticsPage() {
               headingRef={resultsHeading}
               data={data}
               appliedCriteria={appliedCriteria}
+              draftChanged={!!draftChanged}
+              onRefine={() => setCriteriaFocusRequest((value) => value + 1)}
             />
           )}
           <ReportGeneration
@@ -270,6 +306,7 @@ export function AnalyticsPage() {
             onPreview={report.showPreview}
           />
           <AnalysisCriteriaForm
+            formRef={criteriaForm}
             criteria={draftCriteria}
             parks={parks}
             parksLoading={parksLoading}
@@ -279,6 +316,7 @@ export function AnalyticsPage() {
             hasResults={!!reviewedAnalysis}
             draftChanged={!!draftChanged}
             onEdit={editCriteria}
+            onDatePreset={applyDatePreset}
             onSubmit={submit}
             onReset={reset}
             onRetryParks={() => setParkRetry((value) => value + 1)}

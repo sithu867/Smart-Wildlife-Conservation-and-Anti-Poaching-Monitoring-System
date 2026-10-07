@@ -130,7 +130,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     display(data);
     expect(
       screen.getByText(
-        'No incident cells meet the minimum hotspot concentration.',
+        'Incidents were found, but none formed a hotspot for the selected criteria. Try a wider period or fewer incident filters.',
       ),
     ).toBeInTheDocument();
     expect(

@@ -103,6 +103,19 @@
   overflow: auto;
   max-height: 18rem;
 }
+.analytics-date-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.analytics-date-presets > p {
+  flex-basis: 100%;
+}
+.analytics-page .analytics-filter-scope {
+  font-size: 0.85rem;
+  color: #bdd3c9;
+  margin: 0;
+}
 .analytics-hotspot-map {
   height: 350px;
   overflow: hidden;
@@ -195,6 +208,7 @@
   color: #e0f2fe;
 }
 .analytics-feedback button {
+  min-height: 2.75rem;
   padding: 0.4rem 0.75rem;
   border: 1px solid currentColor;
   border-radius: 0.35rem;
@@ -323,9 +337,20 @@
   border: 1px solid #769788;
   border-radius: 0.5rem;
 }
+.analytics-page .analytics-filters :disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
 .analytics-page :is(input, select, button, summary, a):focus-visible {
   outline: 3px solid #a7f3d0;
   outline-offset: 3px;
+}
+.analytics-table-scroll:focus-visible {
+  outline: 3px solid #a7f3d0;
+  outline-offset: 3px;
+}
+.analytics-selected-park {
+  display: none;
 }
 .analytics-page h2[tabindex='-1']:focus-visible {
   outline: 2px solid #a7f3d0;
@@ -679,7 +704,31 @@
   cursor: pointer;
 }
 .analytics-page
-  :is(.analytics-category, .analytics-field, .analytics-processing > div) {
+  :is(
+    .analytics-results,
+    .analytics-result-grid,
+    .analytics-category,
+    .analytics-field,
+    .analytics-processing > div,
+    .analytics-breakdown,
+    .analytics-chart
+  ) {
+  min-width: 0;
+}
+.analytics-page
+  :is(
+    .analytics-feedback,
+    .analytics-method,
+    .analytics-categories label,
+    .analytics-breakdown th
+  ) {
+  overflow-wrap: anywhere;
+}
+/* Leaflet panes have high z-indices. Contain them so maps cannot cover shared
+   navigation or other analytics controls on a narrow/touch viewport. */
+.analytics-page :is(.analytics-hotspot-map, .analytics-route-map) {
+  isolation: isolate;
+  width: 100%;
   min-width: 0;
 }
 .analytics-page .analytics-category p,
@@ -699,6 +748,29 @@
   }
 }
 @media (max-width: 600px) {
+  /* The shared header's single-row navigation otherwise widens this page on
+     phones. Scope wrapping to UC-D so teammate routes keep their own layout. */
+  .app:has(> .analytics-page) > header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .app:has(> .analytics-page) > header nav {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+  }
+  .app:has(> .analytics-page) > header nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+  /* Native selects truncate long options on phones. Repeat the selection as
+     wrapping text so the complete park name/code remains visible. */
+  .analytics-selected-park {
+    display: block;
+    overflow-wrap: anywhere;
+    color: #bdd3c9;
+    font-size: 0.9rem;
+  }
   .analytics-area-grid,
   .analytics-page .analytics-filters,
   .analytics-page .analytics-advanced .analytics-filters,

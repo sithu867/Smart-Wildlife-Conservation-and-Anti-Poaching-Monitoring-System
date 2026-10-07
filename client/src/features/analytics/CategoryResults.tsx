@@ -104,8 +104,12 @@ export function IncidentHotspotResults({
         </>
       ) : (
         <p>
+          {/* A threshold miss is a valid derived result, not a failed request
+              or proof that the park had no incidents. */}
           {analysis.validIncidentCount
-            ? 'No incident cells meet the minimum hotspot concentration.'
+            ? analysis.hotspots.length
+              ? 'Hotspots were found, but their coordinates cannot be displayed. Review the data scope and coordinate exclusions.'
+              : 'Incidents were found, but none formed a hotspot for the selected criteria. Try a wider period or fewer incident filters.'
             : 'No incidents with valid coordinates were found for hotspot analysis.'}
         </p>
       )}
@@ -200,7 +204,9 @@ export function ConflictTrendResults({
       ) : (
         <p>
           Total alerts: 0; Total responses: 0. No conflict alerts or responses
-          match the applied park and period.
+          match the applied park and period. Try another park, a wider period or
+          fewer conflict filters. Only park-assigned alerts and their responses
+          are included.
         </p>
       )}
     </section>

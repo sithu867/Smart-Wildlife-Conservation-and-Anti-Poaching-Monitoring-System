@@ -16,8 +16,9 @@ type ApiResponse<T> = { success: true; data: T };
 export const analyticsApi = {
   async listParks(signal: AbortSignal): Promise<ParkOption[]> {
     const response = await http.get<ApiResponse<ParkOption[]>>(
-      '/analytics/parks',
-      { headers: managerHeaders, signal },
+      // Park metadata is shared; lookup must not impersonate a manager role.
+      '/parks',
+      { signal },
     );
     return response.data.data;
   },

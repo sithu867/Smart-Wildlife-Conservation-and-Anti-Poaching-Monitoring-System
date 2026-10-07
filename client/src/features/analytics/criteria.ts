@@ -25,6 +25,24 @@ export function copyCriteria(criteria: AnalysisCriteria): AnalysisCriteria {
   return { ...criteria, categories: [...criteria.categories] };
 }
 
+export type DatePresetDays = 7 | 30 | 90;
+
+export function datePresetRange(days: DatePresetDays, now = new Date()) {
+  // Include today as one of the N UTC calendar days. UTC setters avoid local
+  // midnight/DST shifts; the API still expands the selected end to 23:59:59.999Z.
+  const end = now.toISOString().slice(0, 10);
+  const start = new Date(`${end}T00:00:00.000Z`);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  return { start: start.toISOString().slice(0, 10), end };
+}
+
+export function hasIncidentCategory(criteria: AnalysisCriteria): boolean {
+  return criteria.categories.some(
+    (category) =>
+      category === 'INCIDENT_STATISTICS' || category === 'INCIDENT_HOTSPOTS',
+  );
+}
+
 export interface CriteriaValidationIssue {
   field: keyof AnalysisCriteria | 'form';
   message: string;
@@ -62,10 +80,12 @@ export function validateDraftCriteriaIssues(
           'form') as CriteriaValidationIssue['field'];
         // Keep the existing inline date wording while sharing all validation rules.
         const message =
-          (field === 'start' || field === 'end') &&
-          !issue.message.includes('on or before')
-            ? `Enter a valid ${field === 'start' ? 'Start' : 'End'} Date.`
-            : issue.message;
+          field === 'parkId' && !criteria.parkId
+            ? 'Select a Park / Conservation Area.'
+            : (field === 'start' || field === 'end') &&
+                !issue.message.includes('on or before')
+              ? `Enter a valid ${field === 'start' ? 'Start' : 'End'} Date.`
+              : issue.message;
         return { field, message };
       });
   if (

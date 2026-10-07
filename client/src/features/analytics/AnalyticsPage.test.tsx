@@ -126,7 +126,7 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
     );
-    expect(screen.getByRole('alert')).toHaveTextContent('Select a valid Park');
+    expect(screen.getByRole('alert')).toHaveTextContent('Select a Park');
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Enter a valid Start Date',
     );
@@ -167,7 +167,7 @@ describe('UC-D criteria and Analyze workflow', () => {
     const end = screen.getByLabelText('End Date');
     expect(park).toHaveAttribute('aria-invalid', 'true');
     expect(park).toHaveAccessibleDescription(
-      'Select a valid Park / Conservation Area.',
+      'Select a Park / Conservation Area.',
     );
     expect(start).toHaveAccessibleDescription('Enter a valid Start Date.');
     expect(end).toHaveAccessibleDescription('Enter a valid End Date.');
@@ -307,7 +307,7 @@ describe('UC-D criteria and Analyze workflow', () => {
       screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
     ).toBeEnabled();
   });
-  test('a failed re-analysis keeps previous results; Retry retries its snapshot even after draft changes', async () => {
+  test('a failed re-analysis keeps previous results; Retry analyzes the corrected current draft', async () => {
     render(<AnalyticsPage />);
     const scope = await analyzeValidCriteria();
     vi.mocked(analyticsApi.analyze).mockRejectedValueOnce(
@@ -331,9 +331,13 @@ describe('UC-D criteria and Analyze workflow', () => {
       target: { value: '2026-10-05' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Retry analysis' }));
-    await waitFor(() => expect(scope).toHaveTextContent('2026-10-04'));
+    await waitFor(() => expect(scope).toHaveTextContent('2026-10-05'));
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
-    expect(screen.getByText(/Criteria have changed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Criteria have changed/)).not.toBeInTheDocument();
+    expect(analyticsApi.analyze).toHaveBeenLastCalledWith(
+      { ...validCriteria, end: '2026-10-05' },
+      expect.any(AbortSignal),
+    );
   });
   test('a new invalid attempt replaces old API feedback without clearing reviewed results', async () => {
     render(<AnalyticsPage />);

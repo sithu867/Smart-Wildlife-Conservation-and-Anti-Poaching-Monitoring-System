@@ -5,6 +5,7 @@ import {
   type AnalyticsResult,
 } from '../../../../server/src/modules/analytics/contract';
 import { FeedbackPanel } from './AnalyticsFeedback';
+import { hasIncidentCategory } from './criteria';
 import { PatrolCoverageResults } from './PatrolCoverageResults';
 import {
   IncidentStatisticsResults,
@@ -28,8 +29,16 @@ interface Props {
   headingRef?: Ref<HTMLHeadingElement>;
   data: AnalyticsResult;
   appliedCriteria: AnalysisCriteria;
+  draftChanged?: boolean;
+  onRefine?: () => void;
 }
-export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
+export function AnalyticsResults({
+  headingRef,
+  data,
+  appliedCriteria,
+  draftChanged,
+  onRefine,
+}: Props) {
   const selected = new Set(appliedCriteria.categories);
   return (
     <section className="analytics-results" aria-label="Analysis results">
@@ -41,10 +50,20 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
         <h2 ref={headingRef} tabIndex={-1}>
           Conservation Analysis Results
         </h2>
-        <a className="analytics-refine-link" href="#analytics-criteria">
+        <a
+          className="analytics-refine-link"
+          href="#analytics-criteria"
+          onClick={onRefine}
+        >
           Refine Analysis
         </a>
         <h3>Applied scope</h3>
+        {draftChanged && (
+          <p className="analytics-draft-notice">
+            Draft changes are not applied. These results use the scope below
+            until Update Analysis succeeds.
+          </p>
+        )}
         <p>
           Park: {data.park.name} ({data.park.code}) · Period:{' '}
           {appliedCriteria.start} to {appliedCriteria.end} (inclusive)
@@ -66,7 +85,13 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
           ] as const
         ).map(
           (key) =>
-            appliedCriteria[key] && (
+            appliedCriteria[key] &&
+            // The backend applies each filter only to its relevant category.
+            // Do not imply an inactive incident/HWC filter constrained other results.
+            (key === 'rangerId' ||
+              (key.startsWith('incident')
+                ? hasIncidentCategory(appliedCriteria)
+                : selected.has('HWC_TRENDS'))) && (
               <p key={key}>
                 {
                   {
@@ -95,8 +120,9 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
         <FeedbackPanel tone="info" title="No matching conservation data">
           <p>
             Analysis completed successfully, but no records matched the applied
-            criteria within the scope of the selected categories. Refine the
-            criteria and select Update Analysis.
+            criteria within the scope of the selected categories. Try another
+            park, a wider period, fewer filters or different categories, then
+            select Update Analysis.
           </p>
         </FeedbackPanel>
       ) : null}
