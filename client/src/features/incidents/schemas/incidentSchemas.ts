@@ -1,6 +1,11 @@
+/**
+ * UC-B client-side validation of the Report Incident form ("Missing Required Information" exception flow).
+ * Mirrors the server's createIncidentSchema so problems are shown in the popup before anything is sent.
+ */
 import { z } from 'zod';
 import { IncidentType, LocationSource } from '../../../shared/types/enums';
 
+/** Rules checked when the ranger taps "Review Incident Details": type, description, location and photo. */
 export const reportIncidentFormSchema = z
   .object({
     incidentType: z.nativeEnum(IncidentType, {

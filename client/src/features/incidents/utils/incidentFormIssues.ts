@@ -1,3 +1,8 @@
+/**
+ * UC-B user-friendly error wording for the incident CRUD screens.
+ * Turns form validation problems and server error codes into ValidationIssue items for the popup
+ * (icon, title, plain-language message and an action button such as "Add Photo").
+ */
 import { ApiError } from '../../../shared/api/apiError';
 import { IncidentDeletionReason } from '../../../shared/types/enums';
 import type { IncidentField, ValidationIssue } from '../components/ValidationErrorDialog';
@@ -5,8 +10,10 @@ import type { EditLockReason } from '../types/incident';
 import { MAX_PHOTOS_PER_INCIDENT } from './photoFile';
 
 // Order in which fields appear on the form, so issues are listed top-to-bottom
+/** Form sections top-to-bottom, so the popup lists problems in the order the ranger sees them. */
 export const FIELD_ORDER: IncidentField[] = ['location', 'incidentType', 'otherTypeDescription', 'imageUrl', 'description'];
 
+/** Maps a Zod error path to the form section it belongs to. */
 export const SCHEMA_PATH_TO_FIELD: Record<string, IncidentField> = {
   latitude: 'location',
   longitude: 'location',
@@ -16,11 +23,13 @@ export const SCHEMA_PATH_TO_FIELD: Record<string, IncidentField> = {
   description: 'description'
 };
 
+/** Current form text, used to pick the right message (e.g. "Description is empty" vs "too short"). */
 export interface IssueContext {
   description: string;
   otherDescription: string;
 }
 
+/** The popup item for one invalid form field. */
 export function buildFieldIssue(field: IncidentField, schemaMessage: string, ctx: IssueContext): ValidationIssue {
   switch (field) {
     case 'location':
@@ -79,10 +88,12 @@ export function buildFieldIssue(field: IncidentField, schemaMessage: string, ctx
   }
 }
 
+/** Orders issues as the fields appear on the form. */
 export function sortIssues(issues: ValidationIssue[]): ValidationIssue[] {
   return [...issues].sort((a, b) => FIELD_ORDER.indexOf(a.field!) - FIELD_ORDER.indexOf(b.field!));
 }
 
+/** Photo-count problem for the edit page (at least 1, at most 5), or null when the count is fine. */
 export function evidenceCountIssue(count: number): ValidationIssue | null {
   if (count < 1) {
     return {
@@ -105,6 +116,7 @@ export function evidenceCountIssue(count: number): ValidationIssue | null {
   return null;
 }
 
+/** Badge text (short) and explanation (message) for each reason a report is locked. */
 export const EDIT_LOCK_MESSAGES: Record<EditLockReason, { short: string; message: string }> = {
   UNDER_INVESTIGATION: { short: 'Under investigation', message: 'A manager is already investigating this report, so it can no longer be changed.' },
   INCIDENT_RESOLVED: { short: 'Resolved', message: 'This incident has been resolved, so the report can no longer be changed.' },
@@ -117,6 +129,7 @@ export const EDIT_LOCK_MESSAGES: Record<EditLockReason, { short: string; message
  * Turns a failed create/save into a friendly popup issue.
  * Server error codes are mapped first; plain messages fall back to keyword matching.
  */
+/** Which CRUD action failed: create (submit), update (save), delete, or undo (restore). */
 export type SubmitAction = 'submit' | 'save' | 'delete' | 'restore';
 
 const FALLBACK_MESSAGES: Record<SubmitAction, { message: string; title: string }> = {
@@ -191,6 +204,7 @@ export function buildSubmitIssue(error: unknown, action: SubmitAction, ctx: Issu
   return { icon: '📡', title: FALLBACK_MESSAGES[action].title, message };
 }
 
+/** Choices in the delete popup (the server stores the value as deletionReason). */
 export const DELETION_REASON_OPTIONS: Array<{ value: IncidentDeletionReason; label: string; hint: string }> = [
   { value: IncidentDeletionReason.DUPLICATE, label: 'Duplicate report', hint: 'The same incident was reported twice' },
   { value: IncidentDeletionReason.CREATED_BY_MISTAKE, label: 'Reported by mistake', hint: 'Wrong details or reported accidentally' },

@@ -1,3 +1,7 @@
+/**
+ * UC-B photo capture for a new report (main flow steps 7-8, "Retake Photograph" alternate flow).
+ * Opens the rear camera / file picker, checks type and size, shows a preview and allows Retake / Replace.
+ */
 import React, { useRef, useState } from 'react';
 import { PHOTO_ACCEPT_ATTRIBUTE, readEvidenceFile } from '../utils/photoFile';
 

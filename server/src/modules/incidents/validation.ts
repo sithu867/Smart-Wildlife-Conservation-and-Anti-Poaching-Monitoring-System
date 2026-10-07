@@ -1,6 +1,13 @@
+/**
+ * UC-B request validation (Zod) for the incident CRUD endpoints.
+ * A failed parse throws a ZodError, which middleware/errors.ts returns as
+ * 400 { code: 'VALIDATION_ERROR', details: [{ path, message }] }.
+ * The client has matching rules (client/.../schemas/incidentSchemas.ts) so the ranger sees problems before sending.
+ */
 import { z } from 'zod';
 import { IncidentDeletionReason, IncidentType, LocationSource } from '../../types/enums.js';
 
+/** Photo evidence limits (kept in sync with client/.../utils/photoFile.ts). */
 export const MAX_EVIDENCE_BYTES = 5 * 1024 * 1024;
 export const MAX_EVIDENCE_PER_INCIDENT = 5;
 export const ALLOWED_EVIDENCE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
@@ -8,15 +15,18 @@ export const ALLOWED_EVIDENCE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/we
 // data:image/<jpeg|png|webp>;base64,<payload>
 const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/;
 
+/** Real size in bytes of the image inside a base64 data URL (base64 is ~33% larger than the file). */
 function decodedBase64Bytes(dataUrl: string): number {
   const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
   const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
   return Math.floor((base64.length * 3) / 4) - padding;
 }
 
+/** ISO 8601 date-time string such as 2026-10-08T08:00:00.000Z (offsets allowed). */
 const isoDateTime = (field: string) =>
   z.string().datetime({ offset: true, message: `${field} must be a valid ISO 8601 date-time` });
 
+// Field rules shared by create and update
 const latitudeSchema = z.number().min(-90, 'Latitude must be between -90 and 90').max(90, 'Latitude must be between -90 and 90');
 const longitudeSchema = z.number().min(-180, 'Longitude must be between -180 and 180').max(180, 'Longitude must be between -180 and 180');
 const descriptionSchema = z
@@ -26,6 +36,7 @@ const descriptionSchema = z
   .max(1000, 'Description cannot exceed 1000 characters');
 const otherTypeDescriptionSchema = z.string().trim().max(200, 'Other type description cannot exceed 200 characters');
 
+/** One photo: a JPEG/PNG/WebP data URL up to 5 MB; optional metadata must be real values and match the photo. */
 export const evidenceSchema = z
   .object({
     imageUrl: z
@@ -46,6 +57,7 @@ export const evidenceSchema = z
 
 export type EvidenceInput = z.infer<typeof evidenceSchema>;
 
+/** An "Other" threat must be named (at least 3 characters). */
 const requireOtherDescription = (
   value: { incidentType?: IncidentType; otherTypeDescription?: string },
   ctx: z.RefinementCtx
@@ -59,6 +71,7 @@ const requireOtherDescription = (
   }
 };
 
+/** CREATE - body of POST /api/incidents (a new report, or an offline report being synced). */
 export const createIncidentSchema = z
   .object({
     clientIncidentId: z.string().optional(),
@@ -80,6 +93,7 @@ export const createIncidentSchema = z
 
 export type CreateIncidentInput = z.infer<typeof createIncidentSchema>;
 
+/** The only report fields a ranger may change (status, reporter, times, etc. are never editable). */
 const EDITABLE_FIELDS = [
   'incidentType',
   'otherTypeDescription',
@@ -90,6 +104,11 @@ const EDITABLE_FIELDS = [
   'patrolSessionId'
 ] as const;
 
+/**
+ * UPDATE - body of PATCH /api/incidents/:id. Only changed fields are sent; .strict() rejects anything else.
+ * expectedUpdatedAt detects conflicting edits, editedAt is the device time of the edit (offline-aware),
+ * clientEditId makes retries safe (applied once).
+ */
 export const updateIncidentSchema = z
   .object({
     // Concurrency / offline-sync metadata
@@ -117,6 +136,7 @@ export const updateIncidentSchema = z
 
 export type UpdateIncidentInput = z.infer<typeof updateIncidentSchema>;
 
+/** DELETE - body of DELETE /api/incidents/:id (withdraw). A reason is required; "OTHER" needs a note. */
 export const deleteIncidentSchema = z
   .object({
     expectedUpdatedAt: isoDateTime('expectedUpdatedAt'),
@@ -135,6 +155,7 @@ export const deleteIncidentSchema = z
 
 export type DeleteIncidentInput = z.infer<typeof deleteIncidentSchema>;
 
+/** UNDO DELETE - body of POST /api/incidents/:id/restore. */
 export const restoreIncidentSchema = z
   .object({
     restoredAt: isoDateTime('restoredAt'),

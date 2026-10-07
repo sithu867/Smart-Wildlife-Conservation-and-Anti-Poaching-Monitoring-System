@@ -1,3 +1,4 @@
+/** UC-B inline field error (red text under a form section) used by the report and edit forms. */
 import React from 'react';
 
 /** Small inline error shown under a form section until the field is fixed. */

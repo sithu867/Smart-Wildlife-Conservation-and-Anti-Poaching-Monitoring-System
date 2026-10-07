@@ -1,3 +1,7 @@
+/**
+ * UC-B incident types shared by the API client, pages and components.
+ * They mirror the server's JSON responses (server/src/modules/incidents/service.ts shapeIncident).
+ */
 import { IncidentType, IncidentStatus, SyncStatus, LocationSource, PatrolStatus, IncidentDeletionReason } from '../../../shared/types/enums';
 
 export { IncidentType, IncidentStatus, SyncStatus, LocationSource, IncidentDeletionReason };
@@ -10,6 +14,7 @@ export type EditLockReason =
   | 'PATROL_CANCELLED'
   | 'EDIT_WINDOW_EXPIRED';
 
+/** One photo of the incident (base64 data URL). evidenceId identifies it when removing it in an edit. */
 export interface IncidentEvidence {
   evidenceId?: string;
   imageUrl: string;
@@ -18,6 +23,7 @@ export interface IncidentEvidence {
   mimeType?: string;
 }
 
+/** The patrol a report belongs to, as returned with the report (its status decides whether the report can change). */
 export interface IncidentPatrolSession {
   _id?: string;
   id?: string;
@@ -27,6 +33,7 @@ export interface IncidentPatrolSession {
   patrolRoute?: { name: string };
 }
 
+/** A conservation incident report as shown in the app (server copy or an unsynced device copy). */
 export interface ConservationIncident {
   _id: string;
   clientIncidentId?: string;
@@ -66,6 +73,7 @@ export interface ConservationIncident {
   updatedAt?: string;
 }
 
+/** Body of POST /incidents (create, and offline sync). */
 export interface CreateIncidentPayload {
   clientIncidentId?: string;
   /** Device time of the report; only sent to the server when an offline report is synced */

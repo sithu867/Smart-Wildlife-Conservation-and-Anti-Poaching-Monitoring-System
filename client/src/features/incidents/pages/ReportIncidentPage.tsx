@@ -1,3 +1,12 @@
+/**
+ * UC-B CREATE - "Ranger Reports a Field Conservation Incident" (route /ranger/incidents/new).
+ *
+ * Main flow: get GPS location -> choose type -> capture photo -> write description -> Review -> Confirm & Submit
+ * -> confirmation screen. Alternate flows: no network (saved on device as Pending Synchronization), manual
+ * location (map picker), retake photo, edit draft before submitting. Exceptions: missing information (popup with
+ * every problem), GPS failure (message + manual location), photo failure (message + retry).
+ * Opened with ?sessionId=... from the active patrol screen to link the report to that patrol.
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { geolocationService, type GeoLocation } from '../../../shared/geolocation/geolocation';
@@ -19,6 +28,7 @@ const generateClientIncidentId = () => `inc-${Date.now()}-${Math.random().toStri
 
 type ErrorDialogState = { variant: 'validation' | 'submit'; issues: ValidationIssue[] };
 
+/** The Report Incident page: form, review modal and confirmation screen. */
 export const ReportIncidentPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -48,6 +58,7 @@ export const ReportIncidentPage: React.FC = () => {
 
   const fieldRefs = useRef<Partial<Record<IncidentField, HTMLElement | null>>>({});
 
+  /** Removes a field's red highlight once the ranger has fixed it. */
   const clearFieldError = (field: IncidentField) => {
     setFieldErrors(prev => {
       if (!prev[field]) return prev;
@@ -59,6 +70,7 @@ export const ReportIncidentPage: React.FC = () => {
 
   const issueContext = { description, otherDescription };
 
+  /** Highlights every invalid field and opens the popup listing them. */
   const showValidationIssues = (issues: ValidationIssue[]) => {
     const sorted = sortIssues(issues);
     setFieldErrors(Object.fromEntries(sorted.map(issue => [issue.field, issue.title])));
@@ -68,6 +80,7 @@ export const ReportIncidentPage: React.FC = () => {
   // Stable reference so the dialog's Escape-key listener isn't re-registered on every render
   const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
 
+  /** Popup action button: closes the popup and takes the ranger to that field (the map picker for location). */
   const handleFixField = (field: IncidentField) => {
     setErrorDialog(null);
     setIsReviewOpen(false);
@@ -84,6 +97,7 @@ export const ReportIncidentPage: React.FC = () => {
     }
   };
 
+  /** Main flow steps 4-5: ask the device for the current GPS position. */
   const requestGpsLocation = () => {
     setLocationStatus('obtaining');
 
@@ -106,6 +120,7 @@ export const ReportIncidentPage: React.FC = () => {
     requestGpsLocation();
   }, []);
 
+  /** "Report Another Incident": clears the form and starts a new draft with a new client id. */
   const handleReportAnother = () => {
     setClientIncidentId(generateClientIncidentId());
     setSubmittedIncident(null);
@@ -122,6 +137,7 @@ export const ReportIncidentPage: React.FC = () => {
     requestGpsLocation();
   };
 
+  /** Manual Location alternate flow: use the point chosen on the map (source = MANUAL). */
   const handleManualLocationSelect = (selectedLoc: { latitude: number; longitude: number }) => {
     setLocation({
       latitude: selectedLoc.latitude,
@@ -134,6 +150,7 @@ export const ReportIncidentPage: React.FC = () => {
     clearFieldError('location');
   };
 
+  /** Main flow step 8: attach the captured photo (also used by Retake). */
   const handlePhotoCaptured = (dataUrl: string, size?: number, mime?: string) => {
     setImageUrl(dataUrl);
     setFileSize(size);
@@ -147,6 +164,7 @@ export const ReportIncidentPage: React.FC = () => {
     setMimeType(undefined);
   };
 
+  /** Main flow steps 10/12: validate everything, then open the review screen (or show the problems popup). */
   const handleOpenReview = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -186,6 +204,7 @@ export const ReportIncidentPage: React.FC = () => {
     setIsReviewOpen(true);
   };
 
+  /** Main flow steps 11-15: submit the report (saved on the device instead when there is no network). */
   const handleFinalSubmit = async () => {
     if (isSubmitting) return; // Prevent duplicate submissions
     setIsSubmitting(true);

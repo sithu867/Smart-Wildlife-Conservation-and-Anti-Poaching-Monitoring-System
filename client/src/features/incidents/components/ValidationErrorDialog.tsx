@@ -1,7 +1,15 @@
+/**
+ * UC-B error popup used by every incident CRUD screen.
+ *  - validation: lists all missing/invalid fields at once, each with an action button that jumps to the field
+ *    ("Missing Required Information" exception flow);
+ *  - submit: explains why the server refused a create/edit/delete, optionally with custom actions.
+ */
 import React, { useEffect, useRef } from 'react';
 
+/** Form sections that can be highlighted and jumped to. */
 export type IncidentField = 'location' | 'incidentType' | 'otherTypeDescription' | 'imageUrl' | 'description';
 
+/** One problem shown in the popup. */
 export interface ValidationIssue {
   field?: IncidentField;
   icon: string;
@@ -11,6 +19,7 @@ export interface ValidationIssue {
   actionLabel?: string;
 }
 
+/** A custom popup button. */
 export interface DialogAction {
   label: string;
   onClick: () => void;

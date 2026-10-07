@@ -1,3 +1,8 @@
+/**
+ * UC-B DELETE confirmation popup.
+ *  - withdraw: a synced report; the ranger must choose a reason (and a note for "Other"); the server keeps a copy.
+ *  - discard:  an unsynced draft that only exists on this device; removed without a reason.
+ */
 import React, { useEffect, useRef, useState } from 'react';
 import { IncidentDeletionReason } from '../../../shared/types/enums';
 import type { ConservationIncident } from '../types/incident';
@@ -40,6 +45,7 @@ export const DeleteIncidentDialog: React.FC<DeleteIncidentDialogProps> = ({ inci
     incident.patrolSession && typeof incident.patrolSession === 'object' ? incident.patrolSession.patrolRoute?.name : undefined;
   const photoUrl = incident.evidence?.[0]?.imageUrl;
 
+  // Withdraw needs a valid reason (and note for Other) before calling onConfirm; discard needs nothing
   const handleConfirm = () => {
     if (!isWithdraw) {
       onConfirm();

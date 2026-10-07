@@ -1,3 +1,10 @@
+/**
+ * UC-B READ (+ entry point for UPDATE and DELETE) - "My Incident Reports" (route /ranger/incidents).
+ *
+ * Lists the ranger's reports with sync status (Synced / Pending / Failed + Retry Sync), place name, photo and
+ * description. Editable reports show Edit and Delete; locked ones show why. Deleting asks for a reason and offers
+ * Undo; unsynced drafts can be discarded from the device.
+ */
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { incidentApi } from '../api/incidentApi';
@@ -23,6 +30,7 @@ type ErrorDialogState = { issues: ValidationIssue[]; overrides: DialogOverrides 
 // Server answers after which the list on screen is out of date
 const RELOAD_CODES = ['EDIT_CONFLICT', 'INCIDENT_LOCKED', 'INCIDENT_DELETED', 'INCIDENT_NOT_DELETED'];
 
+/** The My Incident Reports page. */
 export const IncidentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -37,6 +45,7 @@ export const IncidentHistoryPage: React.FC = () => {
     () => (location.state as WithdrawnReportState | null)?.withdrawn ?? null
   );
 
+  /** READ: loads the list (server reports + unsynced drafts on this device). */
   const fetchIncidents = () => {
     setLoading(true);
     incidentApi
@@ -57,6 +66,7 @@ export const IncidentHistoryPage: React.FC = () => {
   const dismissUndo = useCallback(() => setUndo(null), []);
   const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
 
+  /** Explains a failed delete/undo; offers "Reload Reports" when the list on screen is out of date. */
   const showActionError = (err: unknown, action: 'delete' | 'restore') => {
     const issue = buildSubmitIssue(err, action, { description: '', otherDescription: '' });
     const code = err instanceof ApiError ? err.code : undefined;
@@ -77,6 +87,7 @@ export const IncidentHistoryPage: React.FC = () => {
     setErrorDialog({ issues: [issue], overrides });
   };
 
+  /** DELETE: withdraws a synced report (then offers Undo) or discards an unsynced draft from the device. */
   const handleConfirmDelete = async (reason?: IncidentDeletionReason, note?: string) => {
     if (!deleteTarget || isDeleting) return;
     const { incident, mode } = deleteTarget;
@@ -98,6 +109,7 @@ export const IncidentHistoryPage: React.FC = () => {
     }
   };
 
+  /** Undo of a delete: restores the report and reloads the list. */
   const handleUndo = async () => {
     if (!undo) return;
     try {
@@ -110,6 +122,7 @@ export const IncidentHistoryPage: React.FC = () => {
     }
   };
 
+  /** "Retry Sync": sends a pending/failed offline report now. */
   const handleManualRetry = async (inc: ConservationIncident) => {
     const idToRetry = inc.clientIncidentId || inc._id;
     if (!idToRetry) return;

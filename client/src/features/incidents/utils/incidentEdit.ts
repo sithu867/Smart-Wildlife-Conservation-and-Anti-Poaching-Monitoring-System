@@ -1,9 +1,14 @@
+/**
+ * UC-B helpers for UPDATE and DELETE on the client: the edit form state, working out exactly what changed
+ * (only changed fields are sent), client-side edit validation and the delete request body.
+ */
 import { IncidentType, LocationSource } from '../../../shared/types/enums';
 import type { ValidationIssue } from '../components/ValidationErrorDialog';
 import type { ConservationIncident, DeleteIncidentPayload, IncidentDeletionReason, UpdateIncidentPayload } from '../types/incident';
 import { buildFieldIssue, evidenceCountIssue, sortIssues } from './incidentFormIssues';
 import { incidentTypeLabel } from './incidentTypes';
 
+/** A photo added on the edit page that has not been saved yet. */
 export interface NewEvidencePhoto {
   key: string;
   imageUrl: string;
@@ -22,8 +27,10 @@ export interface IncidentEditForm {
   newPhotos: NewEvidencePhoto[];
 }
 
+/** The changed fields part of the PATCH body (without the concurrency/idempotency metadata). */
 export type IncidentChanges = Omit<UpdateIncidentPayload, 'expectedUpdatedAt' | 'editedAt' | 'clientEditId'>;
 
+/** One line of the "Review Your Changes" screen, e.g. "Incident type: Wire Snare -> Animal Carcass". */
 export interface ChangeSummaryItem {
   key: string;
   icon: string;
@@ -31,6 +38,7 @@ export interface ChangeSummaryItem {
   detail: string;
 }
 
+/** Starts the edit form from the saved report (nothing changed yet). */
 export function formFromIncident(incident: ConservationIncident): IncidentEditForm {
   return {
     incidentType: incident.incidentType,
@@ -56,10 +64,12 @@ export function distanceMeters(a: { latitude: number; longitude: number }, b: { 
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+/** 120 -> "120 m", 1500 -> "1.5 km". */
 export function formatDistance(meters: number): string {
   return meters < 1000 ? `${Math.round(meters)} m` : `${(meters / 1000).toFixed(1)} km`;
 }
 
+/** How many photos the report will have after this edit (kept + newly added). */
 export function activeEvidenceCount(original: ConservationIncident, form: IncidentEditForm): number {
   const kept = original.evidence.filter(ev => !ev.evidenceId || !form.removedEvidenceIds.includes(ev.evidenceId)).length;
   return kept + form.newPhotos.length;

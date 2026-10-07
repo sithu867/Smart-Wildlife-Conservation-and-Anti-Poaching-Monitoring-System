@@ -1,3 +1,15 @@
+/**
+ * UC-B incident API client - the only place the app talks to /api/incidents.
+ *
+ * Offline-first: a report that cannot reach the server is saved in IndexedDB (offlineDb.incidents) as PENDING and
+ * queued in offlineDb.syncQueue; syncService sends it when the device is back online (see registerTransport below).
+ * Server answers (4xx/5xx with a body) are surfaced as ApiError with the server's `code`, never queued.
+ *
+ *  - CREATE  createIncident, syncIncidentPayload (offline queue), retrySyncIncident (manual retry)
+ *  - READ    getMyIncidents, getIncidentById
+ *  - UPDATE  updateIncident
+ *  - DELETE  deleteIncident (withdraw), restoreIncident (undo), discardLocalDraft (unsynced drafts)
+ */
 import { http } from '../../../shared/api/http';
 import { ApiError, toApiError } from '../../../shared/api/apiError';
 import { offlineDb, type OfflineRecord } from '../../../offline/db';
@@ -5,6 +17,7 @@ import { syncService } from '../../../offline/syncService';
 import { SyncStatus, IncidentStatus, LocationSource } from '../../../shared/types/enums';
 import type { ConservationIncident, CreateIncidentPayload, DeleteIncidentPayload, UpdateIncidentPayload } from '../types/incident';
 
+/** Keeps the device copy of a report in step with the server's latest version (used after create/edit/delete). */
 async function cacheSyncedIncident(incident: ConservationIncident): Promise<void> {
   try {
     const local = await findLocalIncidentByRemoteId(incident._id);
@@ -25,6 +38,7 @@ async function cacheSyncedIncident(incident: ConservationIncident): Promise<void
   }
 }
 
+/** Finds the device copy of a report by server id or client id (offline reports only have a client id). */
 async function findLocalIncidentByRemoteId(remoteId: string): Promise<OfflineRecord | undefined> {
   try {
     return await offlineDb.incidents
@@ -42,6 +56,11 @@ async function findLocalIncidentByRemoteId(remoteId: string): Promise<OfflineRec
 }
 
 export const incidentApi = {
+  /**
+   * CREATE - submits a new report. Online: returns the server's report (cached as SYNCED).
+   * No connection: saves it on the device as PENDING, queues it for sync and returns the local copy.
+   * A server error (e.g. validation) is thrown as ApiError so the ranger can fix it.
+   */
   async createIncident(payload: CreateIncidentPayload): Promise<ConservationIncident> {
     const clientIncidentId = payload.clientIncidentId || `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
     // The moment the ranger submitted - captured before the network attempt, which can take a long time to fail
@@ -137,6 +156,10 @@ export const incidentApi = {
     }
   },
 
+  /**
+   * READ - the ranger's reports for the history page. Flushes the sync queue first, then merges the server list
+   * with unsynced drafts from the device (offline: the cached copies are shown instead).
+   */
   async getMyIncidents(): Promise<ConservationIncident[]> {
     let remoteIncidents: ConservationIncident[] = [];
     let serverAnswered = false;
@@ -203,6 +226,7 @@ export const incidentApi = {
     );
   },
 
+  /** READ - one report (used by the edit page). Falls back to the device copy only when offline. */
   async getIncidentById(incidentId: string): Promise<ConservationIncident> {
     try {
       const response = await http.get(`/incidents/${incidentId}`);
@@ -294,6 +318,10 @@ export const incidentApi = {
     }
   },
 
+  /**
+   * CREATE (offline sync) - sends a queued offline report to the server. Same clientIncidentId, so a retry never
+   * creates a duplicate; the original reportedAt keeps the real report time. Marks the device copy SYNCED/FAILED.
+   */
   async syncIncidentPayload(payload: unknown): Promise<ConservationIncident> {
     const inc = payload as ConservationIncident;
     const local = await findLocalIncidentByRemoteId(inc._id);
@@ -340,6 +368,7 @@ export const incidentApi = {
     }
   },
 
+  /** "Retry Sync" button on the history page: re-sends one PENDING/FAILED report now and updates its queue items. */
   async retrySyncIncident(clientIncidentId: string): Promise<ConservationIncident> {
     const localRecord = await findLocalIncidentByRemoteId(clientIncidentId);
     if (!localRecord || !localRecord.payload) {
@@ -384,6 +413,7 @@ export const incidentApi = {
 };
 
 // Register transport with SyncService
+// Lets the background sync service send queued INCIDENT items (offline reports) when the device is online
 syncService.registerTransport('INCIDENT', async item => {
   if (item.payload) {
     await incidentApi.syncIncidentPayload(item.payload);

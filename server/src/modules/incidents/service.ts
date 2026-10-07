@@ -1,3 +1,19 @@
+/**
+ * UC-B "Report & Manage Conservation Incidents" - business rules for the incident CRUD.
+ *
+ *  - CREATE  createIncident      validates time + patrol link, looks up the place name, stores report + photos
+ *  - READ    getRangerIncidents / getIncidentById (owner only, withdrawn reports hidden)
+ *  - UPDATE  updateIncident      only while editable, conflict-safe, every change written to IncidentRevision
+ *  - DELETE  deleteIncident      withdraw = soft delete with a reason (row, photos and history are kept)
+ *  - UNDO    restoreIncident     brings a withdrawn report back while still editable
+ *
+ * Edit/delete lock rule (shared by all write operations - see getEditLockReason):
+ *  - a report linked to a patrol can change only while that patrol is ACTIVE/PAUSED;
+ *  - a report without a patrol can change for 24 hours;
+ *  - once a manager is investigating or has resolved it, it never changes.
+ * Offline-friendly: writes carry the device time of the action plus a client id, so a retried or late sync
+ * is applied exactly once and judged by when the ranger actually did it.
+ */
 import { prisma } from '../../config/prisma.js';
 import { IncidentStatus, IncidentType, PatrolStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import { AppError } from '../shared/appError.js';
@@ -19,8 +35,10 @@ export const CLOCK_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
 /** A corrected location must stay within this distance of the linked patrol's track. */
 export const MAX_LOCATION_DISTANCE_FROM_PATROL_KM = 5;
 
+/** Why a report can no longer be edited/deleted (returned to the client as editLockedReason). */
 export type EditLockReason = 'UNDER_INVESTIGATION' | 'INCIDENT_RESOLVED' | 'PATROL_COMPLETED' | 'PATROL_CANCELLED' | 'EDIT_WINDOW_EXPIRED';
 
+/** User-facing text for each lock reason, sent with 409 INCIDENT_LOCKED. */
 const EDIT_LOCK_MESSAGES: Record<EditLockReason, string> = {
   UNDER_INVESTIGATION: 'This report is locked because a manager is already investigating it.',
   INCIDENT_RESOLVED: 'This report is locked because the incident has been resolved.',
@@ -29,8 +47,10 @@ const EDIT_LOCK_MESSAGES: Record<EditLockReason, string> = {
   EDIT_WINDOW_EXPIRED: 'This report can no longer be edited. Reports without a patrol can only be edited within 24 hours.'
 };
 
+/** Patrol states in which linked reports are still editable. */
 const OPEN_PATROL_STATUSES: string[] = [PatrolStatus.ACTIVE, PatrolStatus.PAUSED];
 
+/** What every read returns with a report: its patrol, and only the photos that have not been removed. */
 const incidentInclude = {
   patrolSession: true,
   evidence: { where: { removedAt: null }, orderBy: { capturedAt: 'asc' as const } }
@@ -57,6 +77,10 @@ export function getEditLockReason(incident: any, at: Date): EditLockReason | nul
   return at.getTime() - reportedAt > STANDALONE_EDIT_WINDOW_MS ? 'EDIT_WINDOW_EXPIRED' : null;
 }
 
+/**
+ * Converts a database row into the API shape: id -> _id (the client's naming) plus the permission flags
+ * the client uses to show/hide Edit, Delete and Undo, so the rules live only on the server.
+ */
 function shapeIncident(incident: any, now = new Date()): any {
   if (!incident) return incident;
   const { id, patrolSession, evidence, revisions: _revisions, ...rest } = incident;
@@ -85,14 +109,17 @@ function assertValidClientTime(field: string, at: Date, reportedAt: Date, now: D
   }
 }
 
+/** 410 Gone - the report exists but was withdrawn (soft-deleted). */
 function withdrawnError(): AppError {
   return new AppError(410, 'INCIDENT_DELETED', 'This report has been deleted.');
 }
 
+/** Public, unique id for one photo (used by the client to remove a specific photo). */
 function newEvidenceId(idx: number): string {
   return `evid-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+/** Validated photo input -> IncidentEvidence row. capturedAt defaults to the report/edit time. */
 function toEvidenceRow(ev: EvidenceInput, idx: number, fallbackCapturedAt: Date) {
   return {
     evidenceId: newEvidenceId(idx),
@@ -119,10 +146,12 @@ function distanceToPatrolTrackKm(session: any, latitude: number, longitude: numb
   return Math.min(...points.map(p => calculateHaversineDistanceKm(p.latitude, p.longitude, latitude, longitude)));
 }
 
+/** Prisma P2002: a unique index was hit - here it means an identical retry already wrote its audit row. */
 function isUniqueConstraintError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === 'P2002';
 }
 
+/** All incident create/read/update/delete logic. Controllers call these methods; nothing else writes incidents. */
 export class IncidentService {
   /**
    * Decides which patrol a new report belongs to:
@@ -169,6 +198,11 @@ export class IncidentService {
     return reportedAt;
   }
 
+  /**
+   * CREATE - stores a new report with its photos.
+   * Also the endpoint offline reports sync to: the same clientIncidentId returns the existing report (never a
+   * duplicate, and never brings back a withdrawn one), and the device's reportedAt keeps the real report time.
+   */
   async createIncident(rangerId: string, rangerName: string, input: CreateIncidentInput): Promise<any> {
     const reportedAt = this.resolveReportedAt(input.reportedAt, new Date());
     const patrolSessionId = await this.resolvePatrolSessionId(rangerId, input.patrolSessionId, reportedAt);
@@ -182,6 +216,7 @@ export class IncidentService {
     return shapeIncident(incident);
   }
 
+  /** READ - the ranger's own reports, newest first, excluding withdrawn ones. */
   async getRangerIncidents(rangerId: string): Promise<any[]> {
     const incidents = await prisma.conservationIncident.findMany({ where: { reportedBy: rangerId, deletedAt: null }, include: incidentInclude, orderBy: { reportedAt: 'desc' } });
     // Reports still missing a place name get one in the background (shown on a later refresh)
@@ -190,6 +225,7 @@ export class IncidentService {
     return incidents.map(incident => shapeIncident(incident, now));
   }
 
+  /** READ - one report: 404 if it does not exist, 403 if it is another ranger's, 410 if withdrawn. */
   async getIncidentById(rangerId: string, incidentId: string): Promise<any> {
     const incident = await prisma.conservationIncident.findUnique({ where: { id: incidentId }, include: incidentInclude });
     if (!incident) throw new AppError(404, 'INCIDENT_NOT_FOUND', 'Conservation incident not found.');
@@ -198,6 +234,10 @@ export class IncidentService {
     return shapeIncident(incident);
   }
 
+  /**
+   * UPDATE - applies the changed fields of a report. Steps are numbered below:
+   * ownership -> already applied? -> time check -> lock check -> version check -> validate merged result -> save.
+   */
   async updateIncident(rangerId: string, rangerName: string, incidentId: string, input: UpdateIncidentInput): Promise<any> {
     const now = new Date();
     const editedAt = new Date(input.editedAt);
@@ -241,6 +281,7 @@ export class IncidentService {
       data.incidentType = input.incidentType;
     }
 
+    // "Other" must always have a name; switching to another type clears it
     const existingOther: string | null = existing.otherTypeDescription ?? null;
     const finalOther: string | null =
       finalType === IncidentType.OTHER ? (input.otherTypeDescription !== undefined ? input.otherTypeDescription : existingOther) : null;
@@ -277,6 +318,7 @@ export class IncidentService {
       patrolForLocationCheck = session;
     }
 
+    // Location correction: must stay near the patrol track; the place name is looked up again
     if (input.location) {
       const from = existing.location as { latitude: number; longitude: number; source: string };
       const to = input.location;
@@ -303,6 +345,7 @@ export class IncidentService {
       }
     }
 
+    // Photos: only this report's photos can be removed, and 1-5 must remain afterwards
     const activeEvidenceIds = new Set<string>(existing.evidence.map((ev: any) => ev.evidenceId));
     const removeIds = [...new Set(input.removeEvidenceIds ?? [])];
     const unknownIds = removeIds.filter(id => !activeEvidenceIds.has(id));
@@ -368,22 +411,26 @@ export class IncidentService {
     const deletedAt = new Date(input.deletedAt);
     const existing = await this.loadOwnedIncident(rangerId, incidentId);
 
-    // Retried delete (e.g. offline sync) -> already applied
+    // 1. Retried delete (e.g. offline sync) -> already applied
     const alreadyApplied = await prisma.incidentRevision.findUnique({ where: { incidentId_clientEditId: { incidentId, clientEditId: input.clientDeleteId } } });
     if (alreadyApplied) return shapeIncident(await this.loadOwnedIncident(rangerId, incidentId), now);
     if (existing.deletedAt) throw withdrawnError();
 
+    // 2. The device time of the delete must be plausible
     assertValidClientTime('deletedAt', deletedAt, new Date(existing.reportedAt), now);
 
+    // 3. Same lock rules as editing (patrol still open / within 24 h / not under investigation)
     const lockReason = getEditLockReason(existing, deletedAt);
     if (lockReason) throw new AppError(409, 'INCIDENT_LOCKED', EDIT_LOCK_MESSAGES[lockReason], { reason: lockReason });
 
+    // 4. The ranger must have seen the latest version before deleting it
     if (new Date(input.expectedUpdatedAt).getTime() !== new Date(existing.updatedAt).getTime()) {
       throw new AppError(409, 'EDIT_CONFLICT', 'This report was changed on another device. Review the latest version before deleting it.', {
         currentUpdatedAt: new Date(existing.updatedAt).toISOString()
       });
     }
 
+    // 5. Mark as withdrawn and record a DELETE revision, in one transaction
     const note = input.note ? input.note : null;
     try {
       await prisma.$transaction(async (tx: any) => {
@@ -419,12 +466,14 @@ export class IncidentService {
     const restoredAt = new Date(input.restoredAt);
     const existing = await this.loadOwnedIncident(rangerId, incidentId);
 
+    // Retried undo -> already applied; restoring a report that is not withdrawn is a 409
     const alreadyApplied = await prisma.incidentRevision.findUnique({ where: { incidentId_clientEditId: { incidentId, clientEditId: input.clientRestoreId } } });
     if (alreadyApplied) return this.getIncidentById(rangerId, incidentId);
     if (!existing.deletedAt) throw new AppError(409, 'INCIDENT_NOT_DELETED', 'This report is not deleted.');
 
     assertValidClientTime('restoredAt', restoredAt, new Date(existing.reportedAt), now);
 
+    // Undo is only possible while the report would still be editable
     const lockReason = getEditLockReason(existing, restoredAt);
     if (lockReason) {
       throw new AppError(409, 'INCIDENT_LOCKED', `${EDIT_LOCK_MESSAGES[lockReason]} The deleted report can no longer be restored.`, { reason: lockReason });
@@ -433,6 +482,7 @@ export class IncidentService {
     try {
       await prisma.$transaction(async (tx: any) => {
         const result = await tx.conservationIncident.updateMany({
+          // Clear the withdrawal fields; the RESTORE revision keeps what the deletion reason was
           where: { id: incidentId, deletedAt: existing.deletedAt },
           data: { deletedAt: null, deletedBy: null, deletionReason: null, deletionNote: null, updatedAt: now }
         });
@@ -457,4 +507,5 @@ export class IncidentService {
   }
 }
 
+/** Shared instance used by the controller. */
 export const incidentService = new IncidentService();

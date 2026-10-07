@@ -1,3 +1,7 @@
+/**
+ * UC-B photo manager on the edit page (UPDATE): mark saved photos for removal (with Undo), add new photos,
+ * and keep the total between 1 and 5. Nothing is saved until the ranger confirms the edit.
+ */
 import React, { useRef, useState } from 'react';
 import type { IncidentEvidence } from '../types/incident';
 import type { NewEvidencePhoto } from '../utils/incidentEdit';
@@ -31,6 +35,7 @@ export const EvidenceEditor: React.FC<EvidenceEditorProps> = ({
   const activeCount = existing.filter(ev => !ev.evidenceId || !removedIds.includes(ev.evidenceId)).length + newPhotos.length;
   const canAdd = activeCount < MAX_PHOTOS_PER_INCIDENT;
 
+  // Validates and reads the chosen photo; the input is reset so the same file can be picked again
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';

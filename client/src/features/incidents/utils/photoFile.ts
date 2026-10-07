@@ -1,9 +1,13 @@
-// Must match the server's evidence rules (server/src/modules/incidents/validation.ts)
+/**
+ * UC-B photo evidence rules and file reading (main flow steps 7-8, "Photo Capture or Storage Failure" exception).
+ * Must match the server's evidence rules (server/src/modules/incidents/validation.ts).
+ */
 export const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 export const PHOTO_ACCEPT_ATTRIBUTE = ALLOWED_PHOTO_TYPES.join(',');
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 export const MAX_PHOTOS_PER_INCIDENT = 5;
 
+/** A photo read from the camera/file picker, ready to attach to a report. */
 export interface CapturedPhoto {
   dataUrl: string;
   size: number;

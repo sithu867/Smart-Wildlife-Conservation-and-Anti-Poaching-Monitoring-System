@@ -27,6 +27,9 @@ enum LocationSource {
   MANUAL
 }
 
+// ---------- UC-B Report & Manage Conservation Incidents ----------
+
+// What the ranger found
 enum IncidentType {
   SNARE
   ANIMAL_CARCASS
@@ -35,12 +38,14 @@ enum IncidentType {
   OTHER
 }
 
+// Manager workflow; rangers can only edit/delete while REPORTED
 enum IncidentStatus {
   REPORTED
   INVESTIGATING
   RESOLVED
 }
 
+// Reason the ranger gave when withdrawing (deleting) a report
 enum IncidentDeletionReason {
   DUPLICATE
   CREATED_BY_MISTAKE
@@ -168,6 +173,8 @@ model Waypoint {
   @@index([patrolSessionId, timestamp])
 }
 
+// A conservation incident report. Never hard-deleted: withdrawing sets deletedAt (see below).
+// location JSON: { latitude, longitude, timestamp, source: GPS|MANUAL, placeName? }
 model ConservationIncident {
   id                  String          @id @default(cuid())
   clientIncidentId    String?
@@ -200,6 +207,7 @@ model ConservationIncident {
   @@index([reportedBy, deletedAt])
 }
 
+// Photo evidence (base64 data URL). Photos removed in an edit keep their row with removedAt set.
 model IncidentEvidence {
   id           String                @id @default(cuid())
   evidenceId   String                @unique
@@ -214,7 +222,7 @@ model IncidentEvidence {
   @@index([incidentId])
 }
 
-// Audit trail of ranger edits to a conservation incident report
+// Audit trail of ranger edits, deletes and restores of a conservation incident report
 model IncidentRevision {
   id           String                @id @default(cuid())
   incidentId   String

@@ -1,3 +1,4 @@
+/** UC-B "Report deleted - Undo" message shown after a report is withdrawn. */
 import React, { useEffect, useState } from 'react';
 
 interface UndoToastProps {

@@ -1,3 +1,4 @@
+/** UC-B description box (main flow step 9) shared by the report and edit forms: 1000-character limit with counter. */
 import React from 'react';
 import { FieldHint } from './FieldHint';
 

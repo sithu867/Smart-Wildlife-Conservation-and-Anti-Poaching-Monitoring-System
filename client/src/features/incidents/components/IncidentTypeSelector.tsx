@@ -1,3 +1,7 @@
+/**
+ * UC-B incident type picker (main flow step 6) shared by the report and edit forms.
+ * Choosing "Other Threat" shows a required text box to name the threat.
+ */
 import React from 'react';
 import { IncidentType } from '../../../shared/types/enums';
 import { INCIDENT_TYPE_OPTIONS } from '../utils/incidentTypes';

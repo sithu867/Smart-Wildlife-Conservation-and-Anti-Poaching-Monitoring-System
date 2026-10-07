@@ -1,3 +1,7 @@
+/**
+ * UC-B "Manual Location" alternate flow: when GPS is unavailable or inaccurate the ranger taps the map or types
+ * coordinates. Typed text is kept apart from the map position so half-typed input can never break the map.
+ */
 import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -69,6 +73,7 @@ interface ManualLocationPickerProps {
   onCancel: () => void;
 }
 
+/** Modal map picker; returns the chosen coordinates through onLocationSelected. */
 export const ManualLocationPicker: React.FC<ManualLocationPickerProps> = ({
   initialLocation,
   onLocationSelected,

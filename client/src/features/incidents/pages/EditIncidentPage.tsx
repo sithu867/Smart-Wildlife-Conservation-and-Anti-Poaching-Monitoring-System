@@ -1,3 +1,10 @@
+/**
+ * UC-B UPDATE (and DELETE) - edit a submitted report (route /ranger/incidents/:incidentId/edit).
+ *
+ * Loads the report, shows why it is locked if the server says it can no longer change, otherwise lets the ranger
+ * change type, description, location and photos, review only what changed and save it. Handles conflicts
+ * ("Keep My Changes" / "See Latest") and offers "Delete this report" (withdraw, then Undo on the list page).
+ */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
@@ -33,14 +40,17 @@ import {
 
 const STANDALONE_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** New idempotency key for one edit attempt (the server applies an edit with the same id only once). */
 const generateEditId = () => `edit-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
 type ErrorDialogState = { variant: 'validation' | 'submit'; issues: ValidationIssue[]; overrides?: DialogOverrides };
 
+/** The report's patrol when it was returned with the report. */
 function linkedPatrol(incident: ConservationIncident): IncidentPatrolSession | null {
   return incident.patrolSession && typeof incident.patrolSession === 'object' ? incident.patrolSession : null;
 }
 
+/** True while the report's patrol is ACTIVE/PAUSED, i.e. the report can still change. */
 function isPatrolOpen(incident: ConservationIncident): boolean {
   const status = linkedPatrol(incident)?.status;
   return status === PatrolStatus.ACTIVE || status === PatrolStatus.PAUSED;
@@ -66,6 +76,7 @@ const CenteredCard: React.FC<{ icon: string; eyebrow: string; title: string; chi
   </div>
 );
 
+/** The Edit Incident Report page. */
 export const EditIncidentPage: React.FC = () => {
   const { incidentId = '' } = useParams<{ incidentId: string }>();
   const navigate = useNavigate();
@@ -89,6 +100,7 @@ export const EditIncidentPage: React.FC = () => {
   // Same ID for retries of the same edit (server applies it once); a new ID once the form changes
   const editIdRef = useRef<string | null>(null);
 
+  /** (Re)starts editing from a server version of the report. */
   const startFrom = (incident: ConservationIncident) => {
     setOriginal(incident);
     setForm(formFromIncident(incident));
@@ -116,6 +128,7 @@ export const EditIncidentPage: React.FC = () => {
     };
   }, [incidentId]);
 
+  /** Changes form fields; any change means a new edit, so a fresh edit id will be used. */
   const updateForm = (patch: Partial<IncidentEditForm>) => {
     setForm(prev => (prev ? { ...prev, ...patch } : prev));
     editIdRef.current = null;
@@ -132,6 +145,7 @@ export const EditIncidentPage: React.FC = () => {
 
   const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
 
+  /** Popup action button: closes the popup and takes the ranger to that field. */
   const handleFixField = (field: IncidentField) => {
     setErrorDialog(null);
     setIsReviewOpen(false);
@@ -148,6 +162,10 @@ export const EditIncidentPage: React.FC = () => {
     }
   };
 
+  /**
+   * After an edit conflict: load the newest server version. keepMyChanges=true re-applies the ranger's edits on top
+   * of it ("Keep My Changes"); false discards them ("See Latest").
+   */
   const reloadLatest = async (keepMyChanges: boolean) => {
     setErrorDialog(null);
     try {
@@ -304,6 +322,7 @@ export const EditIncidentPage: React.FC = () => {
   const patrolOpen = isPatrolOpen(original);
   const editDeadline = new Date(new Date(original.reportedAt).getTime() + STANDALONE_EDIT_WINDOW_MS);
 
+  /** Validates the edit, then shows only what changed (or explains that nothing changed). */
   const handleOpenReview = (e: React.FormEvent) => {
     e.preventDefault();
     setNotice(null);
@@ -334,6 +353,7 @@ export const EditIncidentPage: React.FC = () => {
     setIsReviewOpen(true);
   };
 
+  /** UPDATE: sends only the changed fields with the version the ranger edited (conflict-safe). */
   const handleSave = async () => {
     if (isSaving) return;
     setIsSaving(true);
@@ -380,6 +400,7 @@ export const EditIncidentPage: React.FC = () => {
     }
   };
 
+  /** DELETE: withdraws the report, then returns to the list where Undo is offered. */
   const handleDelete = async (reason: IncidentDeletionReason, note?: string) => {
     if (isDeleting) return;
     setIsDeleting(true);
