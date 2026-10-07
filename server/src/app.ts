@@ -8,6 +8,7 @@ import { patrolRoutes, patrolSessionRoutes } from './modules/patrols/routes.js';
 import { incidentRoutes } from './modules/incidents/routes.js';
 import { conflictAlertRoutes } from './modules/conflict-alerts/routes.js';
 import { analyticsRoutes } from './modules/analytics/routes.js';
+import { analyticsController } from './modules/analytics/controller.js';
 
 export function createApp() {
   const app = express();
@@ -31,6 +32,9 @@ export function createApp() {
   app.use('/api/patrol-sessions', patrolSessionRoutes);
   app.use('/api/incidents', incidentRoutes);
   app.use('/api/conflict-alerts', conflictAlertRoutes);
+  // Creation forms need only park IDs/names/codes, without claiming a manager
+  // role. Reuse the metadata-only handler; analytics keeps its own role guard.
+  app.get('/api/parks', analyticsController.listParks);
   app.use('/api/analytics', analyticsRoutes);
 
   app.use(notFound);

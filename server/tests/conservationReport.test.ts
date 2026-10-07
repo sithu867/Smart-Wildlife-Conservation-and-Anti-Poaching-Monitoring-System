@@ -59,7 +59,7 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
     },
     categoryAvailability: categories.map((category) => ({
       category,
-      status: category === 'HWC_TRENDS' ? 'AVAILABLE_UNSCOPED' : 'AVAILABLE',
+      status: 'AVAILABLE',
     })),
     limitations: selected.has('HWC_TRENDS') ? [HWC_SCOPE_NOTICE] : [],
     summary: {
@@ -235,7 +235,9 @@ describe('UC-D report payload validation', () => {
     [
       'string count',
       (value: ReturnType<typeof fixture>) => {
-        Object.assign(value.analyticsResult.incidentStatistics!, { total: '7' });
+        Object.assign(value.analyticsResult.incidentStatistics!, {
+          total: '7',
+        });
       },
     ],
     [

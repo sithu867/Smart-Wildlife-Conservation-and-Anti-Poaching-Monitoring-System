@@ -109,7 +109,29 @@ const coverage = z
   .strict();
 const trends = z
   .object({
-    scope: z.literal('ALL_PARKS_UNASSIGNED'),
+    scope: z.literal('SELECTED_PARK'),
+    locations: z
+      .object({
+        gridSizeDegrees: z.number().positive(),
+        validAlertCount: count,
+        excludedCoordinateCount: count,
+        locations: z
+          .array(
+            z
+              .object({
+                cellId: text,
+                rank: count.refine((value) => value > 0),
+                latitude: z.number().min(-90).max(90),
+                longitude: z.number().min(-180).max(180),
+                alertCount: count.refine((value) => value > 0),
+                bySeverity: groups,
+                byType: groups,
+              })
+              .strict(),
+          )
+          .max(10000),
+      })
+      .strict(),
     scopeNotice: z.literal(HWC_SCOPE_NOTICE),
     totalAlerts: count,
     alertsOverTime: series,
@@ -143,7 +165,6 @@ const analyticsResult = z
             category: z.enum(ANALYSIS_CATEGORIES),
             status: z.enum([
               'AVAILABLE',
-              'AVAILABLE_UNSCOPED',
               'NOT_IMPLEMENTED',
               'UNAVAILABLE_PARK_ASSOCIATION',
             ]),
@@ -229,12 +250,7 @@ export const reportSnapshotSchema = z
       selected.some(
         (category) =>
           !data.categoryAvailability.some(
-            (item) =>
-              item.category === category &&
-              item.status ===
-                (category === 'HWC_TRENDS'
-                  ? 'AVAILABLE_UNSCOPED'
-                  : 'AVAILABLE'),
+            (item) => item.category === category && item.status === 'AVAILABLE',
           ),
       )
     )
@@ -346,6 +362,21 @@ export const reportSnapshotSchema = z
           conflictTrends.totalResponses)
     )
       invalid('Conflict breakdowns are inconsistent.');
+    if (conflictTrends) {
+      const spatial = conflictTrends.locations;
+      if (
+        spatial.validAlertCount + spatial.excludedCoordinateCount !==
+          conflictTrends.totalAlerts ||
+        sum(spatial.locations.map((cell) => ({ count: cell.alertCount }))) !==
+          spatial.validAlertCount ||
+        spatial.locations.some(
+          (cell) =>
+            sum(cell.byType) !== cell.alertCount ||
+            sum(cell.bySeverity) !== cell.alertCount,
+        )
+      )
+        invalid('Conflict location counts are inconsistent.');
+    }
   });
 
 export function validateReportSnapshot(

@@ -353,6 +353,7 @@ describe('UC-D patrol coverage query integration', () => {
         where: {
           patrolRouteId: { in: routes.map((route) => route.id) },
           rangerId: 'R-101',
+          status: { in: ['ASSIGNED', 'ACTIVE', 'COMPLETED'] },
           OR: [
             { startTime: { gte: start, lte: end } },
             { endTime: { gte: start, lte: end } },

@@ -20,6 +20,7 @@ interface IncidentRow {
   location: unknown;
 }
 interface AlertRow {
+  location?: unknown;
   createdAt?: Date;
   severity?: string;
   status?: string;

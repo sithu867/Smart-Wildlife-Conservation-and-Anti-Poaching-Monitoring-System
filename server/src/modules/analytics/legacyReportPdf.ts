@@ -30,7 +30,7 @@ export const generateLegacyReportPdf = (data: ReportData) => {
       [
         `Applied filters: ${filters}`,
         ...(data.conflictTrends
-          ? ['Conflict scope: ALL PARKS / UNASSIGNED (not selected park)']
+          ? ['Conflict scope: SELECTED PARK (unassigned alerts excluded)']
           : []),
       ],
       625,

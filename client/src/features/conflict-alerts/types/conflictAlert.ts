@@ -20,6 +20,7 @@ export interface ConflictResponse {
 }
 
 export interface WildlifeConflictAlert {
+  parkId?: string | null;
   _id: string;
   clientAlertId?: string;
   sourceEventId?: string;
@@ -53,6 +54,7 @@ export interface WildlifeConflictAlert {
 }
 
 export interface SimulateCollarInput {
+  parkId?: string;
   animalId: string;
   latitude: number;
   longitude: number;
@@ -62,6 +64,7 @@ export interface SimulateCollarInput {
 }
 
 export interface CommunityReportInput {
+  parkId?: string;
   reporterName?: string;
   latitude: number;
   longitude: number;

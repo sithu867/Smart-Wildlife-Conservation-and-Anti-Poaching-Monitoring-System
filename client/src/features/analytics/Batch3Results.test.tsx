@@ -240,7 +240,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
-    ).toHaveTextContent('they are not park scoped');
+    ).toHaveTextContent('All selected categories use this park and period');
   });
 });
 

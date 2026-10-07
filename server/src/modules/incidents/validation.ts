@@ -1,8 +1,10 @@
 import { z } from 'zod';
 import { IncidentType, LocationSource } from '../../types/enums.js';
+import { optionalParkIdSchema } from '../shared/parkScope.js';
 
 export const createIncidentSchema = z.object({
   clientIncidentId: z.string().optional(),
+  parkId: optionalParkIdSchema,
   incidentType: z.nativeEnum(IncidentType),
   otherTypeDescription: z.string().max(200, 'Other type description cannot exceed 200 characters').optional(),
   description: z.string().min(3, 'Description must be at least 3 characters').max(1000, 'Description cannot exceed 1000 characters'),

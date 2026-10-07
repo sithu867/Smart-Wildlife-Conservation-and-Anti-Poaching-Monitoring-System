@@ -74,10 +74,25 @@ export interface IncidentHotspotAnalysis {
   hotspots: IncidentHotspot[];
 }
 export const HWC_SCOPE_NOTICE =
-  'Conflict trends cover all parks / unassigned alerts, not the selected park. Alerts have no reliable park reference and parks have no boundary geometry.';
+  'Conflict trends use alerts assigned to the selected park. Legacy/unassigned alerts and their responses are excluded; coordinates are never used to guess a park.';
+export interface ConflictLocationAnalysis {
+  gridSizeDegrees: number;
+  validAlertCount: number;
+  excludedCoordinateCount: number;
+  locations: Array<{
+    cellId: string;
+    rank: number;
+    latitude: number;
+    longitude: number;
+    alertCount: number;
+    bySeverity: AnalyticsGroup[];
+    byType: AnalyticsGroup[];
+  }>;
+}
 export interface ConflictTrendAnalysis {
-  scope: 'ALL_PARKS_UNASSIGNED';
+  scope: 'SELECTED_PARK';
   scopeNotice: string;
+  locations: ConflictLocationAnalysis;
   totalAlerts: number;
   alertsOverTime: AnalyticsTimeSeries;
   bySeverity: AnalyticsGroup[];
@@ -134,11 +149,7 @@ export interface AnalyticsResult {
   };
   categoryAvailability: Array<{
     category: AnalysisCategory;
-    status:
-      | 'AVAILABLE'
-      | 'AVAILABLE_UNSCOPED'
-      | 'NOT_IMPLEMENTED'
-      | 'UNAVAILABLE_PARK_ASSOCIATION';
+    status: 'AVAILABLE' | 'NOT_IMPLEMENTED' | 'UNAVAILABLE_PARK_ASSOCIATION';
   }>;
   limitations: string[];
   summary: {

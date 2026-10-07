@@ -216,6 +216,11 @@ export function buildReportDocument(
         ...groupLines('Alerts by status', trends.byStatus),
         ...groupLines('Alerts by source', trends.bySource),
         ...groupLines('Alerts by type', trends.byType),
+        `Conflict locations: ${trends.locations.locations.length} occupied ${trends.locations.gridSizeDegrees}-degree cells; ${trends.locations.excludedCoordinateCount} alerts excluded for invalid coordinates`,
+        ...trends.locations.locations.map(
+          (cell) =>
+            `Location ${cell.rank}: ${cell.latitude}, ${cell.longitude} | ${cell.alertCount} alerts`,
+        ),
         `Total responses: ${trends.totalResponses}`,
         ...groupLines('Responses by action', trends.responsesByAction),
         ...timeLines('Responses over time', trends.responsesOverTime),

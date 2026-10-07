@@ -161,14 +161,14 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       document.querySelector('.leaflet-container'),
     ).not.toBeInTheDocument();
   });
-  test('conflict-only analysis renders actual alert/response charts and all breakdowns with global scope', () => {
+  test('conflict-only analysis renders actual alert/response charts and all breakdowns with selected park scope', () => {
     display(categoryResult(['HWC_TRENDS']));
     const trends = screen.getByRole('region', {
       name: 'Human-Wildlife Conflict Trends results',
     });
     expect(trends).toHaveTextContent('Total alerts: 2');
     expect(trends).toHaveTextContent('Total responses: 1');
-    expect(trends).toHaveTextContent('not the selected park');
+    expect(trends).toHaveTextContent('assigned to the selected park');
     expect(
       screen
         .getByRole('img', { name: 'Conflict Alerts Over Time chart' })
@@ -238,7 +238,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.queryByRole('region', { name: 'Incident Hotspots results' }),
     ).not.toBeInTheDocument();
   });
-  test('global no-data remains informational, with no category dashboards or available report', () => {
+  test('global no-data remains informational with category zero results and no available report', () => {
     display(
       result(
         { ...validCriteria, categories: ['HWC_TRENDS'] },
@@ -253,13 +253,13 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.queryByRole('region', {
         name: 'Human-Wildlife Conflict Trends results',
       }),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Generate Report' }),
     ).toBeDisabled();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
-    ).toHaveTextContent('they are not park scoped');
+    ).toHaveTextContent('All selected categories use this park and period');
   });
   test('re-analysis changes rendered categories only after success; buttons keep primary/secondary states', async () => {
     vi.spyOn(analyticsApi, 'listParks').mockResolvedValue(parks);

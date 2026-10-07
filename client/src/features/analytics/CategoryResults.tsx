@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { HOTSPOT_CONCENTRATION_THRESHOLDS } from '../../../../server/src/modules/analytics/contract';
+import { ConflictLocationResults } from './ConflictLocationResults';
 import type {
   AnalyticsResult,
   IncidentHotspotAnalysis,
@@ -41,7 +41,10 @@ export function IncidentStatisticsResults({ data }: { data: AnalyticsResult }) {
           )}
         </>
       ) : (
-        <p>No incidents match the applied criteria.</p>
+        <p>
+          Total incidents: <strong className="analytics-count">0</strong>. No
+          incidents match the applied criteria.
+        </p>
       )}
     </section>
   );
@@ -134,6 +137,7 @@ export function ConflictTrendResults({
     >
       <h2>Human-Wildlife Conflict Trends</h2>
       <p className="analytics-scope-notice">{analysis.scopeNotice}</p>
+      <ConflictLocationResults analysis={analysis.locations} />
       {analysis.totalAlerts || analysis.totalResponses ? (
         <>
           <p>
@@ -195,8 +199,8 @@ export function ConflictTrendResults({
         </>
       ) : (
         <p>
-          No conflict alerts or responses match the applied criteria across all
-          parks / unassigned records.
+          Total alerts: 0; Total responses: 0. No conflict alerts or responses
+          match the applied park and period.
         </p>
       )}
     </section>

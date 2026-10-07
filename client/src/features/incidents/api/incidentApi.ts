@@ -70,6 +70,7 @@ export const incidentApi = {
         rangerName: 'Ranger John',
         reportedAt: new Date().toISOString(),
         patrolSession: payload.patrolSessionId,
+        parkId: payload.parkId,
         evidence: payload.evidence.map((ev, idx) => ({
           evidenceId: `evid-${clientIncidentId}-${idx}`,
           imageUrl: ev.imageUrl,
@@ -202,6 +203,7 @@ export const incidentApi = {
       const response = await http.post('/incidents', {
         clientIncidentId: inc.clientIncidentId || inc._id,
         incidentType: inc.incidentType,
+        parkId: inc.parkId || undefined,
         otherTypeDescription: inc.otherTypeDescription,
         description: inc.description,
         latitude: inc.location.latitude,

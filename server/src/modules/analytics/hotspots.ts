@@ -4,7 +4,8 @@ import {
   HOTSPOT_CONCENTRATION_THRESHOLDS,
   type IncidentHotspotAnalysis,
 } from './contract.js';
-import { groupBy } from './calculations.js';
+import { groupBy } from './grouping.js';
+import { coordinateCell, readCoordinates } from './spatial.js';
 
 interface LocatedIncident {
   incidentType: string;
@@ -16,43 +17,24 @@ interface Cell {
   rows: LocatedIncident[];
 }
 
-function cellIndex(coordinate: number): number {
-  // Normalize floating-point noise at exact decimal grid boundaries (far below
-  // GPS precision), so e.g. 1.15 / 0.01 does not slip into the previous cell.
-  return Math.floor(Number((coordinate / HOTSPOT_GRID_DEGREES).toFixed(9)));
-}
-
 export function calculateIncidentHotspots(
   rows: LocatedIncident[],
 ): IncidentHotspotAnalysis {
   const cells = new Map<string, Cell>();
   let excludedCoordinateCount = 0;
   for (const row of rows) {
-    // The shared incident module stores location as Prisma Json. Validate its
-    // shape locally rather than casting arbitrary JSON into geographic data.
-    const location =
-      row.location && typeof row.location === 'object'
-        ? (row.location as Record<string, unknown>)
-        : null;
-    const latitude = location?.latitude;
-    const longitude = location?.longitude;
-    if (
-      typeof latitude !== 'number' ||
-      typeof longitude !== 'number' ||
-      !Number.isFinite(latitude) ||
-      !Number.isFinite(longitude) ||
-      Math.abs(latitude) > 90 ||
-      Math.abs(longitude) > 180
-    ) {
+    const coordinates = readCoordinates(row.location);
+    if (!coordinates) {
       excludedCoordinateCount++;
       continue;
     }
+    const { latitude, longitude } = coordinates;
     // A fixed 0.01-degree grid is deterministic, cheap, and easy to demonstrate:
     // about 1.1 km north-south, with longitude width decreasing toward the poles.
     // At least two incidents indicate repeat concentration, not predictive risk.
     // Floor (not truncation) treats negative coordinates consistently. Adjacent
     // cells are deliberately not merged, so close points can straddle a boundary.
-    const cellId = `${cellIndex(latitude)}:${cellIndex(longitude)}`;
+    const cellId = `${coordinateCell(latitude, HOTSPOT_GRID_DEGREES)}:${coordinateCell(longitude, HOTSPOT_GRID_DEGREES)}`;
     const cell = cells.get(cellId) ?? {
       latitudeSum: 0,
       longitudeSum: 0,
@@ -83,7 +65,10 @@ export function calculateIncidentHotspots(
       (a, b) =>
         b.incidentCount - a.incidentCount ||
         a.latitude - b.latitude ||
-        a.longitude - b.longitude,
+        a.longitude - b.longitude ||
+        // Adjacent cells can round to the same representative coordinate.
+        // A final cell-ID tie break keeps ranks independent of database order.
+        a.cellId.localeCompare(b.cellId),
     )
     .map((hotspot, index) => ({ ...hotspot, rank: index + 1 }));
   return {

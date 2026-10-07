@@ -55,7 +55,15 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
             .join(', ')}
         </p>
         {(
-          ['rangerId', 'incidentType', 'severity', 'conflictStatus'] as const
+          [
+            'rangerId',
+            'incidentType',
+            'incidentStatus',
+            'severity',
+            'conflictStatus',
+            'conflictSource',
+            'conflictType',
+          ] as const
         ).map(
           (key) =>
             appliedCriteria[key] && (
@@ -64,6 +72,9 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
                   {
                     rangerId: 'Ranger ID',
                     incidentType: 'Incident type',
+                    incidentStatus: 'Incident status',
+                    conflictSource: 'Conflict source',
+                    conflictType: 'Conflict type',
                     severity: 'Severity',
                     conflictStatus: 'Conflict status',
                   }[key]
@@ -74,9 +85,8 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
         )}
         {selected.has('HWC_TRENDS') && (
           <p className="analytics-scope-notice">
-            The selected park applies to incident and patrol source data only.
-            Conflict trends cover all parks / unassigned records; they are not
-            park scoped.
+            All selected categories use this park and period. Unassigned legacy
+            incidents, alerts and their responses are excluded.
           </p>
         )}
         <p>Analyzed at {data.generatedAt}</p>
@@ -89,28 +99,27 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
             criteria and select Update Analysis.
           </p>
         </FeedbackPanel>
-      ) : (
-        <div className="analytics-result-grid">
-          {(selected.has('INCIDENT_STATISTICS') ||
-            selected.has('INCIDENT_HOTSPOTS')) && (
-            <p className="analytics-results-total">
-              Matching park-linked incidents: {data.matchedRecords.incidents}.
-            </p>
-          )}
-          {selected.has('INCIDENT_STATISTICS') && (
-            <IncidentStatisticsResults data={data} />
-          )}
-          {selected.has('INCIDENT_HOTSPOTS') && data.incidentHotspots && (
-            <IncidentHotspotResults analysis={data.incidentHotspots} />
-          )}
-          {selected.has('PATROL_COVERAGE') && data.patrolCoverage && (
-            <PatrolCoverageResults analysis={data.patrolCoverage} />
-          )}
-          {selected.has('HWC_TRENDS') && data.conflictTrends && (
-            <ConflictTrendResults analysis={data.conflictTrends} />
-          )}
-        </div>
-      )}
+      ) : null}
+      <div className="analytics-result-grid">
+        {(selected.has('INCIDENT_STATISTICS') ||
+          selected.has('INCIDENT_HOTSPOTS')) && (
+          <p className="analytics-results-total">
+            Matching park-linked incidents: {data.matchedRecords.incidents}.
+          </p>
+        )}
+        {selected.has('INCIDENT_STATISTICS') && (
+          <IncidentStatisticsResults data={data} />
+        )}
+        {selected.has('INCIDENT_HOTSPOTS') && data.incidentHotspots && (
+          <IncidentHotspotResults analysis={data.incidentHotspots} />
+        )}
+        {selected.has('PATROL_COVERAGE') && data.patrolCoverage && (
+          <PatrolCoverageResults analysis={data.patrolCoverage} />
+        )}
+        {selected.has('HWC_TRENDS') && data.conflictTrends && (
+          <ConflictTrendResults analysis={data.conflictTrends} />
+        )}
+      </div>
       <ul>
         {data.categoryAvailability
           .filter(
@@ -127,11 +136,6 @@ export function AnalyticsResults({ headingRef, data, appliedCriteria }: Props) {
             </li>
           ))}
       </ul>
-      {data.status === 'NO_MATCHING_DATA' &&
-        selected.has('PATROL_COVERAGE') &&
-        data.patrolCoverage && (
-          <PatrolCoverageResults analysis={data.patrolCoverage} />
-        )}
       <details className="analytics-method">
         <summary>Data scope and limitations</summary>
         <ul aria-label="Scope limitations">

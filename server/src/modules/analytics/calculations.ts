@@ -1,21 +1,13 @@
 import type {
-  AnalyticsGroup,
   ConflictTrendAnalysis,
   IncidentStatisticsAnalysis,
 } from './contract.js';
 import { HWC_SCOPE_NOTICE } from './contract.js';
 import { buildTimeSeries } from './timeSeries.js';
+import { calculateConflictLocations } from './conflictLocations.js';
 
-export function groupBy<T>(rows: T[], key: keyof T): AnalyticsGroup[] {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const name = String(row[key] ?? 'UNKNOWN');
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return [...counts]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
-}
+import { groupBy } from './grouping.js';
+export { groupBy } from './grouping.js';
 
 interface IncidentRecord {
   incidentType: string;
@@ -23,6 +15,7 @@ interface IncidentRecord {
   reportedAt: Date | string;
 }
 interface ConflictRecord {
+  location?: unknown;
   severity: string;
   status: string;
   source: string;
@@ -58,8 +51,9 @@ export function calculateConflictTrends(
   end: Date,
 ): ConflictTrendAnalysis {
   return {
-    scope: 'ALL_PARKS_UNASSIGNED',
+    scope: 'SELECTED_PARK',
     scopeNotice: HWC_SCOPE_NOTICE,
+    locations: calculateConflictLocations(alerts),
     totalAlerts: alerts.length,
     alertsOverTime: buildTimeSeries(
       alerts.map((row) => row.createdAt),

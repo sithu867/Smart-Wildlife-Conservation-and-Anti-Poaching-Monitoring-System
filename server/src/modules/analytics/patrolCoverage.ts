@@ -37,10 +37,19 @@ function validCoordinate(value: unknown): value is [number, number] {
 }
 function waypointTimes(waypoints: unknown): Array<number | null> {
   if (!Array.isArray(waypoints)) return [];
+  const seen = new Set<string>();
   return waypoints.map((point: unknown) => {
     if (!point || typeof point !== 'object') return null;
     const record = point as Record<string, unknown>;
     if (!validCoordinate([record.longitude, record.latitude])) return null;
+    // Replayed waypoint rows must not inflate activity. Prefer their persisted
+    // ID; old projections without IDs use the exact timestamp/coordinate tuple.
+    const key =
+      typeof record.id === 'string'
+        ? record.id
+        : `${String(record.timestamp)}:${String(record.latitude)}:${String(record.longitude)}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
     return record.timestamp instanceof Date ||
       typeof record.timestamp === 'string'
       ? eventTime(record.timestamp)

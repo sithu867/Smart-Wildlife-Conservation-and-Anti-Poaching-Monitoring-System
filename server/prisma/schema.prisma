@@ -87,6 +87,8 @@ model Park {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   routes      PatrolRoute[]
+  incidents   ConservationIncident[]
+  conflictAlerts WildlifeConflictAlert[]
 }
 
 model PatrolRoute {
@@ -170,6 +172,9 @@ model ConservationIncident {
   rangerName          String
   reportedAt          DateTime
   patrolSessionId     String?
+  // Explicit scope for standalone reports; patrol-linked reports retain their route's park.
+  parkId              String?
+  park                Park?           @relation(fields: [parkId], references: [id], onDelete: SetNull)
   status              IncidentStatus  @default(REPORTED)
   syncStatus          SyncStatus      @default(SYNCED)
   createdAt           DateTime        @default(now())
@@ -180,6 +185,7 @@ model ConservationIncident {
   @@index([reportedBy])
   @@index([reportedAt])
   @@index([patrolSessionId])
+  @@index([parkId, reportedAt])
 }
 
 model IncidentEvidence {
@@ -199,6 +205,9 @@ model WildlifeConflictAlert {
   clientAlertId           String?
   sourceEventId           String?
   source                  AlertSource
+  // Nullable for legacy/API clients that have no reliable park context.
+  parkId                  String?
+  park                    Park?              @relation(fields: [parkId], references: [id], onDelete: SetNull)
   alertType               ConflictAlertType
   severity                AlertSeverity
   status                  AlertStatus        @default(OPEN)
@@ -221,6 +230,7 @@ model WildlifeConflictAlert {
   responses               ConflictResponse[]
   @@index([clientAlertId])
   @@index([sourceEventId])
+  @@index([parkId, createdAt])
   @@index([status, severity, createdAt])
 }
 

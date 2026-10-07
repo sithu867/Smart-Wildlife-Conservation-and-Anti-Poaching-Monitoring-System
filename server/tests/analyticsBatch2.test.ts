@@ -62,7 +62,10 @@ describe('UC-D Batch 2 scoped incident query and category contract', () => {
     expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          patrolSessionId: { in: [session] },
+          OR: [
+            { patrolSessionId: { in: [session] } },
+            { patrolSessionId: null, parkId },
+          ],
           reportedAt: {
             gte: new Date('2026-09-01T00:00:00Z'),
             lte: new Date('2026-09-30T23:59:59.999Z'),
@@ -115,7 +118,12 @@ describe('UC-D Batch 2 scoped incident query and category contract', () => {
     );
     expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ patrolSessionId: { in: [] } }),
+        where: expect.objectContaining({
+          OR: [
+            { patrolSessionId: { in: [] } },
+            { patrolSessionId: null, parkId: otherPark },
+          ],
+        }),
       }),
     );
     expect(data.incidentHotspots?.hotspots).toEqual([]);
@@ -164,7 +172,7 @@ describe('UC-D Batch 2 scoped incident query and category contract', () => {
   });
 });
 
-describe('UC-D all-parks conflict trends with explicit scope', () => {
+describe('UC-D selected-park conflict trends', () => {
   test('applies reliable conflict filters and includes responses to alerts created before the period', async () => {
     jest
       .mocked(prisma.wildlifeConflictAlert.findMany)
@@ -200,6 +208,7 @@ describe('UC-D all-parks conflict trends with explicit scope', () => {
       conflictType: 'CROP_RAID',
     });
     const filters = {
+      parkId,
       acknowledgedBy: 'R-101',
       severity: 'HIGH',
       status: 'OPEN',
@@ -229,14 +238,16 @@ describe('UC-D all-parks conflict trends with explicit scope', () => {
       }),
     );
     expect(data.conflictTrends).toMatchObject({
-      scope: 'ALL_PARKS_UNASSIGNED',
+      scope: 'SELECTED_PARK',
       totalAlerts: 1,
       totalResponses: 1,
       responsesByAction: [{ name: 'INVESTIGATED_AREA', count: 1 }],
     });
-    expect(data.conflictTrends?.scopeNotice).toContain('not the selected park');
+    expect(data.conflictTrends?.scopeNotice).toContain(
+      'assigned to the selected park',
+    );
     expect(data.categoryAvailability).toEqual([
-      { category: 'HWC_TRENDS', status: 'AVAILABLE_UNSCOPED' },
+      { category: 'HWC_TRENDS', status: 'AVAILABLE' },
     ]);
     expect(prisma.patrolRoute.findMany).not.toHaveBeenCalled();
     expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
@@ -264,16 +275,16 @@ describe('UC-D all-parks conflict trends with explicit scope', () => {
     expect(data.matchedRecords).toMatchObject({ conflicts: 0, responses: 1 });
     expect(data.conflictTrends?.totalAlerts).toBe(0);
   });
-  test('an empty all-parks query is no-data, and still exposes the park limitation', async () => {
+  test('an empty park query is no-data and explains legacy exclusion', async () => {
     const data = await analyticsService.getAnalytics({
       ...base,
       categories: ['HWC_TRENDS'],
     });
     expect(data.status).toBe('NO_MATCHING_DATA');
     expect(data.conflictTrends?.totalResponses).toBe(0);
-    expect(data.limitations.join(' ')).toContain('no boundary geometry');
+    expect(data.limitations.join(' ')).toContain('Legacy/unassigned');
   });
-  test('mixed categories retain separate scopes in the JSON and basic PDF', async () => {
+  test('mixed categories retain the selected park scope in the JSON and basic PDF', async () => {
     jest.mocked(prisma.wildlifeConflictAlert.findMany).mockResolvedValue([
       {
         severity: 'HIGH',
@@ -295,9 +306,7 @@ describe('UC-D all-parks conflict trends with explicit scope', () => {
       });
     expect(response.status).toBe(200);
     expect(response.body.data.incidentStatistics.total).toBe(3);
-    expect(response.body.data.conflictTrends.scope).toBe(
-      'ALL_PARKS_UNASSIGNED',
-    );
+    expect(response.body.data.conflictTrends.scope).toBe('SELECTED_PARK');
     const report = await request(createApp())
       .get('/api/analytics/report')
       .set('x-user-role', 'MANAGER')
@@ -308,8 +317,6 @@ describe('UC-D all-parks conflict trends with explicit scope', () => {
         'categories[]': ['HWC_TRENDS'],
       });
     expect(report.status).toBe(200);
-    expect(Buffer.from(report.body).toString()).toContain(
-      'ALL PARKS / UNASSIGNED',
-    );
+    expect(Buffer.from(report.body).toString()).toContain('SELECTED PARK');
   });
 });

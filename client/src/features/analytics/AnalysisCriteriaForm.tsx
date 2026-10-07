@@ -240,8 +240,9 @@ export function AnalysisCriteriaForm({
       </section>
       <p className="analytics-criteria-help">
         End Date includes the entire selected day (UTC). Ranger ID filters
-        patrol activity across all park routes. Conflict trends cover all parks
-        / unassigned alerts, not the selected park.
+        patrol activity across selected-park routes, incident reporters and
+        conflict acknowledging rangers. All categories use the selected park;
+        unassigned incidents and alerts are excluded.
       </p>
       {parksLoading && <p role="status">Loading parks...</p>}
       {parksError && (

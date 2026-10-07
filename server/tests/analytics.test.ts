@@ -230,7 +230,10 @@ describe('UC-D analytics HTTP validation and authorization', () => {
     expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          patrolSessionId: { in: [sessionId] },
+          OR: [
+            { patrolSessionId: { in: [sessionId] } },
+            { patrolSessionId: null, parkId },
+          ],
           reportedAt: {
             gte: new Date('2026-09-01T00:00:00.000Z'),
             lte: new Date('2026-09-30T23:59:59.999Z'),
@@ -300,7 +303,12 @@ describe('UC-D category and park-scoping boundaries', () => {
     const result = await analyticsService.getAnalytics(criteria);
     expect(prisma.conservationIncident.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ patrolSessionId: { in: [] } }),
+        where: expect.objectContaining({
+          OR: [
+            { patrolSessionId: { in: [] } },
+            { patrolSessionId: null, parkId },
+          ],
+        }),
       }),
     );
     expect(result.status).toBe('NO_MATCHING_DATA');
@@ -340,6 +348,7 @@ describe('UC-D category and park-scoping boundaries', () => {
             },
           ],
           rangerId: 'R-101',
+          status: { in: ['ASSIGNED', 'ACTIVE', 'COMPLETED'] },
         },
       }),
     );
@@ -370,7 +379,7 @@ describe('UC-D category and park-scoping boundaries', () => {
     expect(result.incidentStatistics).toBeUndefined();
     expect(result.incidentHotspots?.hotspots).toEqual([]);
   });
-  test('HWC-only criteria explicitly query all-parks conflicts without unrelated categories', async () => {
+  test('HWC-only criteria query selected-park conflicts without unrelated categories', async () => {
     const conflictFind = jest.mocked(prisma.wildlifeConflictAlert.findMany);
     const result = await analyticsService.getAnalytics({
       ...criteria,
@@ -389,11 +398,11 @@ describe('UC-D category and park-scoping boundaries', () => {
         }),
       }),
     );
-    expect(result.conflictTrends?.scope).toBe('ALL_PARKS_UNASSIGNED');
+    expect(result.conflictTrends?.scope).toBe('SELECTED_PARK');
     expect(prisma.conservationIncident.findMany).not.toHaveBeenCalled();
     expect(prisma.patrolSession.findMany).not.toHaveBeenCalled();
     expect(result.status).toBe('NO_MATCHING_DATA');
-    expect(result.categoryAvailability[0].status).toBe('AVAILABLE_UNSCOPED');
-    expect(result.limitations.join(' ')).toContain('no boundary geometry');
+    expect(result.categoryAvailability[0].status).toBe('AVAILABLE');
+    expect(result.limitations.join(' ')).toContain('Legacy/unassigned');
   });
 });

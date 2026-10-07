@@ -17,6 +17,7 @@ import {
 } from './patrolCoverage.js';
 import { HWC_SCOPE_NOTICE } from './contract.js';
 import { analysisCriteriaSchema, analysisDateRange } from './validation.js';
+import { PatrolStatus } from '../../types/enums.js';
 
 export class AnalyticsCriteriaError extends Error {}
 
@@ -57,7 +58,7 @@ export async function getCriteriaAnalytics(
 
   // Incident park membership comes from the real session/route relationship.
   // Do not date-filter these links: an incident reported in-period can belong
-  // to a patrol that started earlier. Unlinked incidents cannot be park-scoped.
+  // to a patrol that started earlier. Explicit standalone park links are also supported.
   const scopedSessions = wantsIncidents
     ? await prisma.patrolSession.findMany({
         where: { patrolRouteId: { in: routeIds } },
@@ -67,7 +68,16 @@ export async function getCriteriaAnalytics(
   const incidentRows = wantsIncidents
     ? await prisma.conservationIncident.findMany({
         where: {
-          patrolSessionId: { in: scopedSessions.map((session) => session.id) },
+          // The linked patrol is authoritative, even if a historical explicit
+          // parkId disagrees. NULL standalone links never match every park.
+          OR: [
+            {
+              patrolSessionId: {
+                in: scopedSessions.map((session) => session.id),
+              },
+            },
+            { patrolSessionId: null, parkId: park.id },
+          ],
           reportedAt: period,
           reportedBy: criteria.rangerId,
           incidentType: criteria.incidentType,
@@ -89,6 +99,16 @@ export async function getCriteriaAnalytics(
         where: {
           patrolRouteId: { in: routeIds },
           rangerId: criteria.rangerId,
+          // Neon contains historical CANCELLED sessions outside today's Prisma
+          // enum. Unsupported lifecycle rows cannot establish coverage and must
+          // not make Prisma reject the entire selected-park analysis.
+          status: {
+            in: [
+              PatrolStatus.ASSIGNED,
+              PatrolStatus.ACTIVE,
+              PatrolStatus.COMPLETED,
+            ],
+          },
           OR: [
             { startTime: period },
             { endTime: period },
@@ -103,13 +123,21 @@ export async function getCriteriaAnalytics(
   const patrolCoverage = wantsPatrols
     ? calculatePatrolCoverage(routes, sessionRows, start, end)
     : undefined;
-  const sessions = sessionRows.filter(
-    (session) =>
-      routeIds.includes(session.patrolRouteId) &&
-      patrolSessionActivity(session, start, end).times.length > 0,
-  );
+  const seenSessionIds = new Set<string>();
+  const sessions = sessionRows
+    .filter((session) => {
+      if (seenSessionIds.has(session.id)) return false;
+      seenSessionIds.add(session.id);
+      return true;
+    })
+    .filter(
+      (session) =>
+        routeIds.includes(session.patrolRouteId) &&
+        patrolSessionActivity(session, start, end).times.length > 0,
+    );
 
   const conflictFilters = {
+    parkId: park.id,
     acknowledgedBy: criteria.rangerId,
     severity: criteria.severity,
     status: criteria.conflictStatus,
@@ -121,6 +149,7 @@ export async function getCriteriaAnalytics(
         where: { ...conflictFilters, createdAt: period },
         select: {
           createdAt: true,
+          location: true,
           severity: true,
           status: true,
           source: true,
@@ -129,7 +158,9 @@ export async function getCriteriaAnalytics(
       })
     : [];
   // Responses have their own activity date; their parent alert can predate the
-  // period. Preserve parent-alert filters and the explicit all-parks HWC scope.
+  // period. Park membership and optional filters come from that parent alert.
+  // Legacy alerts without parkId are excluded: counting them in every park
+  // would inflate both alert and response totals.
   const responseAlerts = wantsConflicts
     ? await prisma.wildlifeConflictAlert.findMany({
         where: {
@@ -153,7 +184,7 @@ export async function getCriteriaAnalytics(
   const limitations: string[] = [];
   if (wantsIncidents)
     limitations.push(
-      'Incidents without a valid patrol-session-to-park link are excluded from park-scoped analysis.',
+      'Incidents use their patrol route park, or an explicit park association for standalone reports. Legacy incidents with neither association are excluded; coordinates are never used to guess a park.',
     );
   if (wantsConflicts)
     limitations.push(
@@ -164,6 +195,7 @@ export async function getCriteriaAnalytics(
     limitations.push(
       'Coverage is completed routes / all selected-park routes, not geographic land area.',
       'Activity uses starts, completions and valid waypoints in the inclusive UTC period.',
+      'Patrol activity includes the supported Assigned, Active and Completed lifecycle states. Historical unsupported states (such as Cancelled) are excluded.',
     );
   const incidentStatistics = selected.has('INCIDENT_STATISTICS')
     ? calculateIncidentStatistics(incidentRows, start, end)
@@ -198,7 +230,7 @@ export async function getCriteriaAnalytics(
     },
     categoryAvailability: criteria.categories.map((category) => ({
       category,
-      status: category === 'HWC_TRENDS' ? 'AVAILABLE_UNSCOPED' : 'AVAILABLE',
+      status: 'AVAILABLE',
     })),
     limitations,
     summary: {

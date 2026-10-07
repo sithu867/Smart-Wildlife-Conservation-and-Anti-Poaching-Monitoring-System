@@ -387,7 +387,7 @@ describe('selected report content and shared document rendering', () => {
         'Total responses: 1',
         'Alerts by severity',
         'Responses by action',
-        'Conflict trends cover all parks / unassigned alerts',
+        'Conflict trends use alerts assigned to the selected park',
       ],
     ],
   ] as const)(

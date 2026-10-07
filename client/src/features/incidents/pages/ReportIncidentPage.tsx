@@ -1,3 +1,4 @@
+import { OptionalParkSelect } from '../../../shared/components/OptionalParkSelect';
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { geolocationService, type GeoLocation } from '../../../shared/geolocation/geolocation';
@@ -27,6 +28,7 @@ export const ReportIncidentPage: React.FC = () => {
     () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
   );
 
+  const [parkId, setParkId] = useState('');
   const [selectedType, setSelectedType] = useState<IncidentType | null>(null);
   const [otherDescription, setOtherDescription] = useState<string>('');
   const [description, setDescription] = useState<string>('');
@@ -134,6 +136,7 @@ export const ReportIncidentPage: React.FC = () => {
         longitude: location.longitude,
         locationSource,
         patrolSessionId,
+        parkId: patrolSessionId ? undefined : parkId || undefined,
         evidence: [
           {
             imageUrl: imageUrl!,
@@ -278,6 +281,7 @@ export const ReportIncidentPage: React.FC = () => {
 
       {/* Main Incident Reporting Form */}
       <form onSubmit={handleOpenReview} className="flex flex-col gap-5">
+        {!patrolSessionId && <OptionalParkSelect value={parkId} onChange={setParkId} />}
         {/* 1. Location Status & Selection Box */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
           <div className="flex items-center justify-between text-xs">
