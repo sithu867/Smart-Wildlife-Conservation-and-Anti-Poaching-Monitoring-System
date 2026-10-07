@@ -6,3 +6,4 @@ export const incidentRoutes = Router();
 incidentRoutes.post('/', incidentController.createIncident);
 incidentRoutes.get('/my', incidentController.getMyIncidents);
 incidentRoutes.get('/:incidentId', incidentController.getIncidentById);
+incidentRoutes.patch('/:incidentId', incidentController.updateIncident);

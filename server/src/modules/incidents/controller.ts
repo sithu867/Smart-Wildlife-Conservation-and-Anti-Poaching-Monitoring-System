@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { incidentService } from './service.js';
-import { createIncidentSchema } from './validation.js';
+import { createIncidentSchema, updateIncidentSchema } from './validation.js';
 
 function getAuthenticatedRanger(req: Request): { rangerId: string; rangerName: string } {
   const headerId = req.headers['x-ranger-id'];
@@ -43,6 +43,21 @@ export const incidentController = {
       const { rangerId } = getAuthenticatedRanger(req);
       const incidentId = String(req.params.incidentId);
       const data = await incidentService.getIncidentById(rangerId, incidentId);
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+
+  async updateIncident(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { rangerId, rangerName } = getAuthenticatedRanger(req);
+      const incidentId = String(req.params.incidentId);
+      const input = updateIncidentSchema.parse(req.body);
+      const data = await incidentService.updateIncident(rangerId, rangerName, incidentId, input);
       return res.status(200).json({
         success: true,
         data

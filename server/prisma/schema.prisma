@@ -174,10 +174,13 @@ model ConservationIncident {
   patrolSessionId     String?
   status              IncidentStatus  @default(REPORTED)
   syncStatus          SyncStatus      @default(SYNCED)
+  editCount           Int             @default(0)
+  lastEditedAt        DateTime?
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   patrolSession       PatrolSession?  @relation(fields: [patrolSessionId], references: [id], onDelete: SetNull)
   evidence            IncidentEvidence[]
+  revisions           IncidentRevision[]
   @@index([clientIncidentId])
   @@index([reportedBy])
   @@index([reportedAt])
@@ -192,8 +195,25 @@ model IncidentEvidence {
   capturedAt   DateTime              @default(now())
   fileSize     Int?
   mimeType     String                @default("image/jpeg")
+  // Soft delete: evidence removed during an edit is kept for audit, just hidden from the report
+  removedAt    DateTime?
   incident     ConservationIncident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
   @@index([incidentId])
+}
+
+// Audit trail of ranger edits to a conservation incident report
+model IncidentRevision {
+  id           String                @id @default(cuid())
+  incidentId   String
+  clientEditId String
+  editedBy     String
+  editedByName String
+  editedAt     DateTime              // when the ranger made the edit (may be earlier than receivedAt for offline edits)
+  receivedAt   DateTime              @default(now())
+  changes      Json                  // { field: { from, to } }, evidence: { added, removed }
+  incident     ConservationIncident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  @@unique([incidentId, clientEditId])
+  @@index([incidentId, receivedAt])
 }
 
 model WildlifeConflictAlert {
