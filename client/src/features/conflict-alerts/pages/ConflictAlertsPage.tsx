@@ -42,6 +42,25 @@ export const ConflictAlertsPage: React.FC = () => {
 
   useEffect(() => {
     fetchAlerts();
+
+    // SSE live stream connection
+    let eventSource: EventSource | null = null;
+    try {
+      const streamUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/device-ingestion/stream`;
+      eventSource = new EventSource(streamUrl);
+      eventSource.addEventListener('conflict-alert', () => {
+        fetchAlerts();
+      });
+      eventSource.addEventListener('collar-telemetry', () => {
+        fetchAlerts();
+      });
+    } catch {
+      // Ignore SSE fallback to interval
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+    };
   }, [statusFilter, severityFilter]);
 
   useEffect(() => {

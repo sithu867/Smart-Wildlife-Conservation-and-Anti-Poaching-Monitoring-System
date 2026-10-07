@@ -66,3 +66,72 @@ nav {
 .card { background: #10231c; border: 1px solid #1d4b39; border-radius: .75rem; padding: 1rem; margin: 1rem 0; }
 .analytics-filters { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; } .analytics-filters label { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; } .analytics-filters input, .analytics-filters select { min-height: 2.3rem; }
 .card small, .card strong { display: block; } .card strong { font-size: 2rem; color: #34d399; margin-top: .5rem; }
+
+.collar-monitoring-page {
+  color: #dbe7f3;
+}
+
+.collar-monitoring-page h1 {
+  letter-spacing: -0.025em;
+  color: #f8fafc;
+}
+
+.collar-monitoring-page table {
+  color: #1e293b;
+}
+
+.collar-monitoring-page th {
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.collar-monitoring-page tbody tr {
+  transition: background-color 160ms ease;
+}
+
+.collar-monitoring-page tbody tr:hover {
+  background: #f8fafc;
+}
+
+.collar-monitoring-page button,
+.collar-monitoring-page a,
+.collar-monitoring-page input,
+.collar-monitoring-page select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.collar-monitoring-page input:focus,
+.collar-monitoring-page select:focus {
+  outline: 3px solid rgba(16, 185, 129, 0.18);
+  outline-offset: 1px;
+  border-color: #10b981 !important;
+}
+
+.collar-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: transparent !important;
+  color: #a7f3d0 !important;
+  border: 0 !important;
+  padding: 0.35rem 0 !important;
+  box-shadow: none;
+  text-decoration: none;
+}
+
+.collar-back-link:hover {
+  background: transparent !important;
+  color: #ecfdf5 !important;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 700px) {
+  .collar-monitoring-page {
+    padding: 18px 12px !important;
+  }
+
+  .collar-monitoring-page table {
+    min-width: 980px;
+  }
+}
