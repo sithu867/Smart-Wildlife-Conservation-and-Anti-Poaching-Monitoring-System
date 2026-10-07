@@ -96,9 +96,7 @@ export function AnalysisCriteriaForm({
       aria-label="Analysis criteria"
     >
       <div className="analytics-section-heading">
-        <p className="eyebrow">
-          {hasResults ? 'Focus your insights' : 'Set your scope'}
-        </p>
+        {hasResults && <p className="eyebrow">Focus your insights</p>}
         <h2 tabIndex={-1}>
           {hasResults ? 'Refine Analysis' : 'Select Analysis Criteria'}
         </h2>
