@@ -5,21 +5,22 @@ import type {
   ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
 import { criteriaParams } from './criteria';
-import {
-  reportFilename,
-  type ConservationReportSnapshot,
-} from '../../../../server/src/modules/analytics/reportContract';
+import { reportFilename } from '../../../../server/src/modules/analytics/reportContract';
+import type {
+  CreateStatisticalReport,
+  ReportHistory,
+  ReportMetadataUpdate,
+  SavedStatisticalReport,
+  StatisticalReportSummary,
+} from '../../../../server/src/modules/analytics/savedReportContract';
 
 const managerHeaders = { 'x-user-role': 'MANAGER' };
 type ApiResponse<T> = { success: true; data: T };
-
 export const analyticsApi = {
   async listParks(signal: AbortSignal): Promise<ParkOption[]> {
-    const response = await http.get<ApiResponse<ParkOption[]>>(
-      // Park metadata is shared; lookup must not impersonate a manager role.
-      '/parks',
-      { signal },
-    );
+    const response = await http.get<ApiResponse<ParkOption[]>>('/parks', {
+      signal,
+    });
     return response.data.data;
   },
   async analyze(
@@ -32,39 +33,88 @@ export const analyticsApi = {
         params: criteriaParams(criteria),
         headers: managerHeaders,
         signal,
-        // Brackets preserve an array even when exactly one box is checked.
         paramsSerializer: { indexes: false },
       },
     );
     return response.data.data;
   },
   async generateReport(
-    snapshot: ConservationReportSnapshot,
+    input: CreateStatisticalReport,
     signal: AbortSignal,
-  ): Promise<ConservationReportSnapshot> {
-    const response = await http.post<ApiResponse<ConservationReportSnapshot>>(
+  ): Promise<SavedStatisticalReport> {
+    // Only criteria/metadata cross this boundary; analytical findings belong to the server.
+    const response = await http.post<ApiResponse<SavedStatisticalReport>>(
       '/analytics/reports',
-      snapshot,
-      {
-        headers: managerHeaders,
-        signal,
-      },
+      input,
+      { headers: managerHeaders, signal },
+    );
+    return response.data.data;
+  },
+  async listReports(
+    signal: AbortSignal,
+    cursor?: string,
+  ): Promise<ReportHistory> {
+    const response = await http.get<ApiResponse<ReportHistory>>(
+      '/analytics/reports',
+      { headers: managerHeaders, signal, params: cursor ? { cursor } : {} },
+    );
+    return response.data.data;
+  },
+  async getReport(
+    id: string,
+    signal: AbortSignal,
+  ): Promise<SavedStatisticalReport> {
+    const response = await http.get<ApiResponse<SavedStatisticalReport>>(
+      `/analytics/reports/${id}`,
+      { headers: managerHeaders, signal },
+    );
+    return response.data.data;
+  },
+  async updateReport(
+    id: string,
+    metadata: ReportMetadataUpdate,
+    signal: AbortSignal,
+  ): Promise<SavedStatisticalReport> {
+    const response = await http.patch<ApiResponse<SavedStatisticalReport>>(
+      `/analytics/reports/${id}`,
+      metadata,
+      { headers: managerHeaders, signal },
+    );
+    return response.data.data;
+  },
+  async archiveReport(id: string, signal: AbortSignal): Promise<void> {
+    await http.delete(`/analytics/reports/${id}`, {
+      headers: managerHeaders,
+      signal,
+    });
+  },
+  async regenerateReport(
+    id: string,
+    signal: AbortSignal,
+  ): Promise<SavedStatisticalReport> {
+    const response = await http.post<ApiResponse<SavedStatisticalReport>>(
+      `/analytics/reports/${id}/regenerate`,
+      {},
+      { headers: managerHeaders, signal },
     );
     return response.data.data;
   },
   async exportReport(
-    snapshot: ConservationReportSnapshot,
+    report: StatisticalReportSummary,
     signal: AbortSignal,
   ): Promise<string> {
-    // Send exactly the previewed snapshot; no criteria query or analytics refresh.
-    const response = await http.post<Blob>('/analytics/reports/pdf', snapshot, {
-      headers: managerHeaders,
-      responseType: 'blob',
-      signal,
-    });
+    // Export by database ID. Sending edited JSON cannot change the saved PDF.
+    const response = await http.get<Blob>(
+      `/analytics/reports/${report.id}/pdf`,
+      {
+        headers: managerHeaders,
+        responseType: 'blob',
+        signal,
+      },
+    );
     if (!response.data.size || !response.data.type.includes('application/pdf'))
       throw new Error('Invalid PDF response');
-    const filename = reportFilename(snapshot);
+    const filename = reportFilename(report);
     const url = URL.createObjectURL(response.data);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -74,7 +124,6 @@ export const analyticsApi = {
       anchor.click();
     } finally {
       anchor.remove();
-      // Allow the browser to start consuming the download before revocation.
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
     return filename;

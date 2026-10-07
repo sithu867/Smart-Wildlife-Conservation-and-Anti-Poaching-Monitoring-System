@@ -16,7 +16,8 @@ function FitLocations({ locations }: { locations: Location[] }) {
   useEffect(() => {
     map.fitBounds(
       latLngBounds(locations.map((cell) => [cell.latitude, cell.longitude])),
-      { padding: [35, 35], maxZoom: 13 },
+      // Report/history navigation may remove the map before a zoom finishes.
+      { padding: [35, 35], maxZoom: 13, animate: false },
     );
   }, [locations, map]);
   return null;

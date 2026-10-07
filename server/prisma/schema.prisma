@@ -89,6 +89,35 @@ model Park {
   routes      PatrolRoute[]
   incidents   ConservationIncident[]
   conflictAlerts WildlifeConflictAlert[]
+  statisticalReports StatisticalReport[]
+}
+
+// Reports own historical snapshots; source conservation records are never children.
+model StatisticalReport {
+  id             String   @id @default(cuid())
+  title          String
+  notes          String?
+  parkId         String
+  park           Park     @relation(fields: [parkId], references: [id], onDelete: Restrict)
+  startDate      DateTime @db.Date
+  endDate        DateTime @db.Date
+  criteria       Json
+  snapshot       Json
+  generatedAt    DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  archivedAt     DateTime?
+  // No authenticated User entity exists; the role header is not a creator identity.
+  creatorId      String?
+  version        Int      @default(1)
+  parentReportId String?
+  parentReport   StatisticalReport? @relation("ReportVersions", fields: [parentReportId], references: [id], onDelete: Restrict)
+  nextVersions   StatisticalReport[] @relation("ReportVersions")
+
+  // A parent has one next version, including when regeneration requests race.
+  @@unique([parentReportId, version])
+  @@index([archivedAt, createdAt, id])
+  @@index([parkId])
 }
 
 model PatrolRoute {

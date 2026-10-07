@@ -30,13 +30,17 @@ export function ReportGeneration({
     >
       <h2>Generate a Conservation Report</h2>
       <p id="analytics-report-eligibility">
-        Generate Report is available after a successful analysis with matching
-        conservation data.
+        Generate &amp; Save Report is available after a successful analysis with
+        matching conservation data.
       </p>
       <p>
         {draftChanged
-          ? 'Draft criteria have changed. The report will use the reviewed applied analysis, including its original criteria and filters.'
-          : 'Generate a report from the applied criteria and the findings you reviewed.'}
+          ? 'Draft criteria have changed. The report will use the reviewed applied analysis criteria and filters.'
+          : 'Generate and save a report using the applied criteria.'}
+      </p>
+      <p>
+        The server recalculates current findings before saving. Review the saved
+        preview if source data changed since Analyze.
       </p>
       <div className="analytics-actions">
         <button
@@ -46,7 +50,9 @@ export function ReportGeneration({
           aria-describedby="analytics-report-eligibility"
           onClick={() => onGenerate()}
         >
-          {generating ? 'Generating Report...' : 'Generate Report'}
+          {generating
+            ? 'Generating & Saving Report...'
+            : 'Generate & Save Report'}
         </button>
         {hasReport && (
           <button
@@ -73,7 +79,7 @@ export function ReportGeneration({
             disabled={!canGenerate || generating}
             onClick={() => onGenerate(true)}
           >
-            Retry Generate Report
+            Retry Generate &amp; Save Report
           </button>
         </FeedbackPanel>
       )}
@@ -88,6 +94,7 @@ export function ConservationReportPreview({
   exportedFilename,
   onBack,
   onExport,
+  backLabel = 'Return to Analysis',
 }: {
   snapshot: ConservationReportSnapshot;
   exporting: boolean;
@@ -95,6 +102,7 @@ export function ConservationReportPreview({
   exportedFilename: string;
   onBack: () => void;
   onExport: () => void;
+  backLabel?: string;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -114,7 +122,8 @@ export function ConservationReportPreview({
   return (
     <section className="analytics-report-preview" aria-label="Report Preview">
       <p className="analytics-report-success" role="status">
-        Report generated successfully. Review the report below, then export PDF.
+        Saved report loaded successfully. Review the saved findings below, then
+        export PDF.
       </p>
       <article className="card analytics-report-paper">
         <header>
@@ -170,7 +179,7 @@ export function ConservationReportPreview({
             className="button analytics-button analytics-button--secondary"
             onClick={onBack}
           >
-            Return to Analysis
+            {backLabel}
           </button>
           <button
             type="button"

@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, StatisticalReport } from '@prisma/client';
 import type { ParkOption } from '../src/modules/analytics/contract.js';
 
 // Mock only Prisma's read boundary; HTTP validation and UC-D calculations stay real.
@@ -29,6 +29,30 @@ interface AlertRow {
   responses?: Array<{ action: string; respondedAt: Date }>;
 }
 export const prisma = {
+  statisticalReport: {
+    create:
+      jest.fn<
+        (args: Prisma.StatisticalReportCreateArgs) => Promise<StatisticalReport>
+      >(),
+    findUnique:
+      jest.fn<
+        (
+          args: Prisma.StatisticalReportFindUniqueArgs,
+        ) => Promise<StatisticalReport | null>
+      >(),
+    findMany:
+      jest.fn<
+        (
+          args: Prisma.StatisticalReportFindManyArgs,
+        ) => Promise<StatisticalReport[]>
+      >(),
+    updateMany:
+      jest.fn<
+        (
+          args: Prisma.StatisticalReportUpdateManyArgs,
+        ) => Promise<{ count: number }>
+      >(),
+  },
   park: {
     findUnique:
       jest.fn<

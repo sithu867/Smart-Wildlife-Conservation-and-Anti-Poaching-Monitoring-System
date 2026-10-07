@@ -1,3 +1,4 @@
+import { savedReportFixture } from './savedReportTestFixtures';
 import {
   act,
   cleanup,
@@ -249,7 +250,7 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('shows no matching data without fake statistics and permits refinement', async () => {
     const generateReport = vi
       .spyOn(analyticsApi, 'generateReport')
-      .mockImplementation(async (snapshot) => snapshot);
+      .mockImplementation(async (input) => savedReportFixture(input.criteria));
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce(
       result(validCriteria, 'NO_MATCHING_DATA'),
     );
@@ -263,10 +264,10 @@ describe('UC-D criteria and Analyze workflow', () => {
     ).toHaveClass('analytics-feedback--info');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     const generateButton = screen.getByRole('button', {
-      name: 'Generate Report',
+      name: 'Generate & Save Report',
     });
     expect(generateButton).toHaveAccessibleDescription(
-      'Generate Report is available after a successful analysis with matching conservation data.',
+      'Generate & Save Report is available after a successful analysis with matching conservation data.',
     );
     fireEvent.click(generateButton);
     expect(generateReport).not.toHaveBeenCalled();
@@ -274,7 +275,7 @@ describe('UC-D criteria and Analyze workflow', () => {
       screen.queryByRole('heading', { name: 'Incidents by type' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
@@ -440,37 +441,40 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('Generate Report requires meaningful matching records even for a DATA response', async () => {
     const generateReport = vi
       .spyOn(analyticsApi, 'generateReport')
-      .mockImplementation(async (snapshot) => snapshot);
+      .mockImplementation(async (input) => savedReportFixture(input.criteria));
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce({
       ...result(),
       matchedRecords: { incidents: 0, patrols: 0 },
     });
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
-    const button = screen.getByRole('button', { name: 'Generate Report' });
+    const button = screen.getByRole('button', {
+      name: 'Generate & Save Report',
+    });
     expect(button).toBeDisabled();
     fireEvent.click(button);
     expect(generateReport).not.toHaveBeenCalled();
   });
   test('report generation uses applied criteria after draft edits', async () => {
-    vi.spyOn(analyticsApi, 'generateReport').mockImplementation(
-      async (snapshot) => snapshot,
+    vi.spyOn(analyticsApi, 'generateReport').mockImplementation(async (input) =>
+      savedReportFixture(input.criteria),
     );
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    );
     await waitFor(() =>
       expect(analyticsApi.generateReport).toHaveBeenCalledWith(
         expect.objectContaining({
-          appliedCriteria: validCriteria,
-          analyticsResult: result(),
+          criteria: validCriteria,
         }),
         expect.any(AbortSignal),
       ),

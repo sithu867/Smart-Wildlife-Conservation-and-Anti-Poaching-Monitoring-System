@@ -31,6 +31,7 @@ import {
 } from './useConservationReport';
 import { matchesReviewedReportScope } from '../../../../server/src/modules/analytics/reportContract';
 import './analytics.css';
+import { SavedReports } from './SavedReports';
 
 type AnalysisRequestError = { kind: 'validation' | 'system'; message: string };
 
@@ -58,6 +59,7 @@ function requestMessage(error: unknown): AnalysisRequestError {
 }
 
 export function AnalyticsPage() {
+  const [showHistory, setShowHistory] = useState(false);
   const [draftCriteria, setDraftCriteria] = useState(createDraftCriteria);
   // Criteria and results commit together. Draft edits or failed requests cannot
   // relabel existing results with criteria that did not produce them.
@@ -254,8 +256,37 @@ export function AnalyticsPage() {
   return (
     <main className="page analytics-page">
       <AnalyticsOverview />
+      <nav
+        className="analytics-actions analytics-view-switch"
+        aria-label="Analysis and saved reports"
+      >
+        <button
+          type="button"
+          aria-pressed={!showHistory}
+          className="button analytics-button analytics-button--secondary"
+          disabled={report.generating || report.exporting}
+          onClick={() => setShowHistory(false)}
+        >
+          Analysis
+        </button>
+        <button
+          type="button"
+          aria-pressed={showHistory}
+          className="button analytics-button analytics-button--secondary"
+          disabled={report.generating || report.exporting}
+          onClick={() => setShowHistory(true)}
+        >
+          Saved Reports
+        </button>
+      </nav>
+      {showHistory && (
+        <SavedReports
+          onChanged={report.synchronizeSavedReport}
+          onArchived={report.forgetArchivedReport}
+        />
+      )}
 
-      {!report.preview && (
+      {!showHistory && !report.preview && (
         <>
           {loading && (
             <AnalysisProcessing
@@ -323,7 +354,7 @@ export function AnalyticsPage() {
           />
         </>
       )}
-      {report.preview && report.report && (
+      {!showHistory && report.preview && report.report && (
         <ConservationReportPreview
           snapshot={report.report}
           exporting={report.exporting}

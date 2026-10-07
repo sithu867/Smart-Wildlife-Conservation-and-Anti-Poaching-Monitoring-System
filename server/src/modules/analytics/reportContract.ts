@@ -127,7 +127,14 @@ function timeLines(
 }
 
 export function buildReportDocument(
-  report: ConservationReportSnapshot,
+  report: ConservationReportSnapshot & {
+    id?: string;
+    title?: string;
+    notes?: string | null;
+    version?: number;
+    updatedAt?: string;
+    parentReportId?: string | null;
+  },
 ): ConservationReportDocument {
   // One presentation model supplies both preview and PDF, so selected sections,
   // findings and analytical values cannot diverge between the two renderers.
@@ -229,11 +236,22 @@ export function buildReportDocument(
     sections.push({ title: CATEGORY_LABELS[category], lines });
   }
   return {
-    title: 'Statistical Conservation Report',
+    title: report.title ?? 'Statistical Conservation Report',
     header: [
       `Park / Conservation Area: ${report.park.name} (${report.park.code})`,
       `Period: ${criteria.start} to ${criteria.end}`,
       `Generated: ${report.generatedAt}`,
+      ...(report.id
+        ? [
+            `Saved Report ID: ${report.id}`,
+            `Version: ${report.version}`,
+            `Metadata updated: ${report.updatedAt}`,
+          ]
+        : []),
+      ...(report.parentReportId
+        ? [`Previous version: ${report.parentReportId}`]
+        : []),
+      ...(report.notes ? [`Manager notes: ${report.notes}`] : []),
     ],
     includes,
     scope,
@@ -243,7 +261,9 @@ export function buildReportDocument(
   };
 }
 
-export function reportFilename(report: ConservationReportSnapshot): string {
+export function reportFilename(
+  report: Pick<ConservationReportSnapshot, 'park' | 'generatedAt'>,
+): string {
   const code =
     report.park.code
       .toLowerCase()

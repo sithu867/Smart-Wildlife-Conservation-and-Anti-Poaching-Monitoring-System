@@ -191,7 +191,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       ).toBeInTheDocument();
     }
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled();
     expect(
       screen.queryByRole('region', { name: 'Incident Statistics results' }),
@@ -217,7 +217,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.getByRole('img', { name: 'Conflict Responses Over Time chart' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled();
   });
   test('a mixed analysis displays only selected categories and exposes category-specific no-data', () => {
@@ -255,7 +255,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),

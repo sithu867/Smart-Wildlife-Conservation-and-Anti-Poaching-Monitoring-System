@@ -30,7 +30,9 @@ function FitHotspots({ points }: { points: IncidentHotspot[] }) {
     const bounds = latLngBounds(
       points.map((point) => [point.latitude, point.longitude]),
     );
-    map.fitBounds(bounds, { padding: [35, 35], maxZoom: 13 });
+    // Report/history navigation can immediately remove this map. Fit without a
+    // queued zoom callback that would later access Leaflet's detached pane.
+    map.fitBounds(bounds, { padding: [35, 35], maxZoom: 13, animate: false });
   }, [map, points]);
   return null;
 }

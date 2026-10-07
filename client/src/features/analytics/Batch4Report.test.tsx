@@ -1,8 +1,12 @@
+import { useConservationReport } from './useConservationReport';
+import { savedReportFixture } from './savedReportTestFixtures';
+import type { SavedStatisticalReport } from '../../../../server/src/modules/analytics/savedReportContract';
 import {
   act,
   cleanup,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -59,12 +63,14 @@ async function analyze(
   await screen.findByRole('region', { name: 'Applied scope' });
   await waitFor(() =>
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled(),
   );
 }
 async function generate() {
-  fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Generate & Save Report' }),
+  );
   return screen.findByRole('region', { name: 'Report Preview' });
 }
 beforeEach(() => {
@@ -72,8 +78,8 @@ beforeEach(() => {
   vi.spyOn(analyticsApi, 'analyze').mockImplementation(async (criteria) =>
     result(criteria),
   );
-  vi.spyOn(analyticsApi, 'generateReport').mockImplementation(
-    async (snapshot) => snapshot,
+  vi.spyOn(analyticsApi, 'generateReport').mockImplementation(async (input) =>
+    savedReportFixture(input.criteria),
   );
   vi.spyOn(analyticsApi, 'exportReport').mockResolvedValue(
     'conservation-report-alpha-2026-10-05.pdf',
@@ -87,11 +93,13 @@ afterEach(() => {
 describe('UC-D Batch 4 snapshot lifecycle', () => {
   test('an incomplete generation response preserves analysis and offers retry', async () => {
     vi.mocked(analyticsApi.generateReport).mockResolvedValueOnce(
-      {} as ConservationReportSnapshot,
+      {} as SavedStatisticalReport,
     );
     render(<AnalyticsPage />);
     await analyze();
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    );
     await screen.findByRole('alert', { name: 'Report generation failed' });
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
@@ -100,18 +108,37 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
       screen.queryByRole('region', { name: 'Report Preview' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Retry Generate Report' }),
+      screen.getByRole('button', { name: 'Retry Generate & Save Report' }),
     ).toBeEnabled();
+  });
+  test('generation previews the server-issued saved findings when source data changed after Analyze', async () => {
+    const serverReport = savedReportFixture({
+      ...validCriteria,
+      categories: ['INCIDENT_STATISTICS'],
+    });
+    const generated = structuredClone(serverReport);
+    Object.assign(generated.analyticsResult.incidentStatistics!, { total: 9 });
+    vi.mocked(analyticsApi.generateReport).mockResolvedValueOnce(generated);
+    render(<AnalyticsPage />);
+    await analyze();
+    const preview = await generate();
+    expect(preview).toHaveTextContent('Total incidents: 9');
+    expect(preview).toHaveTextContent(serverReport.id);
+    const submitted = vi.mocked(analyticsApi.generateReport).mock.calls[0][0];
+    expect(Object.keys(submitted)).toEqual(['criteria']);
+    expect(submitted).not.toHaveProperty('analyticsResult');
   });
   test('generation starts disabled and cannot export without a generated report', async () => {
     render(<AnalyticsPage />);
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     expect(
       screen.queryByRole('button', { name: 'Export PDF' }),
     ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    );
     expect(analyticsApi.generateReport).not.toHaveBeenCalled();
     await screen.findByRole('option', { name: 'Alpha park (ALPHA)' });
   });
@@ -140,13 +167,8 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
       within(preview).queryByRole('heading', { name: 'Patrol Coverage' }),
     ).not.toBeInTheDocument();
     const captured = vi.mocked(analyticsApi.generateReport).mock.calls[0][0];
-    expect(captured.appliedCriteria.categories).toEqual([
-      'INCIDENT_STATISTICS',
-    ]);
-    expect(captured.analyticsResult.incidentStatistics?.total).toBe(2);
-    expect(
-      Object.isFrozen(captured.analyticsResult.incidentStatistics?.byType),
-    ).toBe(true);
+    expect(captured.criteria.categories).toEqual(['INCIDENT_STATISTICS']);
+    expect(captured).not.toHaveProperty('analyticsResult');
     fireEvent.click(screen.getByRole('button', { name: 'Return to Analysis' }));
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
     expect(
@@ -158,22 +180,27 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
     await screen.findByText(/Report exported successfully/);
     expect(analyticsApi.exportReport).toHaveBeenCalledWith(
-      captured,
+      expect.objectContaining({
+        id: savedReportFixture().id,
+        appliedCriteria: captured.criteria,
+      }),
       expect.any(AbortSignal),
     );
     expect(analyticsApi.analyze).toHaveBeenCalledTimes(1);
   });
   test('generating state prevents duplicate requests; failure preserves analysis and retry uses its captured attempt', async () => {
-    const pending = deferred<ConservationReportSnapshot>();
+    const pending = deferred<SavedStatisticalReport>();
     vi.mocked(analyticsApi.generateReport).mockReturnValueOnce(pending.promise);
     render(<AnalyticsPage />);
     await analyze();
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    );
     expect(
-      screen.getByRole('button', { name: 'Generating Report...' }),
+      screen.getByRole('button', { name: 'Generating & Saving Report...' }),
     ).toBeDisabled();
     fireEvent.click(
-      screen.getByRole('button', { name: 'Generating Report...' }),
+      screen.getByRole('button', { name: 'Generating & Saving Report...' }),
     );
     expect(analyticsApi.generateReport).toHaveBeenCalledTimes(1);
     expect(
@@ -190,7 +217,7 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
       target: { value: '2026-10-05' },
     });
     fireEvent.click(
-      screen.getByRole('button', { name: 'Retry Generate Report' }),
+      screen.getByRole('button', { name: 'Retry Generate & Save Report' }),
     );
     await screen.findByRole('region', { name: 'Report Preview' });
     const calls = vi.mocked(analyticsApi.generateReport).mock.calls;
@@ -242,7 +269,7 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
       name: 'Analysis could not be completed',
     });
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole('button', { name: 'View Generated Report' }),
@@ -266,21 +293,25 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
     ).toHaveTextContent('Period: 2026-09-01 to 2026-10-05');
   });
   test('late generation cannot resurrect a report after Reset', async () => {
-    const pending = deferred<ConservationReportSnapshot>();
+    const pending = deferred<SavedStatisticalReport>();
     vi.mocked(analyticsApi.generateReport).mockReturnValueOnce(pending.promise);
     render(<AnalyticsPage />);
     await analyze();
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    );
     const [snapshot, signal] = vi.mocked(analyticsApi.generateReport).mock
       .calls[0];
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(signal.aborted).toBe(true);
-    await act(async () => pending.resolve(snapshot));
+    await act(async () =>
+      pending.resolve(savedReportFixture(snapshot.criteria)),
+    );
     expect(
       screen.queryByRole('region', { name: 'Report Preview' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
   });
   test('validation failure blocks generation while keeping the applied analysis', async () => {
@@ -291,7 +322,7 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Update Analysis' }));
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
@@ -316,7 +347,7 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Analyze' }));
     await screen.findByRole('region', { name: 'Applied scope' });
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     expect(analyticsApi.generateReport).not.toHaveBeenCalled();
   });
@@ -351,6 +382,30 @@ describe('UC-D Batch 4 snapshot lifecycle', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+});
+
+describe('saved report cache consistency', () => {
+  test('metadata updates synchronize the generated preview and archive removes its cached actions', async () => {
+    const reviewed = { appliedCriteria: validCriteria, data: result() };
+    const hook = renderHook(() => useConservationReport(reviewed, true));
+    await act(async () => hook.result.current.generate());
+    expect(hook.result.current.report?.id).toBe(savedReportFixture().id);
+    act(() =>
+      hook.result.current.synchronizeSavedReport({
+        ...savedReportFixture(),
+        title: 'Updated in history',
+      }),
+    );
+    expect(hook.result.current.report?.title).toBe('Updated in history');
+    expect(
+      hook.result.current.report?.analyticsResult.incidentStatistics?.total,
+    ).toBe(2);
+    act(() =>
+      hook.result.current.forgetArchivedReport(savedReportFixture().id),
+    );
+    expect(hook.result.current.report).toBeNull();
+    expect(hook.result.current.preview).toBe(false);
   });
 });
 
@@ -437,17 +492,16 @@ describe('selected report content and shared document rendering', () => {
       2,
     );
   });
-  test('API generation/export POST snapshots without analytics queries and safely download PDF', async () => {
+  test('API submits only criteria and exports saved PDF by ID', async () => {
     vi.mocked(analyticsApi.generateReport).mockRestore();
     vi.mocked(analyticsApi.exportReport).mockRestore();
-    const snapshot = createReportSnapshot(validCriteria, result());
+    const snapshot = savedReportFixture();
     const post = vi
       .spyOn(http, 'post')
-      .mockResolvedValueOnce({ data: { success: true, data: snapshot } })
-      .mockResolvedValueOnce({
-        data: new Blob(['%PDF-1.4\n'], { type: 'application/pdf' }),
-      });
-    const get = vi.spyOn(http, 'get');
+      .mockResolvedValueOnce({ data: { success: true, data: snapshot } });
+    const get = vi.spyOn(http, 'get').mockResolvedValueOnce({
+      data: new Blob(['%PDF-1.4\n'], { type: 'application/pdf' }),
+    });
     const createUrl = vi.fn(() => 'blob:report');
     const revokeUrl = vi.fn();
     // jsdom lacks Blob URL downloads; mock only this browser boundary.
@@ -467,25 +521,23 @@ describe('selected report content and shared document rendering', () => {
         expect(this.href).toBe('blob:report');
       });
     const signal = new AbortController().signal;
-    expect(await analyticsApi.generateReport(snapshot, signal)).toEqual(
-      snapshot,
-    );
+    expect(
+      await analyticsApi.generateReport({ criteria: validCriteria }, signal),
+    ).toEqual(snapshot);
     expect(await analyticsApi.exportReport(snapshot, signal)).toBe(
       reportFilename(snapshot),
     );
     expect(post).toHaveBeenNthCalledWith(
       1,
       '/analytics/reports',
-      snapshot,
+      { criteria: validCriteria },
       expect.objectContaining({ signal }),
     );
-    expect(post).toHaveBeenNthCalledWith(
-      2,
-      '/analytics/reports/pdf',
-      snapshot,
+    expect(get).toHaveBeenCalledWith(
+      `/analytics/reports/${snapshot.id}/pdf`,
       expect.objectContaining({ signal, responseType: 'blob' }),
     );
-    expect(get).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledTimes(1);
     expect(createUrl).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
     expect(document.querySelector('a[download]')).toBeNull();

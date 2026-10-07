@@ -201,7 +201,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
       screen.getByText(/All registered routes are classified as neglected/),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
   });
   test('applied categories control coverage visibility even when the response contains other category data', () => {

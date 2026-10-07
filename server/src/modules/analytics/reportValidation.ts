@@ -289,8 +289,8 @@ export const reportSnapshotSchema = z
           (data.matchedRecords.responses ?? 0))
     )
       invalid('Conflict totals must match the reviewed records.');
-    // Validate relationships inside the retained findings. These checks reject
-    // contradictory client payloads; they never replace values or query sources.
+    // Validate relationships inside server-issued/persisted findings. Structural
+    // consistency alone cannot establish authority; HTTP clients never submit this.
     const sum = (rows: Array<{ count: number }>) =>
       rows.reduce((total, row) => total + row.count, 0);
     const statistics = data.incidentStatistics;

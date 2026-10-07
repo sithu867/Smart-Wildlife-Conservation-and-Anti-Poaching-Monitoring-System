@@ -1,3 +1,5 @@
+import { savedReportService } from '../src/modules/analytics/savedReportService.js';
+import type { SavedStatisticalReport } from '../src/modules/analytics/savedReportContract.js';
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
@@ -132,11 +134,23 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
     analyticsResult: data,
   };
 }
-function post(path: string, snapshot: object) {
+// PDF presentation tests stub the saved-detail boundary; CRUD persistence is tested separately.
+function post(_path: string, snapshot: ReturnType<typeof fixture>) {
+  jest.spyOn(savedReportService, 'detail').mockResolvedValueOnce({
+    ...snapshot,
+    id: 'c67a000000000000000000050',
+    title: 'Statistical Conservation Report',
+    notes: null,
+    version: 1,
+    parentReportId: null,
+    creatorId: null,
+    archivedAt: null,
+    createdAt: snapshot.generatedAt,
+    updatedAt: snapshot.generatedAt,
+  } as SavedStatisticalReport);
   return request(app)
-    .post(`/api/analytics/reports${path}`)
-    .set('x-user-role', 'MANAGER')
-    .send(snapshot);
+    .get('/api/analytics/reports/c67a000000000000000000050/pdf')
+    .set('x-user-role', 'MANAGER');
 }
 afterEach(() => jest.restoreAllMocks());
 
@@ -144,10 +158,7 @@ describe('UC-D report payload validation', () => {
   test('valid reviewed snapshot is accepted and retained verbatim, including empty optional controls', async () => {
     const snapshot = fixture();
     Object.assign(snapshot.appliedCriteria, { severity: '' });
-    const response = await post('', snapshot);
-    expect(response.status).toBe(200);
-    expect(response.body.data).toEqual(snapshot);
-    expect(response.headers['cache-control']).toBe('no-store');
+    expect(validateReportSnapshot(snapshot)).toEqual(snapshot);
   });
   test.each([
     [
@@ -310,13 +321,7 @@ describe('UC-D report payload validation', () => {
     async (_name, mutate) => {
       const snapshot = fixture();
       mutate(snapshot);
-      for (const path of ['', '/pdf']) {
-        const response = await post(path, snapshot);
-        expect(response.status).toBe(400);
-        expect(response.body.error.message).toBe(
-          'The report snapshot is invalid. Review the applied analysis and try again.',
-        );
-      }
+      expect(() => validateReportSnapshot(snapshot)).toThrow();
     },
   );
   test('rejects unselected category content and unrelated matching records', () => {
@@ -393,16 +398,16 @@ describe('UC-D PDF snapshot export', () => {
       ).toEqual([CATEGORY_LABELS[category]]);
     },
   );
-  test('generation and repeated exports do not query or recalculate analytics', async () => {
+  test('saved PDF exports do not query or recalculate analytics', async () => {
     const analyze = jest
       .spyOn(analyticsService, 'getAnalytics')
       .mockRejectedValue(new Error('Report must not query analytics'));
     const legacy = jest
       .spyOn(analyticsService, 'getLegacyAnalytics')
       .mockRejectedValue(new Error('Report must not query legacy analytics'));
-    const generated = await post('', fixture());
-    const first = await post('/pdf', generated.body.data);
-    const retry = await post('/pdf', generated.body.data);
+    const snapshot = fixture();
+    const first = await post('/pdf', snapshot);
+    const retry = await post('/pdf', snapshot);
     expect(first.status).toBe(200);
     expect(retry.status).toBe(200);
     expect(first.body).toEqual(retry.body);
