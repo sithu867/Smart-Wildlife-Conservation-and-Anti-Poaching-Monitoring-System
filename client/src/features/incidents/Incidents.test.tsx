@@ -4,7 +4,8 @@ import { ReportIncidentPage } from './pages/ReportIncidentPage';
 import { PhotoCapture } from './components/PhotoCapture';
 import { incidentApi } from './api/incidentApi';
 import { http } from '../../shared/api/http';
-import { IncidentType, LocationSource } from '../../shared/types/enums';
+import { geolocationService } from '../../shared/geolocation/geolocation';
+import { IncidentStatus, IncidentType, LocationSource, SyncStatus } from '../../shared/types/enums';
 
 describe('UC-B Conservation Incident Reporting Frontend Tests', () => {
   test('ReportIncidentPage renders location status and incident type options', () => {
@@ -66,6 +67,74 @@ describe('UC-B Conservation Incident Reporting Frontend Tests', () => {
 
     expect(screen.getByText('Validation Error')).toBeInTheDocument();
     expect(screen.getByText(/Please select a valid incident type/i)).toBeInTheDocument();
+  });
+
+  test('ReportIncidentPage "Report Another Incident" resets the form and uses a new client ID', async () => {
+    vi.spyOn(geolocationService, 'getCurrentLocation').mockResolvedValue({
+      latitude: -2.1523,
+      longitude: 34.8214,
+      timestamp: Date.now()
+    });
+    const createSpy = vi.spyOn(incidentApi, 'createIncident').mockImplementation(async payload => ({
+      _id: `srv-${payload.clientIncidentId}`,
+      clientIncidentId: payload.clientIncidentId,
+      incidentType: payload.incidentType,
+      otherTypeDescription: payload.otherTypeDescription,
+      description: payload.description,
+      location: { latitude: payload.latitude, longitude: payload.longitude, source: LocationSource.GPS, timestamp: new Date().toISOString() },
+      reportedBy: 'R-101',
+      rangerName: 'Ranger John',
+      reportedAt: new Date().toISOString(),
+      evidence: payload.evidence,
+      status: IncidentStatus.REPORTED,
+      syncStatus: SyncStatus.SYNCED
+    }));
+
+    const { container } = render(
+      <BrowserRouter>
+        <ReportIncidentPage />
+      </BrowserRouter>
+    );
+
+    const submitReport = async (description: string) => {
+      await screen.findByText(/Location Ready/);
+      fireEvent.click(screen.getByText('Other Threat'));
+      fireEvent.change(screen.getByPlaceholderText('Specify specific threat details...'), {
+        target: { value: 'Fence breach' }
+      });
+      const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['photo'], 'evidence.jpg', { type: 'image/jpeg' })] }
+      });
+      await screen.findByText('✓ Evidence Captured');
+      fireEvent.change(screen.getByPlaceholderText(/Describe observations/), { target: { value: description } });
+      fireEvent.click(screen.getByText('Review Incident Details →'));
+      fireEvent.click(await screen.findByText('Confirm & Submit'));
+      await screen.findByText('Incident Reported Successfully');
+    };
+
+    await submitReport('First incident report');
+    fireEvent.click(screen.getByText('Report Another Incident'));
+
+    // Form is fully cleared
+    expect(screen.queryByPlaceholderText('Specify specific threat details...')).not.toBeInTheDocument();
+    expect((screen.getByPlaceholderText(/Describe observations/) as HTMLTextAreaElement).value).toBe('');
+    expect(screen.getByText('Capture Field Photograph')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Other Threat'));
+    expect((screen.getByPlaceholderText('Specify specific threat details...') as HTMLInputElement).value).toBe('');
+
+    await submitReport('Second incident report');
+
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    const firstId = createSpy.mock.calls[0][0].clientIncidentId;
+    const secondId = createSpy.mock.calls[1][0].clientIncidentId;
+    expect(firstId).toBeTruthy();
+    expect(secondId).toBeTruthy();
+    expect(secondId).not.toBe(firstId);
+    expect(createSpy.mock.calls[1][0].description).toBe('Second incident report');
+
+    vi.restoreAllMocks();
   });
 
   test('incidentApi.createIncident submits incident payload online', async () => {

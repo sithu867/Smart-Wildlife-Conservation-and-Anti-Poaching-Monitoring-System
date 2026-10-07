@@ -17,15 +17,15 @@ const INCIDENT_TYPE_OPTIONS = [
   { type: IncidentType.OTHER, label: 'Other Threat', icon: '⚠️', desc: 'Fencing breaches, logging, or other threats' }
 ];
 
+const generateClientIncidentId = () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
 export const ReportIncidentPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const patrolSessionId = searchParams.get('sessionId') || undefined;
 
-  // Stable client ID generated for this report draft session
-  const [clientIncidentId] = useState<string>(
-    () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-  );
+  // Stable client ID for the current report draft; regenerated when starting a new report
+  const [clientIncidentId, setClientIncidentId] = useState<string>(generateClientIncidentId);
 
   const [selectedType, setSelectedType] = useState<IncidentType | null>(null);
   const [otherDescription, setOtherDescription] = useState<string>('');
@@ -44,8 +44,7 @@ export const ReportIncidentPage: React.FC = () => {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [submittedIncident, setSubmittedIncident] = useState<ConservationIncident | null>(null);
 
-  // Request GPS location on mount
-  useEffect(() => {
+  const requestGpsLocation = () => {
     setLocationStatus('obtaining');
 
     geolocationService
@@ -59,7 +58,27 @@ export const ReportIncidentPage: React.FC = () => {
         console.warn('GPS location request failed or permission denied:', err);
         setLocationStatus('unavailable');
       });
+  };
+
+  // Request GPS location on mount
+  useEffect(() => {
+    requestGpsLocation();
   }, []);
+
+  const handleReportAnother = () => {
+    setClientIncidentId(generateClientIncidentId());
+    setSubmittedIncident(null);
+    setSelectedType(null);
+    setOtherDescription('');
+    setDescription('');
+    handlePhotoCleared();
+    setLocation(null);
+    setLocationSource(LocationSource.GPS);
+    setIsReviewOpen(false);
+    setIsSubmitting(false);
+    setValidationError(null);
+    requestGpsLocation();
+  };
 
   const handleManualLocationSelect = (selectedLoc: { latitude: number; longitude: number }) => {
     setLocation({
@@ -148,6 +167,7 @@ export const ReportIncidentPage: React.FC = () => {
       setIsReviewOpen(false);
     } catch (err) {
       setValidationError(err instanceof Error ? err.message : 'Failed to submit incident report');
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -231,15 +251,7 @@ export const ReportIncidentPage: React.FC = () => {
               View My Reported Incidents →
             </button>
             <button
-              onClick={() => {
-                setSubmittedIncident(null);
-                setSelectedType(null);
-                setDescription('');
-                setImageUrl(null);
-                setLocation(null);
-                setLocationStatus('obtaining');
-                setLocationSource(LocationSource.GPS);
-              }}
+              onClick={handleReportAnother}
               className="w-full py-2.5 rounded-2xl font-semibold bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-xs"
             >
               Report Another Incident
