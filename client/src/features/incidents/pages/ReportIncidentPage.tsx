@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { geolocationService, type GeoLocation } from '../../../shared/geolocation/geolocation';
 import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
 import { PhotoCapture } from '../components/PhotoCapture';
 import { ManualLocationPicker } from '../components/ManualLocationPicker';
+import { ValidationErrorDialog, type IncidentField, type ValidationIssue } from '../components/ValidationErrorDialog';
 import { incidentApi } from '../api/incidentApi';
 import { reportIncidentFormSchema } from '../schemas/incidentSchemas';
 import { IncidentType, LocationSource, SyncStatus } from '../../../shared/types/enums';
@@ -18,6 +19,91 @@ const INCIDENT_TYPE_OPTIONS = [
 ];
 
 const generateClientIncidentId = () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
+// Order in which fields appear on the form, so issues are listed top-to-bottom
+const FIELD_ORDER: IncidentField[] = ['location', 'incidentType', 'otherTypeDescription', 'imageUrl', 'description'];
+
+const SCHEMA_PATH_TO_FIELD: Record<string, IncidentField> = {
+  latitude: 'location',
+  longitude: 'location',
+  incidentType: 'incidentType',
+  otherTypeDescription: 'otherTypeDescription',
+  imageUrl: 'imageUrl',
+  description: 'description'
+};
+
+function buildFieldIssue(field: IncidentField, schemaMessage: string, description: string): ValidationIssue {
+  switch (field) {
+    case 'location':
+      return {
+        field,
+        icon: '📍',
+        title: 'Location not set',
+        message: 'We could not get your GPS position. Pin the spot where you found the threat on the map.',
+        actionLabel: 'Pin on Map'
+      };
+    case 'incidentType':
+      return {
+        field,
+        icon: '🏷️',
+        title: 'Incident type not selected',
+        message: 'Choose what you found, for example a Wire Snare, Animal Carcass or Illegal Campsite.',
+        actionLabel: 'Choose Type'
+      };
+    case 'otherTypeDescription':
+      return { field, icon: '⚠️', title: 'Threat details too long', message: schemaMessage, actionLabel: 'Shorten Text' };
+    case 'imageUrl':
+      return {
+        field,
+        icon: '📷',
+        title: 'Photo evidence missing',
+        message: 'Take or upload a clear photo of the scene. A photo is required as evidence.',
+        actionLabel: 'Add Photo'
+      };
+    case 'description':
+      if (description.trim().length === 0) {
+        return {
+          field,
+          icon: '✍️',
+          title: 'Description is empty',
+          message: 'Write a short note about what you saw, such as quantity, landmarks or action taken.',
+          actionLabel: 'Write Note'
+        };
+      }
+      return description.length > 1000
+        ? { field, icon: '✍️', title: 'Description too long', message: schemaMessage, actionLabel: 'Shorten Text' }
+        : {
+            field,
+            icon: '✍️',
+            title: 'Description too short',
+            message: 'Add a little more detail (at least 3 characters).',
+            actionLabel: 'Add Detail'
+          };
+  }
+}
+
+function buildSubmitIssue(message: string): ValidationIssue {
+  if (/8 MB|too large/i.test(message)) {
+    return { icon: '📦', title: 'Photo is too large to upload', message: 'Retake the photo or choose a smaller image, then submit again.' };
+  }
+  if (/unauthorized/i.test(message)) {
+    return { icon: '🔒', title: 'Not allowed', message };
+  }
+  if (/on the device/i.test(message)) {
+    return { icon: '💾', title: 'Could not save on this device', message };
+  }
+  return { icon: '📡', title: 'The server rejected this report', message };
+}
+
+type ErrorDialogState = { variant: 'validation' | 'submit'; issues: ValidationIssue[] };
+
+const FieldHint: React.FC<{ message?: string }> = ({ message }) =>
+  message ? (
+    <p className="text-[11px] font-semibold text-rose-300 flex items-center gap-1.5">
+      <span aria-hidden="true">⚠️</span>
+      <span>{message}</span>
+    </p>
+  ) : null;
 
 export const ReportIncidentPage: React.FC = () => {
   const navigate = useNavigate();
@@ -41,8 +127,48 @@ export const ReportIncidentPage: React.FC = () => {
   const [isManualPickerOpen, setIsManualPickerOpen] = useState<boolean>(false);
   const [isReviewOpen, setIsReviewOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(null);
+  // Inline hints that stay on the form after the popup is closed, until each field is fixed
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<IncidentField, string>>>({});
   const [submittedIncident, setSubmittedIncident] = useState<ConservationIncident | null>(null);
+
+  const fieldRefs = useRef<Partial<Record<IncidentField, HTMLElement | null>>>({});
+
+  const clearFieldError = (field: IncidentField) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const showValidationIssues = (issues: ValidationIssue[]) => {
+    const sorted = [...issues].sort(
+      (a, b) => FIELD_ORDER.indexOf(a.field!) - FIELD_ORDER.indexOf(b.field!)
+    );
+    setFieldErrors(Object.fromEntries(sorted.map(issue => [issue.field, issue.title])));
+    setErrorDialog({ variant: 'validation', issues: sorted });
+  };
+
+  // Stable reference so the dialog's Escape-key listener isn't re-registered on every render
+  const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
+
+  const handleFixField = (field: IncidentField) => {
+    setErrorDialog(null);
+    setIsReviewOpen(false);
+
+    if (field === 'location' && !location) {
+      setIsManualPickerOpen(true);
+      return;
+    }
+
+    const el = fieldRefs.current[field];
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      el.focus({ preventScroll: true });
+    }
+  };
 
   const requestGpsLocation = () => {
     setLocationStatus('obtaining');
@@ -53,6 +179,7 @@ export const ReportIncidentPage: React.FC = () => {
         setLocation(loc);
         setLocationStatus('available');
         setLocationSource(LocationSource.GPS);
+        clearFieldError('location');
       })
       .catch(err => {
         console.warn('GPS location request failed or permission denied:', err);
@@ -76,7 +203,8 @@ export const ReportIncidentPage: React.FC = () => {
     setLocationSource(LocationSource.GPS);
     setIsReviewOpen(false);
     setIsSubmitting(false);
-    setValidationError(null);
+    setErrorDialog(null);
+    setFieldErrors({});
     requestGpsLocation();
   };
 
@@ -89,14 +217,14 @@ export const ReportIncidentPage: React.FC = () => {
     setLocationSource(LocationSource.MANUAL);
     setLocationStatus('available');
     setIsManualPickerOpen(false);
-    setValidationError(null);
+    clearFieldError('location');
   };
 
   const handlePhotoCaptured = (dataUrl: string, size?: number, mime?: string) => {
     setImageUrl(dataUrl);
     setFileSize(size);
     setMimeType(mime);
-    setValidationError(null);
+    clearFieldError('imageUrl');
   };
 
   const handlePhotoCleared = () => {
@@ -107,38 +235,50 @@ export const ReportIncidentPage: React.FC = () => {
 
   const handleOpenReview = (e: React.FormEvent) => {
     e.preventDefault();
-    setValidationError(null);
 
-    const lat = location ? location.latitude : -2.1523;
-    const lng = location ? location.longitude : 34.8214;
+    // Collect every problem at once so the ranger can fix them all in one pass
+    const issuesByField = new Map<IncidentField, ValidationIssue>();
+    if (!location) {
+      issuesByField.set('location', buildFieldIssue('location', '', description));
+    }
 
     const parseResult = reportIncidentFormSchema.safeParse({
       incidentType: selectedType,
       otherTypeDescription: selectedType === IncidentType.OTHER ? otherDescription : undefined,
       description,
-      latitude: lat,
-      longitude: lng,
+      // Missing location is reported above; placeholder keeps the schema focused on the other fields
+      latitude: location ? location.latitude : 0,
+      longitude: location ? location.longitude : 0,
       locationSource: location ? locationSource : LocationSource.MANUAL,
       patrolSessionId,
       imageUrl: imageUrl || ''
     });
 
     if (!parseResult.success) {
-      const msg = parseResult.error.issues[0]?.message || 'Please fill in all required incident details.';
-      setValidationError(msg);
+      for (const issue of parseResult.error.issues) {
+        const field = SCHEMA_PATH_TO_FIELD[String(issue.path[0])];
+        if (field && !issuesByField.has(field)) {
+          issuesByField.set(field, buildFieldIssue(field, issue.message, description));
+        }
+      }
+    }
+
+    if (issuesByField.size > 0) {
+      showValidationIssues([...issuesByField.values()]);
       return;
     }
 
+    setFieldErrors({});
     setIsReviewOpen(true);
   };
 
   const handleFinalSubmit = async () => {
     if (isSubmitting) return; // Prevent duplicate submissions
     setIsSubmitting(true);
-    setValidationError(null);
 
     if (!location) {
-      setValidationError('Location is missing. Please select a valid location before submitting.');
+      setIsReviewOpen(false);
+      showValidationIssues([buildFieldIssue('location', '', description)]);
       setIsSubmitting(false);
       return;
     }
@@ -166,7 +306,8 @@ export const ReportIncidentPage: React.FC = () => {
       setSubmittedIncident(created);
       setIsReviewOpen(false);
     } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Failed to submit incident report');
+      const message = err instanceof Error ? err.message : 'Failed to submit incident report.';
+      setErrorDialog({ variant: 'submit', issues: [buildSubmitIssue(message)] });
     } finally {
       setIsSubmitting(false);
     }
@@ -289,21 +430,15 @@ export const ReportIncidentPage: React.FC = () => {
         </div>
       )}
 
-      {/* Validation / System Error Banner */}
-      {validationError && (
-        <div className="p-4 bg-rose-950/90 border border-rose-700/80 rounded-2xl text-xs text-rose-200 font-semibold flex items-start gap-2 shadow-lg animate-bounce">
-          <span className="text-base">⚠️</span>
-          <div className="flex-1">
-            <p className="font-bold text-rose-100">Validation Error</p>
-            <p className="mt-0.5 opacity-90">{validationError}</p>
-          </div>
-        </div>
-      )}
-
       {/* Main Incident Reporting Form */}
-      <form onSubmit={handleOpenReview} className="flex flex-col gap-5">
+      <form onSubmit={handleOpenReview} noValidate className="flex flex-col gap-5">
         {/* 1. Location Status & Selection Box */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
+        <div
+          ref={el => { fieldRefs.current.location = el; }}
+          className={`bg-slate-900 border rounded-2xl p-4 flex flex-col gap-3 transition-colors ${
+            fieldErrors.location ? 'border-rose-500 ring-2 ring-rose-500/30' : 'border-slate-800'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs">
             <span className="font-bold text-slate-300 uppercase tracking-wider text-[11px]">
               Location ({locationSource})
@@ -359,15 +494,20 @@ export const ReportIncidentPage: React.FC = () => {
               </button>
             </div>
           )}
+          <FieldHint message={fieldErrors.location} />
         </div>
 
         {/* 2. Incident Type Selection */}
-        <div className="flex flex-col gap-2">
+        <div ref={el => { fieldRefs.current.incidentType = el; }} className="flex flex-col gap-2">
           <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
             Select Incident Type <span className="text-rose-400">*</span>
           </label>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div
+            className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 rounded-2xl transition-shadow ${
+              fieldErrors.incidentType ? 'ring-2 ring-rose-500/60 ring-offset-4 ring-offset-slate-950' : ''
+            }`}
+          >
             {INCIDENT_TYPE_OPTIONS.map(opt => {
               const isSelected = selectedType === opt.type;
               return (
@@ -376,7 +516,8 @@ export const ReportIncidentPage: React.FC = () => {
                   key={opt.type}
                   onClick={() => {
                     setSelectedType(opt.type);
-                    setValidationError(null);
+                    clearFieldError('incidentType');
+                    if (opt.type !== IncidentType.OTHER) clearFieldError('otherTypeDescription');
                   }}
                   className={`p-3.5 rounded-2xl border text-left flex items-start gap-3 transition-all active:scale-[0.98] ${
                     isSelected
@@ -393,6 +534,7 @@ export const ReportIncidentPage: React.FC = () => {
               );
             })}
           </div>
+          <FieldHint message={fieldErrors.incidentType} />
 
           {selectedType === IncidentType.OTHER && (
             <div className="mt-2">
@@ -400,46 +542,69 @@ export const ReportIncidentPage: React.FC = () => {
                 Specify Other Incident Type
               </label>
               <input
+                ref={el => { fieldRefs.current.otherTypeDescription = el; }}
                 type="text"
                 value={otherDescription}
-                onChange={e => setOtherDescription(e.target.value)}
+                onChange={e => {
+                  setOtherDescription(e.target.value);
+                  clearFieldError('otherTypeDescription');
+                }}
                 placeholder="Specify specific threat details..."
                 maxLength={200}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"
+                aria-invalid={Boolean(fieldErrors.otherTypeDescription)}
+                className={`w-full bg-slate-950 border rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400 ${
+                  fieldErrors.otherTypeDescription ? 'border-rose-500' : 'border-slate-700'
+                }`}
               />
+              <FieldHint message={fieldErrors.otherTypeDescription} />
             </div>
           )}
         </div>
 
         {/* 3. Photo Capture Evidence */}
-        <div className="flex flex-col gap-2">
+        <div ref={el => { fieldRefs.current.imageUrl = el; }} className="flex flex-col gap-2">
           <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
             Photographic Evidence <span className="text-rose-400">*</span>
           </label>
-          <PhotoCapture
-            initialPhotoUrl={imageUrl}
-            onPhotoCaptured={handlePhotoCaptured}
-            onPhotoCleared={handlePhotoCleared}
-          />
+          <div
+            className={`rounded-2xl transition-shadow ${
+              fieldErrors.imageUrl ? 'ring-2 ring-rose-500/60 ring-offset-4 ring-offset-slate-950' : ''
+            }`}
+          >
+            <PhotoCapture
+              initialPhotoUrl={imageUrl}
+              onPhotoCaptured={handlePhotoCaptured}
+              onPhotoCleared={handlePhotoCleared}
+            />
+          </div>
+          <FieldHint message={fieldErrors.imageUrl} />
         </div>
 
         {/* 4. Description Notes */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
+          <label htmlFor="incident-description" className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
             Field Description & Notes <span className="text-rose-400">*</span>
           </label>
           <textarea
+            id="incident-description"
+            ref={el => { fieldRefs.current.description = el; }}
             value={description}
             onChange={e => {
               setDescription(e.target.value);
-              setValidationError(null);
+              clearFieldError('description');
             }}
             placeholder="Describe observations, quantity, exact landmarks, or immediate action taken..."
             rows={3}
             maxLength={1000}
-            className="w-full bg-slate-950 border border-slate-700 rounded-2xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 shadow-inner"
+            aria-invalid={Boolean(fieldErrors.description)}
+            className={`w-full bg-slate-950 border rounded-2xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 shadow-inner ${
+              fieldErrors.description ? 'border-rose-500 ring-2 ring-rose-500/30' : 'border-slate-700'
+            }`}
           />
-          <span className="text-[10px] text-slate-500 float-right text-right">{description.length}/1000</span>
+          <div className="flex items-start justify-between gap-2">
+            <FieldHint message={fieldErrors.description} />
+            <span className="text-[10px] text-slate-500 ml-auto">{description.length}/1000</span>
+          </div>
         </div>
 
         {/* Review Action Button */}
@@ -550,6 +715,16 @@ export const ReportIncidentPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Validation / Submission Error Popup (renders above the review modal) */}
+      {errorDialog && (
+        <ValidationErrorDialog
+          variant={errorDialog.variant}
+          issues={errorDialog.issues}
+          onClose={closeErrorDialog}
+          onFix={handleFixField}
+        />
       )}
     </div>
   );

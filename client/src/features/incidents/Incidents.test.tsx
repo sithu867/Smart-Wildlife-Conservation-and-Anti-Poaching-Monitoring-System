@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { ReportIncidentPage } from './pages/ReportIncidentPage';
 import { PhotoCapture } from './components/PhotoCapture';
@@ -55,18 +55,100 @@ describe('UC-B Conservation Incident Reporting Frontend Tests', () => {
     expect(handleCleared).toHaveBeenCalled();
   });
 
-  test('ReportIncidentPage validates missing incident type and evidence before review', () => {
+  test('ReportIncidentPage shows every missing field in a validation popup before review', async () => {
+    vi.spyOn(geolocationService, 'getCurrentLocation').mockRejectedValue({ code: 1, message: 'denied' });
+
     render(
       <BrowserRouter>
         <ReportIncidentPage />
       </BrowserRouter>
     );
+    await screen.findByText(/GPS Unavailable/);
 
-    // Click Review without selecting type or photo
+    // Click Review with an empty form
     fireEvent.click(screen.getByText('Review Incident Details →'));
 
-    expect(screen.getByText('Validation Error')).toBeInTheDocument();
-    expect(screen.getByText(/Please select a valid incident type/i)).toBeInTheDocument();
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('4 details need your attention')).toBeInTheDocument();
+    const titles = within(dialog).getAllByRole('listitem').map(li => li.querySelector('p')?.textContent);
+    expect(titles).toEqual([
+      'Location not set',
+      'Incident type not selected',
+      'Photo evidence missing',
+      'Description is empty'
+    ]);
+    expect(screen.queryByText('Review Incident Draft')).not.toBeInTheDocument();
+
+    // Closing the popup keeps inline hints on the form until each field is fixed
+    fireEvent.click(within(dialog).getByText('Close'));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Incident type not selected')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Animal Carcass'));
+    expect(screen.queryByText('Incident type not selected')).not.toBeInTheDocument();
+    expect(screen.getByText('Photo evidence missing')).toBeInTheDocument();
+
+    vi.restoreAllMocks();
+  });
+
+  test('validation popup distinguishes a too-short description and "Take Me There" for location opens the map picker', async () => {
+    vi.spyOn(geolocationService, 'getCurrentLocation').mockRejectedValue({ code: 1, message: 'denied' });
+
+    render(
+      <BrowserRouter>
+        <ReportIncidentPage />
+      </BrowserRouter>
+    );
+    await screen.findByText(/GPS Unavailable/);
+
+    fireEvent.change(screen.getByPlaceholderText(/Describe observations/), { target: { value: 'ab' } });
+    fireEvent.click(screen.getByText('Review Incident Details →'));
+
+    const dialog = screen.getByRole('alertdialog');
+    expect(within(dialog).getByText('Description too short')).toBeInTheDocument();
+
+    expect(within(dialog).getByText('Pin on Map')).toBeInTheDocument();
+    expect(within(dialog).getByText('Add Detail')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText('Take Me There →'));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.getByText('Select Incident Location')).toBeInTheDocument();
+
+    vi.restoreAllMocks();
+  });
+
+  test('server rejection at submit is shown in a popup above the review screen', async () => {
+    vi.spyOn(geolocationService, 'getCurrentLocation').mockResolvedValue({
+      latitude: -2.1523,
+      longitude: 34.8214,
+      timestamp: Date.now()
+    });
+    vi.spyOn(incidentApi, 'createIncident').mockRejectedValue(new Error('Request body exceeds the 8 MB limit.'));
+
+    const { container } = render(
+      <BrowserRouter>
+        <ReportIncidentPage />
+      </BrowserRouter>
+    );
+    await screen.findByText(/Location Ready/);
+
+    fireEvent.click(screen.getByText('Wire Snare / Trap'));
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [new File(['photo'], 'evidence.jpg', { type: 'image/jpeg' })] } });
+    await screen.findByText('✓ Evidence Captured');
+    fireEvent.change(screen.getByPlaceholderText(/Describe observations/), { target: { value: 'Snare near river' } });
+    fireEvent.click(screen.getByText('Review Incident Details →'));
+    fireEvent.click(await screen.findByText('Confirm & Submit'));
+
+    const dialog = await screen.findByRole('alertdialog');
+    expect(within(dialog).getByText("We couldn't submit your report")).toBeInTheDocument();
+    expect(within(dialog).getByText('Photo is too large to upload')).toBeInTheDocument();
+    // Review draft stays open behind the popup so the ranger can retry
+    expect(screen.getByText('Review Incident Draft')).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByText('OK, Got It'));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+
+    vi.restoreAllMocks();
   });
 
   test('ReportIncidentPage "Report Another Incident" resets the form and uses a new client ID', async () => {
