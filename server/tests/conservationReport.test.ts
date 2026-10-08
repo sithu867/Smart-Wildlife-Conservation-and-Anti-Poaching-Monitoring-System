@@ -1,3 +1,5 @@
+import { savedReportService } from '../src/modules/analytics/savedReportService.js';
+import type { SavedStatisticalReport } from '../src/modules/analytics/savedReportContract.js';
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
@@ -26,7 +28,7 @@ import {
 const app = createApp();
 function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
   const criteria = {
-    parkId: '67a000000000000000000001',
+    parkId: 'c67a000000000000000000001',
     start: '2026-09-01',
     end: '2026-09-30',
     categories,
@@ -59,7 +61,7 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
     },
     categoryAvailability: categories.map((category) => ({
       category,
-      status: category === 'HWC_TRENDS' ? 'AVAILABLE_UNSCOPED' : 'AVAILABLE',
+      status: 'AVAILABLE',
     })),
     limitations: selected.has('HWC_TRENDS') ? [HWC_SCOPE_NOTICE] : [],
     summary: {
@@ -88,12 +90,12 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
       ? {
           patrolCoverage: calculatePatrolCoverage(
             [
-              { _id: 'route-1', name: 'Reviewed covered route' },
-              { _id: 'route-2', name: 'Reviewed neglected route' },
+              { id: 'route-1', name: 'Reviewed covered route' },
+              { id: 'route-2', name: 'Reviewed neglected route' },
             ],
             [
               {
-                patrolRoute: 'route-1',
+                patrolRouteId: 'route-1',
                 status: 'COMPLETED',
                 startTime: '2026-09-02',
                 endTime: '2026-09-03',
@@ -132,11 +134,23 @@ function fixture(categories: AnalysisCategory[] = [...ANALYSIS_CATEGORIES]) {
     analyticsResult: data,
   };
 }
-function post(path: string, snapshot: unknown) {
+// PDF presentation tests stub the saved-detail boundary; CRUD persistence is tested separately.
+function post(_path: string, snapshot: ReturnType<typeof fixture>) {
+  jest.spyOn(savedReportService, 'detail').mockResolvedValueOnce({
+    ...snapshot,
+    id: 'c67a000000000000000000050',
+    title: 'Statistical Conservation Report',
+    notes: null,
+    version: 1,
+    parentReportId: null,
+    creatorId: null,
+    archivedAt: null,
+    createdAt: snapshot.generatedAt,
+    updatedAt: snapshot.generatedAt,
+  } as SavedStatisticalReport);
   return request(app)
-    .post(`/api/analytics/reports${path}`)
-    .set('x-user-role', 'MANAGER')
-    .send(snapshot);
+    .get('/api/analytics/reports/c67a000000000000000000050/pdf')
+    .set('x-user-role', 'MANAGER');
 }
 afterEach(() => jest.restoreAllMocks());
 
@@ -144,12 +158,16 @@ describe('UC-D report payload validation', () => {
   test('valid reviewed snapshot is accepted and retained verbatim, including empty optional controls', async () => {
     const snapshot = fixture();
     Object.assign(snapshot.appliedCriteria, { severity: '' });
-    const response = await post('', snapshot);
-    expect(response.status).toBe(200);
-    expect(response.body.data).toEqual(snapshot);
-    expect(response.headers['cache-control']).toBe('no-store');
+    expect(validateReportSnapshot(snapshot)).toEqual(snapshot);
   });
   test.each([
+    [
+      'obsolete ObjectID park',
+      (value: ReturnType<typeof fixture>) => {
+        value.park.id = '67a000000000000000000001';
+        value.appliedCriteria.parkId = value.park.id;
+      },
+    ],
     [
       'missing scope',
       (value: ReturnType<typeof fixture>) => {
@@ -228,7 +246,9 @@ describe('UC-D report payload validation', () => {
     [
       'string count',
       (value: ReturnType<typeof fixture>) => {
-        Object.assign(value.analyticsResult.incidentStatistics, { total: '7' });
+        Object.assign(value.analyticsResult.incidentStatistics!, {
+          total: '7',
+        });
       },
     ],
     [
@@ -301,13 +321,7 @@ describe('UC-D report payload validation', () => {
     async (_name, mutate) => {
       const snapshot = fixture();
       mutate(snapshot);
-      for (const path of ['', '/pdf']) {
-        const response = await post(path, snapshot);
-        expect(response.status).toBe(400);
-        expect(response.body.error.message).toBe(
-          'The report snapshot is invalid. Review the applied analysis and try again.',
-        );
-      }
+      expect(() => validateReportSnapshot(snapshot)).toThrow();
     },
   );
   test('rejects unselected category content and unrelated matching records', () => {
@@ -338,7 +352,7 @@ describe('UC-D PDF snapshot export', () => {
     expect(response.status).toBe(200);
     expect(response.headers['content-type']).toContain('application/pdf');
     expect(response.headers['content-disposition']).toBe(
-      'attachment; filename="conservation-report-park-a-2026-10-05.pdf"',
+      'attachment; filename="conservation-report-park-a-2026-10-05-v1.pdf"',
     );
     const pdf = (response.body as Buffer).toString('ascii');
     expect(pdf.startsWith('%PDF-1.4')).toBe(true);
@@ -384,16 +398,16 @@ describe('UC-D PDF snapshot export', () => {
       ).toEqual([CATEGORY_LABELS[category]]);
     },
   );
-  test('generation and repeated exports do not query or recalculate analytics', async () => {
+  test('saved PDF exports do not query or recalculate analytics', async () => {
     const analyze = jest
       .spyOn(analyticsService, 'getAnalytics')
       .mockRejectedValue(new Error('Report must not query analytics'));
     const legacy = jest
       .spyOn(analyticsService, 'getLegacyAnalytics')
       .mockRejectedValue(new Error('Report must not query legacy analytics'));
-    const generated = await post('', fixture());
-    const first = await post('/pdf', generated.body.data);
-    const retry = await post('/pdf', generated.body.data);
+    const snapshot = fixture();
+    const first = await post('/pdf', snapshot);
+    const retry = await post('/pdf', snapshot);
     expect(first.status).toBe(200);
     expect(retry.status).toBe(200);
     expect(first.body).toEqual(retry.body);
@@ -450,9 +464,9 @@ describe('UC-D PDF snapshot export', () => {
   test('filenames and download headers safely handle hostile park code characters', async () => {
     const snapshot = fixture(['INCIDENT_STATISTICS']);
     snapshot.park.code = '../Park "name"\r\nX-Injected: yes/../../';
-    const filename = reportFilename(snapshot);
+    const filename = reportFilename({ ...snapshot, version: 1 });
     expect(filename).toMatch(
-      /^conservation-report-[a-z0-9_-]+-2026-10-05\.pdf$/,
+      /^conservation-report-[a-z0-9_-]+-2026-10-05-v1\.pdf$/,
     );
     expect(filename).not.toMatch(/[\r\n"/\\]/);
     const response = await post('/pdf', snapshot);

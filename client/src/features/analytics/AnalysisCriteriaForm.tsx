@@ -1,8 +1,9 @@
-import type { FormEvent } from 'react';
+import type { FormEvent, Ref } from 'react';
 import {
   ANALYSIS_CATEGORIES,
   CATEGORY_LABELS,
   isValidAnalysisDate,
+  MIN_ANALYSIS_DATE,
   type AnalysisCriteria,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
@@ -11,10 +12,16 @@ import {
   AlertStatus,
   IncidentType,
 } from '../../shared/types/enums';
-import type { CriteriaValidationIssue } from './criteria';
+import {
+  hasIncidentCategory,
+  type CriteriaValidationIssue,
+  type DatePresetDays,
+} from './criteria';
 import { FeedbackPanel } from './AnalyticsFeedback';
+import { formatEnumLabel } from './formatting';
 
 interface Props {
+  formRef?: Ref<HTMLFormElement>;
   criteria: AnalysisCriteria;
   parks: ParkOption[];
   parksLoading: boolean;
@@ -29,9 +36,11 @@ interface Props {
   ) => void;
   onSubmit: (event: FormEvent) => void;
   onReset: () => void;
+  onDatePreset: (days: DatePresetDays) => void;
   onRetryParks: () => void;
 }
 export function AnalysisCriteriaForm({
+  formRef,
   criteria,
   parks,
   parksLoading,
@@ -43,8 +52,12 @@ export function AnalysisCriteriaForm({
   onEdit,
   onSubmit,
   onReset,
+  onDatePreset,
   onRetryParks,
 }: Props) {
+  const incidentsSelected = hasIncidentCategory(criteria);
+  const conflictsSelected = criteria.categories.includes('HWC_TRENDS');
+  const selectedPark = parks.find((park) => park.id === criteria.parkId);
   function openCalendar(input: HTMLInputElement) {
     // showPicker requires a user gesture and is not available in every browser.
     // The native date control remains usable when unsupported or restricted.
@@ -75,6 +88,7 @@ export function AnalysisCriteriaForm({
 
   return (
     <form
+      ref={formRef}
       id="analytics-criteria"
       className="card analytics-criteria"
       onSubmit={onSubmit}
@@ -82,22 +96,26 @@ export function AnalysisCriteriaForm({
       aria-label="Analysis criteria"
     >
       <div className="analytics-section-heading">
-        <p className="eyebrow">
-          {hasResults ? 'Focus your insights' : 'Set your scope'}
-        </p>
-        <h2>{hasResults ? 'Refine Analysis' : 'Select Analysis Criteria'}</h2>
+        {hasResults && <p className="eyebrow">Focus your insights</p>}
+        <h2 tabIndex={-1}>
+          {hasResults ? 'Refine Analysis' : 'Select Analysis Criteria'}
+        </h2>
         <p>
           {hasResults
             ? 'Adjust the criteria to get a more focused view.'
             : 'Choose a park, time period and the analytics you want to review.'}
         </p>
       </div>
+      <p className="analytics-criteria-help">
+        Park, dates and at least one category are required.
+      </p>
       <h3>Park and Time Period</h3>
       <div className="analytics-filters">
         <div className="analytics-field">
           <label>
             Park / Conservation Area
             <select
+              required
               {...fieldAccessibility('parkId')}
               value={criteria.parkId}
               onChange={(event) => onEdit('parkId', event.target.value)}
@@ -111,6 +129,11 @@ export function AnalysisCriteriaForm({
               ))}
             </select>
           </label>
+          {selectedPark && (
+            <p className="analytics-selected-park">
+              {selectedPark.name} ({selectedPark.code})
+            </p>
+          )}
           {fieldFeedback('parkId')}
         </div>
         <div className="analytics-field">
@@ -118,6 +141,8 @@ export function AnalysisCriteriaForm({
             Start Date
             <input
               type="date"
+              required
+              min={MIN_ANALYSIS_DATE}
               max={isValidAnalysisDate(criteria.end) ? criteria.end : undefined}
               onClick={(event) => openCalendar(event.currentTarget)}
               {...fieldAccessibility('start')}
@@ -132,8 +157,11 @@ export function AnalysisCriteriaForm({
             End Date
             <input
               type="date"
+              required
               min={
-                isValidAnalysisDate(criteria.start) ? criteria.start : undefined
+                isValidAnalysisDate(criteria.start)
+                  ? criteria.start
+                  : MIN_ANALYSIS_DATE
               }
               onClick={(event) => openCalendar(event.currentTarget)}
               {...fieldAccessibility('end')}
@@ -143,6 +171,26 @@ export function AnalysisCriteriaForm({
           </label>
           {fieldFeedback('end')}
         </div>
+      </div>
+      <div
+        className="analytics-date-presets"
+        role="group"
+        aria-label="Date presets"
+      >
+        {([7, 30, 90] as const).map((days) => (
+          <button
+            key={days}
+            type="button"
+            className="button analytics-button analytics-button--secondary"
+            onClick={() => onDatePreset(days)}
+          >
+            Last {days} Days
+          </button>
+        ))}
+        <p className="analytics-criteria-help">
+          Presets include today in UTC. Dates remain editable; select{' '}
+          {hasResults ? 'Update Analysis' : 'Analyze'} to apply.
+        </p>
       </div>
       <fieldset
         className="analytics-categories"
@@ -173,8 +221,14 @@ export function AnalysisCriteriaForm({
         <h3>
           Advanced Filters <span>Optional</span>
         </h3>
+        <p className="analytics-criteria-help">
+          Blank / All means no filter. Incident filters apply to statistics and
+          hotspots; conflict filters apply only to Human-Wildlife Conflict
+          Trends. Inactive values are kept for when you reselect that category.
+        </p>
         <div className="analytics-filters">
           <div className="analytics-field">
+            <p className="analytics-filter-scope">Selected categories</p>
             <label>
               Ranger ID
               <input
@@ -187,41 +241,57 @@ export function AnalysisCriteriaForm({
             {fieldFeedback('rangerId')}
           </div>
           <div className="analytics-field">
+            <p className="analytics-filter-scope">
+              Incident categories{!incidentsSelected && ' · Not selected'}
+            </p>
             <label>
               Incident type
               <select
+                disabled={!incidentsSelected}
                 {...fieldAccessibility('incidentType')}
                 value={criteria.incidentType}
                 onChange={(event) => onEdit('incidentType', event.target.value)}
               >
                 <option value="">All types</option>
                 {Object.values(IncidentType).map((type) => (
-                  <option key={type}>{type}</option>
+                  <option key={type} value={type}>
+                    {formatEnumLabel(type)}
+                  </option>
                 ))}
               </select>
             </label>
             {fieldFeedback('incidentType')}
           </div>
           <div className="analytics-field">
+            <p className="analytics-filter-scope">
+              Conflict trends{!conflictsSelected && ' · Not selected'}
+            </p>
             <label>
               Severity
               <select
+                disabled={!conflictsSelected}
                 {...fieldAccessibility('severity')}
                 value={criteria.severity}
                 onChange={(event) => onEdit('severity', event.target.value)}
               >
                 <option value="">All severities</option>
                 {Object.values(AlertSeverity).map((severity) => (
-                  <option key={severity}>{severity}</option>
+                  <option key={severity} value={severity}>
+                    {formatEnumLabel(severity)}
+                  </option>
                 ))}
               </select>
             </label>
             {fieldFeedback('severity')}
           </div>
           <div className="analytics-field">
+            <p className="analytics-filter-scope">
+              Conflict trends{!conflictsSelected && ' · Not selected'}
+            </p>
             <label>
               Conflict status
               <select
+                disabled={!conflictsSelected}
                 {...fieldAccessibility('conflictStatus')}
                 value={criteria.conflictStatus}
                 onChange={(event) =>
@@ -230,7 +300,9 @@ export function AnalysisCriteriaForm({
               >
                 <option value="">All statuses</option>
                 {Object.values(AlertStatus).map((status) => (
-                  <option key={status}>{status}</option>
+                  <option key={status} value={status}>
+                    {formatEnumLabel(status)}
+                  </option>
                 ))}
               </select>
             </label>
@@ -240,8 +312,9 @@ export function AnalysisCriteriaForm({
       </section>
       <p className="analytics-criteria-help">
         End Date includes the entire selected day (UTC). Ranger ID filters
-        patrol activity across all park routes. Conflict trends cover all parks
-        / unassigned alerts, not the selected park.
+        patrol activity across selected-park routes, incident reporters and
+        conflict acknowledging rangers. All categories use the selected park;
+        unassigned incidents and alerts are excluded.
       </p>
       {parksLoading && <p role="status">Loading parks...</p>}
       {parksError && (
@@ -296,6 +369,10 @@ export function AnalysisCriteriaForm({
           Reset
         </button>
       </div>
+      <p className="analytics-criteria-help">
+        Reset clears this draft and displayed analysis, keeping Incident
+        Statistics selected. Stored conservation records are unchanged.
+      </p>
     </form>
   );
 }

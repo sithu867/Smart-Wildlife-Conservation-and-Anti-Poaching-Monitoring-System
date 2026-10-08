@@ -4,9 +4,14 @@ import type {
   AnalyticsResult,
 } from '../../../../server/src/modules/analytics/contract';
 import {
-  createReportSnapshot,
-  type ConservationReportSnapshot,
+  retainReportSnapshot,
+  REPORT_FORMAT_LABELS,
+  type ReportExportFormat,
 } from '../../../../server/src/modules/analytics/reportContract';
+import type {
+  CreateStatisticalReport,
+  SavedStatisticalReport,
+} from '../../../../server/src/modules/analytics/savedReportContract';
 import { analyticsApi } from './api';
 
 export interface ReviewedAnalysis {
@@ -19,7 +24,7 @@ export function useConservationReport(
   canGenerate: boolean,
 ) {
   const [generatedReport, setGeneratedReport] = useState<{
-    snapshot: ConservationReportSnapshot;
+    snapshot: SavedStatisticalReport;
     reviewed: ReviewedAnalysis;
   } | null>(null);
   // Ownership hides a previous report in the very render that applies new
@@ -29,11 +34,12 @@ export function useConservationReport(
   const [preview, setPreview] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [format, setFormat] = useState<ReportExportFormat>('pdf');
   const [generationError, setGenerationError] = useState('');
   const [exportError, setExportError] = useState('');
   const [exportedFilename, setExportedFilename] = useState('');
   const pending = useRef<AbortController | null>(null);
-  const attempt = useRef<ConservationReportSnapshot | null>(null);
+  const attempt = useRef<CreateStatisticalReport | null>(null);
   const revision = useRef(0);
 
   useEffect(() => {
@@ -69,21 +75,27 @@ export function useConservationReport(
       const snapshot =
         retry && attempt.current
           ? attempt.current
-          : createReportSnapshot(reviewed.appliedCriteria, reviewed.data);
+          : {
+              criteria: JSON.parse(
+                JSON.stringify(reviewed.appliedCriteria),
+              ) as AnalysisCriteria,
+            };
       attempt.current = snapshot;
       const generated = await analyticsApi.generateReport(
         snapshot,
         controller.signal,
       );
-      // Generation validates the capture without rewriting it. A partial or
-      // changed response must not become a successful preview of other findings.
-      if (JSON.stringify(generated) !== JSON.stringify(snapshot))
-        throw new Error(
-          'Report generation did not retain the reviewed snapshot',
-        );
+      // The server recomputes findings; preview its saved evidence, even if source
+      // records changed after Analyze. Never substitute the browser's old totals.
+      if (
+        !generated.id ||
+        !generated.analyticsResult ||
+        !generated.appliedCriteria
+      )
+        throw new Error('Incomplete saved report response');
       if (sequence === revision.current) {
         setGeneratedReport({
-          snapshot,
+          snapshot: retainReportSnapshot(generated),
           reviewed,
         });
         setPreview(true);
@@ -93,7 +105,7 @@ export function useConservationReport(
     } catch {
       if (sequence === revision.current)
         setGenerationError(
-          'Unable to generate the report. Your reviewed analysis is still available. Please try again.',
+          'Unable to generate and save the report. Check the criteria and try again. Your reviewed analysis is still available. Check Saved Reports before retrying if the connection was interrupted.',
         );
     } finally {
       if (sequence === revision.current) {
@@ -103,7 +115,7 @@ export function useConservationReport(
     }
   }
 
-  async function exportPdf() {
+  async function exportReport() {
     if (!report || pending.current) return;
     const controller = new AbortController();
     pending.current = controller;
@@ -115,6 +127,7 @@ export function useConservationReport(
       const filename = await analyticsApi.exportReport(
         report,
         controller.signal,
+        format,
       );
       if (sequence === revision.current) setExportedFilename(filename);
     } catch {
@@ -122,7 +135,7 @@ export function useConservationReport(
       // it never requires another analysis request or report generation.
       if (sequence === revision.current)
         setExportError(
-          'Unable to export the PDF. Your report preview is still available. Please try again.',
+          `${REPORT_FORMAT_LABELS[format]} export could not be completed. Your saved report preview is still available. Please try again.`,
         );
     } finally {
       if (sequence === revision.current) {
@@ -141,7 +154,29 @@ export function useConservationReport(
     exportError,
     exportedFilename,
     generate,
-    exportPdf,
+    exportReport,
+    exportPdf: exportReport,
+    format,
+    selectFormat: (value: ReportExportFormat) => {
+      if (pending.current) return;
+      setFormat(value);
+      setExportError('');
+      setExportedFilename('');
+    },
+    synchronizeSavedReport: (saved: SavedStatisticalReport) => {
+      setGeneratedReport((current) =>
+        current?.snapshot.id === saved.id
+          ? { ...current, snapshot: retainReportSnapshot(saved) }
+          : current,
+      );
+    },
+    forgetArchivedReport: (id: string) => {
+      // History actions also invalidate the cached generated preview, so an
+      // archived report cannot remain actionable when returning to Analysis.
+      setGeneratedReport((current) =>
+        current?.snapshot.id === id ? null : current,
+      );
+    },
     showPreview: () => setPreview(true),
     returnToAnalysis: () => setPreview(false),
   };

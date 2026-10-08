@@ -14,6 +14,19 @@ export type DeepReadonly<T> = T extends object
   ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
   : T;
 
+export const REPORT_EXPORT_FORMATS = ['pdf', 'csv', 'xlsx'] as const;
+export type ReportExportFormat = (typeof REPORT_EXPORT_FORMATS)[number];
+export const REPORT_FORMAT_LABELS: Record<ReportExportFormat, string> = {
+  pdf: 'PDF',
+  csv: 'CSV',
+  xlsx: 'Excel',
+};
+export const REPORT_CONTENT_TYPES: Record<ReportExportFormat, string> = {
+  pdf: 'application/pdf',
+  csv: 'text/csv',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
+
 export type ConservationReportSnapshot = DeepReadonly<{
   generatedAt: string;
   park: ParkOption;
@@ -107,11 +120,12 @@ const filterLabels: Record<string, string> = {
 function groupLines(
   label: string,
   groups: DeepReadonly<AnalyticsGroup[]>,
+  enumLabel: (value: string) => string,
 ): string[] {
   return [
     `${label}:`,
     ...(groups.length
-      ? groups.map((group) => `${group.name}: ${group.count}`)
+      ? groups.map((group) => `${enumLabel(group.name)}: ${group.count}`)
       : ['No matching records in this breakdown.']),
   ];
 }
@@ -127,12 +141,27 @@ function timeLines(
 }
 
 export function buildReportDocument(
-  report: ConservationReportSnapshot,
+  report: ConservationReportSnapshot & {
+    id?: string;
+    title?: string;
+    notes?: string | null;
+    version?: number;
+    updatedAt?: string;
+    parentReportId?: string | null;
+  },
+  presentation: {
+    enumLabel?: (value: string) => string;
+    timestamp?: (value: string) => string;
+  } = {},
 ): ConservationReportDocument {
   // One presentation model supplies both preview and PDF, so selected sections,
   // findings and analytical values cannot diverge between the two renderers.
   const criteria = report.appliedCriteria;
   const data = report.analyticsResult;
+  // Browser readability is optional; exports retain their existing exact cells
+  // and timestamps unless a renderer explicitly requests presentation labels.
+  const enumLabel = presentation.enumLabel ?? ((value: string) => value);
+  const timestamp = presentation.timestamp ?? ((value: string) => value);
   const includes = report.selectedCategories.map(
     (category) => CATEGORY_LABELS[category],
   );
@@ -149,7 +178,9 @@ export function buildReportDocument(
             category.startsWith('INCIDENT_'),
           )
         : report.selectedCategories.includes('HWC_TRENDS'));
-    return value && relevant ? [`${label}: ${value}`] : [];
+    return value && relevant
+      ? [`${label}: ${key === 'rangerId' ? value : enumLabel(String(value))}`]
+      : [];
   });
   scope.push(
     ...(activeFilters.length
@@ -165,8 +196,8 @@ export function buildReportDocument(
       summary.push(`Total incidents: ${statistics.total}`);
       lines.push(
         `Total incidents: ${statistics.total}`,
-        ...groupLines('Incidents by type', statistics.byType),
-        ...groupLines('Incidents by status', statistics.byStatus),
+        ...groupLines('Incidents by type', statistics.byType, enumLabel),
+        ...groupLines('Incidents by status', statistics.byStatus, enumLabel),
         ...timeLines('Incidents over time', statistics.overTime),
       );
     }
@@ -178,10 +209,14 @@ export function buildReportDocument(
         `Grid: ${hotspots.gridSizeDegrees} degrees; minimum incidents per hotspot: ${hotspots.minimumIncidents}`,
         `Valid coordinates: ${hotspots.validIncidentCount}; excluded coordinates: ${hotspots.excludedCoordinateCount}; isolated incidents: ${hotspots.isolatedIncidentCount}`,
         ...(hotspots.hotspots.length
-          ? hotspots.hotspots.map(
-              (hotspot) =>
-                `Rank ${hotspot.rank}: ${hotspot.latitude.toFixed(5)}, ${hotspot.longitude.toFixed(5)} | ${hotspot.concentration} concentration | ${hotspot.incidentCount} incidents`,
-            )
+          ? hotspots.hotspots.flatMap((hotspot) => [
+              `Rank ${hotspot.rank}: ${hotspot.latitude.toFixed(5)}, ${hotspot.longitude.toFixed(5)} | ${enumLabel(hotspot.concentration)} concentration | ${hotspot.incidentCount} incidents`,
+              ...groupLines(
+                `Hotspot ${hotspot.rank} incident types`,
+                hotspot.byType,
+                enumLabel,
+              ),
+            ])
           : ['No concentrated hotspots in the reviewed incident data.']),
       );
     }
@@ -189,6 +224,7 @@ export function buildReportDocument(
       const coverage = data.patrolCoverage;
       summary.push(
         `Patrol coverage: ${coverage.coveragePercentage}% (${coverage.coveredRoutes} of ${coverage.totalRoutes} routes covered)`,
+        `Covered routes: ${coverage.coveredRoutes}; limited-activity routes: ${coverage.limitedActivityRoutes}; neglected routes: ${coverage.neglectedRoutes}`,
       );
       lines.push(
         `Coverage percentage: ${coverage.coveragePercentage}%`,
@@ -197,9 +233,10 @@ export function buildReportDocument(
         `Limited-activity routes: ${coverage.limitedActivityRoutes}`,
         `Neglected routes: ${coverage.neglectedRoutes}`,
         `Patrol sessions: ${coverage.patrolSessionCount}; completed patrols: ${coverage.completedPatrolCount}`,
+        `Excluded sessions: ${coverage.excludedSessionCount}; routes without usable geometry: ${coverage.missingGeometryRouteCount}`,
         ...coverage.routes.map(
           (route) =>
-            `${route.routeName}: ${PATROL_COVERAGE_LABELS[route.status]} | Sessions: ${route.sessionCount}; completed: ${route.completedSessionCount}; waypoints: ${route.waypointCount}; last patrol: ${route.lastPatrolDate ?? 'None'}`,
+            `${route.routeName}: ${PATROL_COVERAGE_LABELS[route.status]} | Sessions: ${route.sessionCount}; completed: ${route.completedSessionCount}; waypoints: ${route.waypointCount}; last patrol: ${route.lastPatrolDate ? timestamp(route.lastPatrolDate) : 'None'}`,
         ),
       );
     }
@@ -212,23 +249,48 @@ export function buildReportDocument(
         HWC_SCOPE_NOTICE,
         `Total alerts: ${trends.totalAlerts}`,
         ...timeLines('Alerts over time', trends.alertsOverTime),
-        ...groupLines('Alerts by severity', trends.bySeverity),
-        ...groupLines('Alerts by status', trends.byStatus),
-        ...groupLines('Alerts by source', trends.bySource),
-        ...groupLines('Alerts by type', trends.byType),
+        ...groupLines('Alerts by severity', trends.bySeverity, enumLabel),
+        ...groupLines('Alerts by status', trends.byStatus, enumLabel),
+        ...groupLines('Alerts by source', trends.bySource, enumLabel),
+        ...groupLines('Alerts by type', trends.byType, enumLabel),
+        `Conflict locations: ${trends.locations.locations.length} occupied ${trends.locations.gridSizeDegrees}-degree cells; ${trends.locations.excludedCoordinateCount} alerts excluded for invalid coordinates`,
+        ...trends.locations.locations.flatMap((cell) => [
+          `Location ${cell.rank}: ${cell.latitude}, ${cell.longitude} | ${cell.alertCount} alerts`,
+          ...groupLines(
+            `Location ${cell.rank} severity`,
+            cell.bySeverity,
+            enumLabel,
+          ),
+          ...groupLines(`Location ${cell.rank} types`, cell.byType, enumLabel),
+        ]),
         `Total responses: ${trends.totalResponses}`,
-        ...groupLines('Responses by action', trends.responsesByAction),
+        ...groupLines(
+          'Responses by action',
+          trends.responsesByAction,
+          enumLabel,
+        ),
         ...timeLines('Responses over time', trends.responsesOverTime),
       );
     }
     sections.push({ title: CATEGORY_LABELS[category], lines });
   }
   return {
-    title: 'Statistical Conservation Report',
+    title: report.title ?? 'Statistical Conservation Report',
     header: [
       `Park / Conservation Area: ${report.park.name} (${report.park.code})`,
       `Period: ${criteria.start} to ${criteria.end}`,
-      `Generated: ${report.generatedAt}`,
+      `Generated: ${timestamp(report.generatedAt)}`,
+      ...(report.id
+        ? [
+            `Saved Report ID: ${report.id}`,
+            `Version: ${report.version}`,
+            `Metadata updated: ${report.updatedAt ? timestamp(report.updatedAt) : 'Not recorded'}`,
+          ]
+        : []),
+      ...(report.parentReportId
+        ? [`Previous version: ${report.parentReportId}`]
+        : []),
+      ...(report.notes ? [`Manager notes: ${report.notes}`] : []),
     ],
     includes,
     scope,
@@ -238,12 +300,26 @@ export function buildReportDocument(
   };
 }
 
-export function reportFilename(report: ConservationReportSnapshot): string {
+export function reportFilename(
+  report: Pick<ConservationReportSnapshot, 'park' | 'generatedAt'> & {
+    version?: number;
+  },
+  format: ReportExportFormat = 'pdf',
+): string {
   const code =
     report.park.code
       .toLowerCase()
       .replace(/[^a-z0-9_-]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 48) || 'park';
-  return `conservation-report-${code}-${report.generatedAt.slice(0, 10)}.pdf`;
+  const date = /^\d{4}-\d{2}-\d{2}/.exec(report.generatedAt)?.[0] ?? 'undated';
+  // Saved exports receive the version from the validated persisted report, never
+  // a browser filename. Unsaved snapshot callers retain their legacy naming.
+  if (
+    report.version !== undefined &&
+    (!Number.isSafeInteger(report.version) || report.version < 1)
+  )
+    throw new Error('Invalid saved report version.');
+  const version = report.version === undefined ? '' : `-v${report.version}`;
+  return `conservation-report-${code}-${date}${version}.${format}`;
 }

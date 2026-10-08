@@ -4,9 +4,14 @@ import {
   HWC_SCOPE_NOTICE,
   isValidAnalysisDate,
   PATROL_COVERAGE_STATUSES,
+  normalizeAnalysisControls,
 } from './contract.js';
-import { analysisCriteriaSchema } from './validation.js';
+import {
+  storedAnalysisCriteriaSchema,
+  analysisParkIdSchema,
+} from './validation.js';
 import type { ConservationReportSnapshot } from './reportContract.js';
+import { hasReportableFindings } from './reportEligibility.js';
 
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const text = z.string().trim().min(1).max(2000);
@@ -31,18 +36,13 @@ const series = z
 // The form retains empty optional controls. Validate their normalized meaning
 // while retaining the original payload verbatim after successful validation.
 const criteria = z.preprocess(
-  (value) =>
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? Object.fromEntries(
-          Object.entries(value).filter(
-            ([, entry]) => entry !== '' && entry !== undefined,
-          ),
-        )
-      : value,
-  analysisCriteriaSchema,
+  normalizeAnalysisControls,
+  // Reading immutable evidence must not reapply a moving current-day policy.
+  // New analyses and versions still pass the authoritative live criteria schema.
+  storedAnalysisCriteriaSchema,
 );
 const park = z
-  .object({ id: z.string().regex(/^[a-f\d]{24}$/i), name: text, code: text })
+  .object({ id: analysisParkIdSchema, name: text, code: text })
   .strict();
 const statistics = z
   .object({ total: count, byType: groups, byStatus: groups, overTime: series })
@@ -115,7 +115,29 @@ const coverage = z
   .strict();
 const trends = z
   .object({
-    scope: z.literal('ALL_PARKS_UNASSIGNED'),
+    scope: z.literal('SELECTED_PARK'),
+    locations: z
+      .object({
+        gridSizeDegrees: z.number().positive(),
+        validAlertCount: count,
+        excludedCoordinateCount: count,
+        locations: z
+          .array(
+            z
+              .object({
+                cellId: text,
+                rank: count.refine((value) => value > 0),
+                latitude: z.number().min(-90).max(90),
+                longitude: z.number().min(-180).max(180),
+                alertCount: count.refine((value) => value > 0),
+                bySeverity: groups,
+                byType: groups,
+              })
+              .strict(),
+          )
+          .max(10000),
+      })
+      .strict(),
     scopeNotice: z.literal(HWC_SCOPE_NOTICE),
     totalAlerts: count,
     alertsOverTime: series,
@@ -149,7 +171,6 @@ const analyticsResult = z
             category: z.enum(ANALYSIS_CATEGORIES),
             status: z.enum([
               'AVAILABLE',
-              'AVAILABLE_UNSCOPED',
               'NOT_IMPLEMENTED',
               'UNAVAILABLE_PARK_ASSOCIATION',
             ]),
@@ -235,27 +256,14 @@ export const reportSnapshotSchema = z
       selected.some(
         (category) =>
           !data.categoryAvailability.some(
-            (item) =>
-              item.category === category &&
-              item.status ===
-                (category === 'HWC_TRENDS'
-                  ? 'AVAILABLE_UNSCOPED'
-                  : 'AVAILABLE'),
+            (item) => item.category === category && item.status === 'AVAILABLE',
           ),
       )
     )
       invalid('Report requires successful selected-category analysis.');
     // Only selected sources can establish eligibility. Unrelated legacy totals
     // cannot turn an empty selected category into a reportable analysis.
-    const matching =
-      (selected.some((category) => category.startsWith('INCIDENT_')) &&
-        data.matchedRecords.incidents > 0) ||
-      (selected.includes('PATROL_COVERAGE') &&
-        data.matchedRecords.patrols > 0) ||
-      (selected.includes('HWC_TRENDS') &&
-        ((data.matchedRecords.conflicts ?? 0) > 0 ||
-          (data.matchedRecords.responses ?? 0) > 0));
-    if (!matching)
+    if (!hasReportableFindings(data))
       invalid('Report requires meaningful matching conservation data.');
     if (
       data.incidentStatistics &&
@@ -279,8 +287,8 @@ export const reportSnapshotSchema = z
           (data.matchedRecords.responses ?? 0))
     )
       invalid('Conflict totals must match the reviewed records.');
-    // Validate relationships inside the retained findings. These checks reject
-    // contradictory client payloads; they never replace values or query sources.
+    // Validate relationships inside server-issued/persisted findings. Structural
+    // consistency alone cannot establish authority; HTTP clients never submit this.
     const sum = (rows: Array<{ count: number }>) =>
       rows.reduce((total, row) => total + row.count, 0);
     const statistics = data.incidentStatistics;
@@ -352,6 +360,21 @@ export const reportSnapshotSchema = z
           conflictTrends.totalResponses)
     )
       invalid('Conflict breakdowns are inconsistent.');
+    if (conflictTrends) {
+      const spatial = conflictTrends.locations;
+      if (
+        spatial.validAlertCount + spatial.excludedCoordinateCount !==
+          conflictTrends.totalAlerts ||
+        sum(spatial.locations.map((cell) => ({ count: cell.alertCount }))) !==
+          spatial.validAlertCount ||
+        spatial.locations.some(
+          (cell) =>
+            sum(cell.byType) !== cell.alertCount ||
+            sum(cell.bySeverity) !== cell.alertCount,
+        )
+      )
+        invalid('Conflict location counts are inconsistent.');
+    }
   });
 
 export function validateReportSnapshot(

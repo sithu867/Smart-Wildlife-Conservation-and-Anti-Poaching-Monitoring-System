@@ -1,14 +1,12 @@
 import {
-  ANALYSIS_CATEGORIES,
-  isValidAnalysisDate,
+  normalizeAnalysisControls,
+  isAnalysisDateRangeOrdered,
+  FUTURE_PERIOD_MESSAGE,
+  SUPPORTED_DATE_MESSAGE,
   type AnalysisCriteria,
   type ParkOption,
 } from '../../../../server/src/modules/analytics/contract';
-import {
-  AlertSeverity,
-  AlertStatus,
-  IncidentType,
-} from '../../shared/types/enums';
+import { analysisCriteriaSchema } from '../../../../server/src/modules/analytics/validation';
 
 export function createDraftCriteria(): AnalysisCriteria {
   return {
@@ -27,6 +25,24 @@ export function copyCriteria(criteria: AnalysisCriteria): AnalysisCriteria {
   // Copy the checkbox array too. Later reports must consume this reviewed
   // snapshot, never the editable draft.
   return { ...criteria, categories: [...criteria.categories] };
+}
+
+export type DatePresetDays = 7 | 30 | 90;
+
+export function datePresetRange(days: DatePresetDays, now = new Date()) {
+  // Include today as one of the N UTC calendar days. UTC setters avoid local
+  // midnight/DST shifts; the API still expands the selected end to 23:59:59.999Z.
+  const end = now.toISOString().slice(0, 10);
+  const start = new Date(`${end}T00:00:00.000Z`);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  return { start: start.toISOString().slice(0, 10), end };
+}
+
+export function hasIncidentCategory(criteria: AnalysisCriteria): boolean {
+  return criteria.categories.some(
+    (category) =>
+      category === 'INCIDENT_STATISTICS' || category === 'INCIDENT_HOTSPOTS',
+  );
 }
 
 export interface CriteriaValidationIssue {
@@ -56,44 +72,48 @@ export function validateDraftCriteriaIssues(
       },
     ];
   }
-  const errors: CriteriaValidationIssue[] = [];
-  const addIssue = (field: CriteriaValidationIssue['field'], message: string) =>
-    errors.push({ field, message });
-  if (!parks.some((park) => park.id === criteria.parkId))
-    addIssue('parkId', 'Select a valid Park / Conservation Area.');
-  const startValid = isValidAnalysisDate(criteria.start);
-  const endValid = isValidAnalysisDate(criteria.end);
-  if (!startValid) addIssue('start', 'Enter a valid Start Date.');
-  if (!endValid) addIssue('end', 'Enter a valid End Date.');
-  if (startValid && endValid && criteria.start > criteria.end)
-    addIssue('end', 'Start Date must be on or before End Date.');
-  if (!criteria.categories.length)
-    addIssue('categories', 'Select at least one analysis category.');
+  const parsed = analysisCriteriaSchema.safeParse(
+    normalizeAnalysisControls(criteria),
+  );
+  const errors: CriteriaValidationIssue[] = parsed.success
+    ? []
+    : parsed.error.issues.map((issue) => {
+        const field = (issue.path[0] ??
+          'form') as CriteriaValidationIssue['field'];
+        // Keep the existing inline date wording while sharing all validation rules.
+        const message =
+          field === 'parkId' && !criteria.parkId
+            ? 'Select a Park / Conservation Area.'
+            : (field === 'start' || field === 'end') &&
+                !issue.message.includes('on or before') &&
+                issue.message !== FUTURE_PERIOD_MESSAGE &&
+                issue.message !== SUPPORTED_DATE_MESSAGE
+              ? `Enter a valid ${field === 'start' ? 'Start' : 'End'} Date.`
+              : issue.message;
+        return { field, message };
+      });
   if (
-    criteria.categories.some(
-      (category) => !ANALYSIS_CATEGORIES.includes(category),
+    !errors.some((issue) => issue.field === 'parkId') &&
+    !parks.some((park) => park.id === criteria.parkId)
+  ) {
+    errors.push({
+      field: 'parkId',
+      message: 'Select a valid Park / Conservation Area.',
+    });
+  }
+  // Zod can abort object refinements on malformed filters/categories. Still show
+  // the independent date-range error so managers can correct both fields at once.
+  if (
+    !isAnalysisDateRangeOrdered(criteria.start, criteria.end) &&
+    !errors.some(
+      (issue) => issue.message === 'Start Date must be on or before End Date.',
     )
-  )
-    addIssue('categories', 'Unsupported analysis category.');
-  if (
-    criteria.incidentType &&
-    !Object.values(IncidentType).some(
-      (value) => value === criteria.incidentType,
-    )
-  )
-    addIssue('incidentType', 'Select a valid incident type.');
-  if (
-    criteria.severity &&
-    !Object.values(AlertSeverity).some((value) => value === criteria.severity)
-  )
-    addIssue('severity', 'Select a valid severity.');
-  if (
-    criteria.conflictStatus &&
-    !Object.values(AlertStatus).some(
-      (value) => value === criteria.conflictStatus,
-    )
-  )
-    addIssue('conflictStatus', 'Select a valid conflict status.');
+  ) {
+    errors.push({
+      field: 'end',
+      message: 'Start Date must be on or before End Date.',
+    });
+  }
   return errors;
 }
 
@@ -109,9 +129,5 @@ export function validateDraftCriteria(
 }
 
 export function criteriaParams(criteria: AnalysisCriteria) {
-  return Object.fromEntries(
-    Object.entries(criteria).filter(
-      ([, value]) => value !== '' && value !== undefined,
-    ),
-  );
+  return normalizeAnalysisControls(criteria);
 }

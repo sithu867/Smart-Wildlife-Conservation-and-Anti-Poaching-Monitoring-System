@@ -63,12 +63,12 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     expect(
       within(
         screen.getByRole('table', { name: 'Incidents by status' }),
-      ).getByRole('row', { name: 'RESOLVED 1' }),
+      ).getByRole('row', { name: 'Resolved 1' }),
     ).toBeInTheDocument();
     expect(
       within(
         screen.getByRole('table', { name: 'Incidents by type' }),
-      ).getByRole('row', { name: 'SNARE 2' }),
+      ).getByRole('row', { name: 'Snare 2' }),
     ).toBeInTheDocument();
     const chart = screen.getByRole('img', {
       name: 'Incidents Over Time chart',
@@ -98,7 +98,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     const list = screen.getByRole('list', { name: 'Ranked incident hotspots' });
     expect(list).toHaveTextContent('Rank 1: 2 incidents');
     expect(list).toHaveTextContent('Latitude -2.152000');
-    expect(list).toHaveTextContent('SNARE: 2');
+    expect(list).toHaveTextContent('Snare: 2');
     expect(
       screen.queryByRole('region', { name: 'Incident Statistics results' }),
     ).not.toBeInTheDocument();
@@ -130,7 +130,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
     display(data);
     expect(
       screen.getByText(
-        'No incident cells meet the minimum hotspot concentration.',
+        'Incidents were found, but none formed a hotspot for the selected criteria. Try a wider period or fewer incident filters.',
       ),
     ).toBeInTheDocument();
     expect(
@@ -161,14 +161,14 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       document.querySelector('.leaflet-container'),
     ).not.toBeInTheDocument();
   });
-  test('conflict-only analysis renders actual alert/response charts and all breakdowns with global scope', () => {
+  test('conflict-only analysis renders actual alert/response charts and all breakdowns with selected park scope', () => {
     display(categoryResult(['HWC_TRENDS']));
     const trends = screen.getByRole('region', {
       name: 'Human-Wildlife Conflict Trends results',
     });
     expect(trends).toHaveTextContent('Total alerts: 2');
     expect(trends).toHaveTextContent('Total responses: 1');
-    expect(trends).toHaveTextContent('not the selected park');
+    expect(trends).toHaveTextContent('assigned to the selected park');
     expect(
       screen
         .getByRole('img', { name: 'Conflict Alerts Over Time chart' })
@@ -178,11 +178,11 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.getByRole('img', { name: 'Conflict Responses Over Time chart' }),
     ).toBeInTheDocument();
     for (const [table, row] of [
-      ['Alerts by severity', 'HIGH 1'],
-      ['Alerts by status', 'OPEN 1'],
-      ['Alerts by source', 'COLLAR 1'],
-      ['Alerts by type', 'CROP_RAID 1'],
-      ['Responses by action', 'INVESTIGATED_AREA 1'],
+      ['Alerts by severity', 'High 1'],
+      ['Alerts by status', 'Open 1'],
+      ['Alerts by source', 'Collar 1'],
+      ['Alerts by type', 'Crop Raid 1'],
+      ['Responses by action', 'Investigated Area 1'],
     ]) {
       expect(
         within(screen.getByRole('table', { name: table })).getByRole('row', {
@@ -191,7 +191,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       ).toBeInTheDocument();
     }
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled();
     expect(
       screen.queryByRole('region', { name: 'Incident Statistics results' }),
@@ -217,7 +217,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.getByRole('img', { name: 'Conflict Responses Over Time chart' }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled();
   });
   test('a mixed analysis displays only selected categories and exposes category-specific no-data', () => {
@@ -238,7 +238,7 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.queryByRole('region', { name: 'Incident Hotspots results' }),
     ).not.toBeInTheDocument();
   });
-  test('global no-data remains informational, with no category dashboards or available report', () => {
+  test('global no-data remains informational with category zero results and no available report', () => {
     display(
       result(
         { ...validCriteria, categories: ['HWC_TRENDS'] },
@@ -253,13 +253,13 @@ describe('UC-D Batch 2 selected analytics sections', () => {
       screen.queryByRole('region', {
         name: 'Human-Wildlife Conflict Trends results',
       }),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
-    ).toHaveTextContent('they are not park scoped');
+    ).toHaveTextContent('All selected categories use this park and period');
   });
   test('re-analysis changes rendered categories only after success; buttons keep primary/secondary states', async () => {
     vi.spyOn(analyticsApi, 'listParks').mockResolvedValue(parks);

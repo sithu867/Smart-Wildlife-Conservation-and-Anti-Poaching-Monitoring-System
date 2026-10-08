@@ -5,6 +5,8 @@ import {
 } from '../../../../server/src/modules/analytics/contract';
 import { PatrolCoverageMap, routePositions } from './PatrolCoverageMap';
 
+import { formatAnalysisTimestamp } from './formatting';
+
 export function PatrolCoverageResults({
   analysis,
 }: {
@@ -103,10 +105,7 @@ export function PatrolCoverageResults({
                     <dt>Last activity (UTC)</dt>
                     <dd>
                       {route.lastPatrolDate
-                        ? route.lastPatrolDate
-                            .replace('T', ' ')
-                            .replace('.000Z', '')
-                            .replace('Z', '')
+                        ? formatAnalysisTimestamp(route.lastPatrolDate)
                         : 'No activity in period'}
                     </dd>
                   </div>

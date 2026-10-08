@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { HOTSPOT_CONCENTRATION_THRESHOLDS } from '../../../../server/src/modules/analytics/contract';
+import { ConflictLocationResults } from './ConflictLocationResults';
+import { formatEnumLabel } from './formatting';
 import type {
   AnalyticsResult,
   IncidentHotspotAnalysis,
@@ -41,7 +42,10 @@ export function IncidentStatisticsResults({ data }: { data: AnalyticsResult }) {
           )}
         </>
       ) : (
-        <p>No incidents match the applied criteria.</p>
+        <p>
+          Total incidents: <strong className="analytics-count">0</strong>. No
+          incidents match the applied criteria.
+        </p>
       )}
     </section>
   );
@@ -92,7 +96,9 @@ export function IncidentHotspotResults({
                 <p>
                   Types:{' '}
                   {point.byType
-                    .map((type) => `${type.name}: ${type.count}`)
+                    .map(
+                      (type) => `${formatEnumLabel(type.name)}: ${type.count}`,
+                    )
                     .join(', ')}
                 </p>
               </li>
@@ -101,8 +107,12 @@ export function IncidentHotspotResults({
         </>
       ) : (
         <p>
+          {/* A threshold miss is a valid derived result, not a failed request
+              or proof that the park had no incidents. */}
           {analysis.validIncidentCount
-            ? 'No incident cells meet the minimum hotspot concentration.'
+            ? analysis.hotspots.length
+              ? 'Hotspots were found, but their coordinates cannot be displayed. Review the data scope and coordinate exclusions.'
+              : 'Incidents were found, but none formed a hotspot for the selected criteria. Try a wider period or fewer incident filters.'
             : 'No incidents with valid coordinates were found for hotspot analysis.'}
         </p>
       )}
@@ -134,6 +144,7 @@ export function ConflictTrendResults({
     >
       <h2>Human-Wildlife Conflict Trends</h2>
       <p className="analytics-scope-notice">{analysis.scopeNotice}</p>
+      <ConflictLocationResults analysis={analysis.locations} />
       {analysis.totalAlerts || analysis.totalResponses ? (
         <>
           <p>
@@ -195,8 +206,10 @@ export function ConflictTrendResults({
         </>
       ) : (
         <p>
-          No conflict alerts or responses match the applied criteria across all
-          parks / unassigned records.
+          Total alerts: 0; Total responses: 0. No conflict alerts or responses
+          match the applied park and period. Try another park, a wider period or
+          fewer conflict filters. Only park-assigned alerts and their responses
+          are included.
         </p>
       )}
     </section>

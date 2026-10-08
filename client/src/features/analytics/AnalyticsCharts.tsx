@@ -13,6 +13,8 @@ import type {
   AnalyticsTimeSeries,
 } from '../../../../server/src/modules/analytics/contract';
 
+import { formatEnumLabel } from './formatting';
+
 export function BreakdownTable({
   title,
   rows,
@@ -34,7 +36,7 @@ export function BreakdownTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.name}>
-              <th scope="row">{row.name}</th>
+              <th scope="row">{formatEnumLabel(row.name)}</th>
               <td>{row.count}</td>
             </tr>
           ))}
@@ -96,7 +98,14 @@ export function TimeSeriesChart({
         as the chart, and remains useful when a narrow viewport hides ticks. */}
       <details>
         <summary>View {title.toLowerCase()} data</summary>
-        <div className="analytics-table-scroll">
+        {/* The bounded table can scroll without containing interactive cells.
+            Make its viewport reachable so keyboard users can scroll all rows. */}
+        <div
+          className="analytics-table-scroll"
+          tabIndex={0}
+          role="region"
+          aria-label={`${title} data table`}
+        >
           <table>
             <caption>{title} data</caption>
             <thead>

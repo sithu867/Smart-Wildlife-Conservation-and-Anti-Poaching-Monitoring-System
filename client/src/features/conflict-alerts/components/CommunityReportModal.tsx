@@ -1,3 +1,4 @@
+import { OptionalParkSelect } from '../../../shared/components/OptionalParkSelect';
 import React, { useState } from 'react';
 import { ConflictAlertType, AlertSeverity } from '../../../shared/types/enums';
 import type { CommunityReportInput } from '../types/conflictAlert';
@@ -9,6 +10,7 @@ interface Props {
 
 export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => {
   const [reporterName, setReporterName] = useState('Mzee Juma');
+  const [parkId, setParkId] = useState('');
   const [latitude, setLatitude] = useState(-2.189);
   const [longitude, setLongitude] = useState(34.841);
   const [reportType, setReportType] = useState<ConflictAlertType>(ConflictAlertType.CROP_RAID);
@@ -25,6 +27,7 @@ export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => 
     try {
       await onSubmit({
         reporterName: reporterName.trim() || 'Community Member',
+        parkId: parkId || undefined,
         latitude: Number(latitude),
         longitude: Number(longitude),
         reportType,
@@ -41,7 +44,7 @@ export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => 
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4 text-slate-900">
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 text-slate-900">
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <span>👥 Community Conflict Report</span>
@@ -56,6 +59,7 @@ export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => 
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3 text-xs">
+          <OptionalParkSelect value={parkId} onChange={setParkId} />
           <div>
             <label className="block font-bold text-slate-800 mb-1">Reporter Name / Source</label>
             <input

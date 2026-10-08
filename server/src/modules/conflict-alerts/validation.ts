@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { optionalParkIdSchema } from '../shared/parkScope.js';
 import {
   AlertSource,
   ConflictAlertType,
@@ -17,6 +18,7 @@ export const locationSchema = z.object({
 });
 
 export const createAlertSchema = z.object({
+  parkId: optionalParkIdSchema,
   clientAlertId: z.string().optional(),
   sourceEventId: z.string().optional(),
   source: z.nativeEnum(AlertSource),
@@ -31,6 +33,7 @@ export const createAlertSchema = z.object({
 });
 
 export const simulateCollarSchema = z.object({
+  parkId: optionalParkIdSchema,
   sourceEventId: z.string().optional(),
   animalId: z.string().min(1, 'Animal ID is required'),
   latitude: z.number().min(-90).max(90),
@@ -41,6 +44,7 @@ export const simulateCollarSchema = z.object({
 });
 
 export const communityReportSchema = z.object({
+  parkId: optionalParkIdSchema,
   sourceEventId: z.string().optional(),
   reporterName: z.string().optional().default('Community Member'),
   latitude: z.number().min(-90).max(90),

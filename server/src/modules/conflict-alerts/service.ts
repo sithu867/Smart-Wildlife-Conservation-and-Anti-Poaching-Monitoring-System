@@ -1,4 +1,5 @@
 import { prisma } from '../../config/prisma.js';
+import { validateOptionalPark } from '../shared/parkScope.js';
 import { AlertSource, ConflictAlertType, AlertSeverity, AlertStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import type { AddResponseInput, CommunityReportInput, CreateAlertInput, ResolveAlertInput, SimulateCollarInput } from './validation.js';
 
@@ -104,8 +105,12 @@ export class ConflictAlertService {
       if (existing) return shapeAlert(existing);
     }
 
+    // Risk zones and animal IDs do not reference parks. Retain explicit source
+    // context only; legacy callers stay unassigned rather than being guessed.
+    await validateOptionalPark(input.parkId);
     const alert = await prisma.wildlifeConflictAlert.create({
       data: {
+        parkId: input.parkId,
         clientAlertId: input.clientAlertId,
         sourceEventId: input.sourceEventId || `src-evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         source: input.source as any,
@@ -153,7 +158,11 @@ export class ConflictAlertService {
     const description = input.description || `Collar breach alert for tracked animal ${input.animalId} inside ${riskZoneResult.zone.name} (${riskZoneResult.distanceKm.toFixed(2)} km from zone core).`;
 
     const alert = await this.createAlert({
-      sourceEventId: input.sourceEventId || `collar-evt-${input.animalId}-${input.latitude.toFixed(4)}-${input.longitude.toFixed(4)}`,
+      parkId: input.parkId,
+      // Preserve upstream event identities and old unassigned simulator keys.
+      // New explicit park contexts need distinct generated keys, otherwise an
+      // old unassigned event at these coordinates would swallow the assignment.
+      sourceEventId: input.sourceEventId || `collar-evt-${input.parkId ? `${input.parkId}-` : ''}${input.animalId}-${input.latitude.toFixed(4)}-${input.longitude.toFixed(4)}`,
       source: AlertSource.COLLAR,
       alertType,
       severity: calculatedSeverity,
@@ -186,6 +195,7 @@ export class ConflictAlertService {
     }
 
     return this.createAlert({
+      parkId: input.parkId,
       sourceEventId: input.sourceEventId || `comm-rpt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       source: AlertSource.COMMUNITY_REPORT,
       alertType: input.reportType,

@@ -69,7 +69,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
     expect(items[1]).toHaveTextContent('River routeLimited activity');
     expect(items[2]).toHaveTextContent('Forest routeNeglected');
     expect(items[2]).toHaveTextContent('No activity in period');
-    expect(items[0]).toHaveTextContent('2026-09-30 12:00:00');
+    expect(items[0]).toHaveTextContent('30 Sept 2026, 12:00:00 UTC');
   });
   test('maps only usable geometry, with distinct solid/dashed paths and all routes retained in the list', () => {
     render(<PatrolCoverageResults analysis={patrolCoverageFixture()} />);
@@ -201,8 +201,8 @@ describe('UC-D Patrol Coverage dashboard', () => {
       screen.getByText(/All registered routes are classified as neglected/),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
-    ).toBeDisabled();
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    ).toBeEnabled();
   });
   test('applied categories control coverage visibility even when the response contains other category data', () => {
     display({ ...result(), patrolCoverage: patrolCoverageFixture() });
@@ -240,7 +240,7 @@ describe('UC-D Patrol Coverage dashboard', () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('region', { name: 'Applied scope' }),
-    ).toHaveTextContent('they are not park scoped');
+    ).toHaveTextContent('All selected categories use this park and period');
   });
 });
 

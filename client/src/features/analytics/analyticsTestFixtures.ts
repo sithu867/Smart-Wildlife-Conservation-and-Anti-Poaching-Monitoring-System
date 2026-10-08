@@ -10,8 +10,8 @@ import {
 } from '../../../../server/src/modules/analytics/contract';
 
 export const parks: ParkOption[] = [
-  { id: '67a000000000000000000001', name: 'Alpha park', code: 'ALPHA' },
-  { id: '67a000000000000000000002', name: 'Beta park', code: 'BETA' },
+  { id: 'c67a000000000000000000001', name: 'Alpha park', code: 'ALPHA' },
+  { id: 'c67a000000000000000000002', name: 'Beta park', code: 'BETA' },
 ];
 export const validCriteria: AnalysisCriteria = {
   ...createDraftCriteria(),
@@ -101,7 +101,7 @@ export function result(
     },
     categoryAvailability: criteria.categories.map((category) => ({
       category,
-      status: category === 'HWC_TRENDS' ? 'AVAILABLE_UNSCOPED' : 'AVAILABLE',
+      status: 'AVAILABLE',
     })),
     limitations: ['Unlinked incidents are excluded.'],
     summary: {
@@ -183,8 +183,14 @@ export function result(
     ...(criteria.categories.includes('HWC_TRENDS')
       ? {
           conflictTrends: {
-            scope: 'ALL_PARKS_UNASSIGNED' as const,
+            scope: 'SELECTED_PARK' as const,
             scopeNotice: HWC_SCOPE_NOTICE,
+            locations: {
+              gridSizeDegrees: 0.01,
+              validAlertCount: 0,
+              excludedCoordinateCount: count,
+              locations: [],
+            },
             totalAlerts: count,
             totalResponses: count ? 1 : 0,
             alertsOverTime: {

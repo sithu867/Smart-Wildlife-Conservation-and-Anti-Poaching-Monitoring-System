@@ -1,3 +1,4 @@
+import { OptionalParkSelect } from '../../../shared/components/OptionalParkSelect';
 import React, { useState } from 'react';
 import { ConflictAlertType, AlertSeverity } from '../../../shared/types/enums';
 import type { SimulateCollarInput } from '../types/conflictAlert';
@@ -10,6 +11,7 @@ interface Props {
 
 export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) => {
   const [animalId, setAnimalId] = useState('ELEPHANT-001');
+  const [parkId, setParkId] = useState('');
   const [latitude, setLatitude] = useState(-2.1523);
   const [longitude, setLongitude] = useState(34.8214);
   const [alertType, setAlertType] = useState<ConflictAlertType>(ConflictAlertType.DANGEROUS_WILDLIFE_ACTIVITY);
@@ -26,6 +28,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
     try {
       const input: SimulateCollarInput = {
         animalId: animalId.trim(),
+        parkId: parkId || undefined,
         latitude: Number(latitude),
         longitude: Number(longitude),
         alertType,
@@ -48,7 +51,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4 text-slate-900">
+      <div className="bg-white rounded-xl shadow-2xl border border-slate-200 max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 text-slate-900">
         <div className="flex items-center justify-between border-b border-slate-200 pb-3">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <span>🛰️ Wildlife Collar Simulator</span>
@@ -64,6 +67,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
         )}
 
         <form onSubmit={handleSimulate} className="space-y-3 text-xs">
+          <OptionalParkSelect value={parkId} onChange={setParkId} />
           <div>
             <label className="block font-bold text-slate-800 mb-1">Tracked Animal ID</label>
             <input

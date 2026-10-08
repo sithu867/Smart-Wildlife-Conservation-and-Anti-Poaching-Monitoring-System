@@ -1,20 +1,38 @@
 import type { RequestHandler } from 'express';
 import { z } from 'zod';
 import { analyticsService } from './service.js';
-import { analysisCriteriaSchema } from './validation.js';
+import { analysisCriteriaSchema, analysisFilterSchemas } from './validation.js';
+import { isValidAnalysisDate } from './contract.js';
 import { generateLegacyReportPdf } from './legacyReportPdf.js';
 import { AnalyticsCriteriaError } from './criteriaService.js';
-const query = z.object({
-  start: z.coerce.date().optional(),
-  end: z.coerce.date().optional(),
-  rangerId: z.string().min(1).optional(),
-  incidentType: z.string().optional(),
-  incidentStatus: z.string().optional(),
-  severity: z.string().optional(),
-  conflictStatus: z.string().optional(),
-  conflictSource: z.string().optional(),
-  conflictType: z.string().optional(),
-});
+const legacyReportDate = (label: string, endOfDay: boolean) =>
+  z
+    .string()
+    .refine(
+      (value) =>
+        isValidAnalysisDate(value) ||
+        z.string().datetime({ offset: true }).safeParse(value).success,
+      `${label} must be a valid date.`,
+    )
+    .transform(
+      (value) =>
+        new Date(
+          isValidAnalysisDate(value)
+            ? `${value}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}Z`
+            : value,
+        ),
+    )
+    .optional();
+const query = z
+  .object({
+    // Legacy callers may supply timestamps. Only calendar end dates expand to an
+    // inclusive UTC day; preserve explicitly supplied timestamp boundaries.
+    start: legacyReportDate('Start Date', false),
+    end: legacyReportDate('End Date', true),
+    ...analysisFilterSchemas,
+    format: z.literal('pdf').optional(),
+  })
+  .strict('Malformed analysis criteria: unsupported field.');
 const managerOnly: RequestHandler = (req, _res, next) => {
   if (req.header('x-user-role') !== 'MANAGER')
     throw new Error('Unauthorized: manager access required');
@@ -26,26 +44,22 @@ function respondToAnalyticsError(
   res: Parameters<RequestHandler>[1],
 ) {
   if (error instanceof z.ZodError) {
-    res
-      .status(400)
-      .json({
-        success: false,
-        error: {
-          message: error.issues.map((issue) => issue.message).join(' '),
-        },
-      });
+    res.status(400).json({
+      success: false,
+      error: {
+        message: error.issues.map((issue) => issue.message).join(' '),
+      },
+    });
   } else if (error instanceof AnalyticsCriteriaError) {
     res.status(400).json({ success: false, error: { message: error.message } });
   } else {
     // Database and internal failures must not expose connection strings or raw errors.
-    res
-      .status(500)
-      .json({
-        success: false,
-        error: {
-          message: 'Unable to analyze conservation data. Please try again.',
-        },
-      });
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Unable to analyze conservation data. Please try again.',
+      },
+    });
   }
 }
 
@@ -63,12 +77,10 @@ const listParks: RequestHandler = async (_req, res) => {
   try {
     res.json({ success: true, data: await analyticsService.listParks() });
   } catch {
-    res
-      .status(500)
-      .json({
-        success: false,
-        error: { message: 'Unable to load parks. Please try again.' },
-      });
+    res.status(500).json({
+      success: false,
+      error: { message: 'Unable to load parks. Please try again.' },
+    });
   }
 };
 
@@ -90,35 +102,24 @@ const report: RequestHandler = async (req, res) => {
         (count) => (count ?? 0) > 0,
       );
       if (scopedData.status === 'NO_MATCHING_DATA' || !hasMatchingRecords) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: {
-              message:
-                'Download Report requires matching conservation data. Refine the criteria and Analyze again.',
-            },
-          });
+        res.status(400).json({
+          success: false,
+          error: {
+            message:
+              'Download Report requires matching conservation data. Refine the criteria and Analyze again.',
+          },
+        });
         return;
       }
       data = scopedData;
     } else {
       const filters = query.parse(req.query);
       if (filters.start && filters.end && filters.start > filters.end) {
-        res
-          .status(400)
-          .json({
-            success: false,
-            error: { message: 'Start Date must be on or before End Date.' },
-          });
+        res.status(400).json({
+          success: false,
+          error: { message: 'Start Date must be on or before End Date.' },
+        });
         return;
-      }
-      if (
-        filters.end &&
-        typeof req.query.end === 'string' &&
-        /^\d{4}-\d{2}-\d{2}$/.test(req.query.end)
-      ) {
-        filters.end = new Date(filters.end.getTime() + 86_400_000 - 1);
       }
       data = await analyticsService.getLegacyAnalytics(filters);
     }

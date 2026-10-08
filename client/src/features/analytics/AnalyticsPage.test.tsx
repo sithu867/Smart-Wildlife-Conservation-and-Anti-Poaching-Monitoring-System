@@ -1,3 +1,4 @@
+import { savedReportFixture } from './savedReportTestFixtures';
 import {
   act,
   cleanup,
@@ -126,7 +127,7 @@ describe('UC-D criteria and Analyze workflow', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
     );
-    expect(screen.getByRole('alert')).toHaveTextContent('Select a valid Park');
+    expect(screen.getByRole('alert')).toHaveTextContent('Select a Park');
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Enter a valid Start Date',
     );
@@ -167,7 +168,7 @@ describe('UC-D criteria and Analyze workflow', () => {
     const end = screen.getByLabelText('End Date');
     expect(park).toHaveAttribute('aria-invalid', 'true');
     expect(park).toHaveAccessibleDescription(
-      'Select a valid Park / Conservation Area.',
+      'Select a Park / Conservation Area.',
     );
     expect(start).toHaveAccessibleDescription('Enter a valid Start Date.');
     expect(end).toHaveAccessibleDescription('Enter a valid End Date.');
@@ -249,7 +250,7 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('shows no matching data without fake statistics and permits refinement', async () => {
     const generateReport = vi
       .spyOn(analyticsApi, 'generateReport')
-      .mockImplementation(async (snapshot) => snapshot);
+      .mockImplementation(async (input) => savedReportFixture(input.criteria));
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce(
       result(validCriteria, 'NO_MATCHING_DATA'),
     );
@@ -263,10 +264,10 @@ describe('UC-D criteria and Analyze workflow', () => {
     ).toHaveClass('analytics-feedback--info');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     const generateButton = screen.getByRole('button', {
-      name: 'Generate Report',
+      name: 'Generate & Save Report',
     });
     expect(generateButton).toHaveAccessibleDescription(
-      'Generate Report is available after a successful analysis with matching conservation data.',
+      'Generate & Save Report is available after a successful analysis with meaningful findings, including registered routes with no patrol activity.',
     );
     fireEvent.click(generateButton);
     expect(generateReport).not.toHaveBeenCalled();
@@ -274,7 +275,7 @@ describe('UC-D criteria and Analyze workflow', () => {
       screen.queryByRole('heading', { name: 'Incidents by type' }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeDisabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
@@ -307,7 +308,7 @@ describe('UC-D criteria and Analyze workflow', () => {
       screen.getByRole('button', { name: /^(Analyze|Update Analysis)$/ }),
     ).toBeEnabled();
   });
-  test('a failed re-analysis keeps previous results; Retry retries its snapshot even after draft changes', async () => {
+  test('a failed re-analysis keeps previous results; Retry analyzes the corrected current draft', async () => {
     render(<AnalyticsPage />);
     const scope = await analyzeValidCriteria();
     vi.mocked(analyticsApi.analyze).mockRejectedValueOnce(
@@ -331,9 +332,13 @@ describe('UC-D criteria and Analyze workflow', () => {
       target: { value: '2026-10-05' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Retry analysis' }));
-    await waitFor(() => expect(scope).toHaveTextContent('2026-10-04'));
+    await waitFor(() => expect(scope).toHaveTextContent('2026-10-05'));
     expect(screen.getByLabelText('End Date')).toHaveValue('2026-10-05');
-    expect(screen.getByText(/Criteria have changed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Criteria have changed/)).not.toBeInTheDocument();
+    expect(analyticsApi.analyze).toHaveBeenLastCalledWith(
+      { ...validCriteria, end: '2026-10-05' },
+      expect.any(AbortSignal),
+    );
   });
   test('a new invalid attempt replaces old API feedback without clearing reviewed results', async () => {
     render(<AnalyticsPage />);
@@ -436,37 +441,40 @@ describe('UC-D criteria and Analyze workflow', () => {
   test('Generate Report requires meaningful matching records even for a DATA response', async () => {
     const generateReport = vi
       .spyOn(analyticsApi, 'generateReport')
-      .mockImplementation(async (snapshot) => snapshot);
+      .mockImplementation(async (input) => savedReportFixture(input.criteria));
     vi.mocked(analyticsApi.analyze).mockResolvedValueOnce({
       ...result(),
       matchedRecords: { incidents: 0, patrols: 0 },
     });
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
-    const button = screen.getByRole('button', { name: 'Generate Report' });
+    const button = screen.getByRole('button', {
+      name: 'Generate & Save Report',
+    });
     expect(button).toBeDisabled();
     fireEvent.click(button);
     expect(generateReport).not.toHaveBeenCalled();
   });
   test('report generation uses applied criteria after draft edits', async () => {
-    vi.spyOn(analyticsApi, 'generateReport').mockImplementation(
-      async (snapshot) => snapshot,
+    vi.spyOn(analyticsApi, 'generateReport').mockImplementation(async (input) =>
+      savedReportFixture(input.criteria),
     );
     render(<AnalyticsPage />);
     await analyzeValidCriteria();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: 'Generate Report' }),
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
     ).toBeEnabled();
     fireEvent.change(screen.getByLabelText('End Date'), {
       target: { value: '2026-10-05' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Generate Report' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Generate & Save Report' }),
+    );
     await waitFor(() =>
       expect(analyticsApi.generateReport).toHaveBeenCalledWith(
         expect.objectContaining({
-          appliedCriteria: validCriteria,
-          analyticsResult: result(),
+          criteria: validCriteria,
         }),
         expect.any(AbortSignal),
       ),
@@ -532,6 +540,30 @@ describe('park loading and recovery', () => {
 });
 
 describe('criteria validation and API serialization', () => {
+  test.each([
+    ['rangerId', '   '],
+    ['rangerId', 'R\n101'],
+    ['rangerId', 123],
+    ['incidentType', 'POACHING'],
+    ['incidentStatus', 'CLOSED'],
+    ['severity', false],
+    ['conflictStatus', 'CLOSED'],
+    ['conflictSource', 'RANGER'],
+    ['conflictType', 'POACHING'],
+  ])('rejects malformed optional %s using shared API rules', (field, value) => {
+    const issues = validateDraftCriteria(
+      { ...validCriteria, [field]: value },
+      parks,
+    );
+    expect(issues.length).toBeGreaterThan(0);
+  });
+  test('rejects malformed IDs even if they appear in a corrupted park list', () => {
+    expect(
+      validateDraftCriteria({ ...validCriteria, parkId: 'bad-id' }, [
+        { ...parks[0], id: 'bad-id' },
+      ]),
+    ).toContain('Select a valid Park / Conservation Area.');
+  });
   test('rejects impossible dates and unsupported categories in frontend validation', () => {
     expect(
       validateDraftCriteria({ ...validCriteria, start: '2026-02-30' }, parks),

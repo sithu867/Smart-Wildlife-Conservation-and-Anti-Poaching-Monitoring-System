@@ -52,7 +52,12 @@ function FitRoutes({ positions }: { positions: LatLngTuple[] }) {
   const map = useMap();
   useEffect(() => {
     // Re-analysis may replace the park or routes without remounting Leaflet.
-    map.fitBounds(latLngBounds(positions), { padding: [30, 30], maxZoom: 14 });
+    // Immediate report navigation must not leave a zoom callback on a removed map.
+    map.fitBounds(latLngBounds(positions), {
+      padding: [30, 30],
+      maxZoom: 14,
+      animate: false,
+    });
   }, [map, positions]);
   return null;
 }

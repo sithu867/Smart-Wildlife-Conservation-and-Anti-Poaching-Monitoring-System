@@ -103,6 +103,19 @@
   overflow: auto;
   max-height: 18rem;
 }
+.analytics-date-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.analytics-date-presets > p {
+  flex-basis: 100%;
+}
+.analytics-page .analytics-filter-scope {
+  font-size: 0.85rem;
+  color: #bdd3c9;
+  margin: 0;
+}
 .analytics-hotspot-map {
   height: 350px;
   overflow: hidden;
@@ -195,6 +208,7 @@
   color: #e0f2fe;
 }
 .analytics-feedback button {
+  min-height: 2.75rem;
   padding: 0.4rem 0.75rem;
   border: 1px solid currentColor;
   border-radius: 0.35rem;
@@ -323,9 +337,20 @@
   border: 1px solid #769788;
   border-radius: 0.5rem;
 }
+.analytics-page .analytics-filters :disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
 .analytics-page :is(input, select, button, summary, a):focus-visible {
   outline: 3px solid #a7f3d0;
   outline-offset: 3px;
+}
+.analytics-table-scroll:focus-visible {
+  outline: 3px solid #a7f3d0;
+  outline-offset: 3px;
+}
+.analytics-selected-park {
+  display: none;
 }
 .analytics-page h2[tabindex='-1']:focus-visible {
   outline: 2px solid #a7f3d0;
@@ -611,7 +636,12 @@
   overflow-wrap: anywhere;
 }
 .analytics-report-paper header {
-  padding-bottom: 1.25rem;
+  /* The application's global header rule uses a navigation flex row. Report
+     identity needs a normal text block so long titles stay readable on phones. */
+  display: block;
+  background: transparent;
+  color: inherit;
+  padding: 0 0 1.25rem;
   border-bottom: 3px solid #287452;
 }
 .analytics-report-paper .eyebrow {
@@ -662,6 +692,33 @@
   font-size: 1.2rem;
   font-weight: 700;
 }
+.analytics-report-export strong { font-size: 1rem; color: inherit; }
+.analytics-export-formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  min-width: 0;
+  margin-block: 1rem;
+}
+.analytics-export-formats label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+.analytics-export-formats input { width: 1.2rem; height: 1.2rem; accent-color: #047857; }
+.analytics-report-preview :is(button, input, [tabindex]):focus-visible {
+  outline: 3px solid #34d399;
+  outline-offset: 3px;
+}
+.analytics-report-paper .analytics-table-scroll { max-width: 100%; margin-block: 1rem; overflow-x: auto; }
+.analytics-report-paper table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.analytics-report-paper :is(th, td) { padding: 0.6rem; text-align: left; border-bottom: 1px solid #c6d5cc; min-width: 6rem; overflow-wrap: anywhere; }
+.analytics-report-paper caption { text-align: left; font-weight: 700; padding-block: 0.5rem; }
+.analytics-report-visuals { min-width: 0; color: #ecfdf5; background: #10231c; border-radius: 0.5rem; }
+.analytics-report-visuals:has(> *) { padding: 0.5rem; margin-block: 1rem; }
+.analytics-report-visuals :is(h3, p, th, td, caption) { color: #ecfdf5; }
 .analytics-report-export .analytics-actions,
 .analytics-report-success {
   margin-top: 1rem;
@@ -679,7 +736,31 @@
   cursor: pointer;
 }
 .analytics-page
-  :is(.analytics-category, .analytics-field, .analytics-processing > div) {
+  :is(
+    .analytics-results,
+    .analytics-result-grid,
+    .analytics-category,
+    .analytics-field,
+    .analytics-processing > div,
+    .analytics-breakdown,
+    .analytics-chart
+  ) {
+  min-width: 0;
+}
+.analytics-page
+  :is(
+    .analytics-feedback,
+    .analytics-method,
+    .analytics-categories label,
+    .analytics-breakdown th
+  ) {
+  overflow-wrap: anywhere;
+}
+/* Leaflet panes have high z-indices. Contain them so maps cannot cover shared
+   navigation or other analytics controls on a narrow/touch viewport. */
+.analytics-page :is(.analytics-hotspot-map, .analytics-route-map) {
+  isolation: isolate;
+  width: 100%;
   min-width: 0;
 }
 .analytics-page .analytics-category p,
@@ -699,6 +780,29 @@
   }
 }
 @media (max-width: 600px) {
+  /* The shared header's single-row navigation otherwise widens this page on
+     phones. Scope wrapping to UC-D so teammate routes keep their own layout. */
+  .app:has(> .analytics-page) > header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .app:has(> .analytics-page) > header nav {
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+  }
+  .app:has(> .analytics-page) > header nav a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+  }
+  /* Native selects truncate long options on phones. Repeat the selection as
+     wrapping text so the complete park name/code remains visible. */
+  .analytics-selected-park {
+    display: block;
+    overflow-wrap: anywhere;
+    color: #bdd3c9;
+    font-size: 0.9rem;
+  }
   .analytics-area-grid,
   .analytics-page .analytics-filters,
   .analytics-page .analytics-advanced .analytics-filters,
@@ -727,5 +831,98 @@
   .analytics-spinner,
   .analytics-indeterminate::after {
     animation: none;
+  }
+}
+.analytics-history-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.analytics-history-card, .analytics-saved-reports, .analytics-archive-dialog {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.analytics-saved-reports button, .analytics-archive-dialog button {
+  min-height: 44px;
+  white-space: normal;
+}
+.analytics-metadata-form {
+  display: grid;
+  gap: .75rem;
+  margin-block: 1rem;
+}
+.analytics-metadata-form input, .analytics-metadata-form textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: .75rem;
+  font: inherit;
+}
+.analytics-metadata-form textarea { resize: vertical; }
+.analytics-metadata-form :is(input, textarea):focus-visible,
+.analytics-archive-dialog button:focus-visible {
+  outline: 3px solid #a7f3d0;
+  outline-offset: 3px;
+}
+.analytics-field-error { overflow-wrap: anywhere; }
+.analytics-archive-dialog .analytics-actions > button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .analytics-archive-dialog .analytics-actions { flex-direction: column; }
+  .analytics-archive-dialog .analytics-actions > button { width: 100%; }
+}
+.analytics-archive-dialog {
+  width: min(32rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  box-sizing: border-box;
+  overflow-y: auto;
+  border: 1px solid #c6d5cc;
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+.analytics-archive-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+
+.analytics-button--danger {
+  background: #7f1d1d;
+  color: #fee2e2;
+  border-color: #fca5a5;
+}
+.analytics-button--danger:hover:not(:disabled) {
+  background: #991b1b;
+}
+.analytics-page .analytics-view-switch {
+  justify-content: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  margin-block: 1.25rem;
+  padding: 0.5rem;
+  border: 1px solid #285540;
+  border-radius: 0.75rem;
+  background: #0d241b;
+}
+.analytics-view-switch .analytics-button[aria-pressed='true'] {
+  background: #047857;
+  color: #fff;
+  border-color: #34d399;
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+.analytics-view-switch .analytics-button[aria-pressed='true']:hover:not(:disabled) {
+  background: #065f46;
+}
+.analytics-view-switch .analytics-button,
+.analytics-saved-reports .analytics-button {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .analytics-page .analytics-view-switch {
+    width: 100%;
   }
 }

@@ -7,6 +7,10 @@ export const notFound: RequestHandler = (_req, res) => {
 
 export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   if (res.headersSent) return _next(error);
+  // Malformed JSON is a client error; never echo parser excerpts or internals.
+  if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, error: { message: 'Request must contain valid JSON.' } });
+  }
   
   if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
     return res.status(413).json({ success: false, error: { message: 'Request body exceeds the 8 MB limit.' } });

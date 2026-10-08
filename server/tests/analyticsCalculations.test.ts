@@ -242,8 +242,8 @@ describe('UC-D conflict trends', () => {
     ]);
     expect(trends.alertsOverTime.points[29].count).toBe(2);
     expect(trends.responsesOverTime.points[0].count).toBe(1);
-    expect(trends.scope).toBe('ALL_PARKS_UNASSIGNED');
-    expect(trends.scopeNotice).toContain('not the selected park');
+    expect(trends.scope).toBe('SELECTED_PARK');
+    expect(trends.scopeNotice).toContain('assigned to the selected park');
   });
   test('no alerts/responses returns empty breakdowns and zero-filled time axes, not fabricated events', () => {
     const trends = calculateConflictTrends([], [], start, end);

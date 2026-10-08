@@ -13,6 +13,7 @@ export interface IncidentEvidence {
 export interface ConservationIncident {
   _id: string;
   clientIncidentId?: string;
+  parkId?: string | null;
   incidentType: IncidentType;
   otherTypeDescription?: string;
   description: string;
@@ -36,6 +37,7 @@ export interface ConservationIncident {
 
 export interface CreateIncidentPayload {
   clientIncidentId?: string;
+  parkId?: string;
   incidentType: IncidentType;
   otherTypeDescription?: string;
   description: string;

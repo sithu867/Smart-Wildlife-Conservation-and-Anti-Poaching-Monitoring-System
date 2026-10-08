@@ -74,10 +74,25 @@ export interface IncidentHotspotAnalysis {
   hotspots: IncidentHotspot[];
 }
 export const HWC_SCOPE_NOTICE =
-  'Conflict trends cover all parks / unassigned alerts, not the selected park. Alerts have no reliable park reference and parks have no boundary geometry.';
+  'Conflict trends use alerts assigned to the selected park. Legacy/unassigned alerts and their responses are excluded; coordinates are never used to guess a park.';
+export interface ConflictLocationAnalysis {
+  gridSizeDegrees: number;
+  validAlertCount: number;
+  excludedCoordinateCount: number;
+  locations: Array<{
+    cellId: string;
+    rank: number;
+    latitude: number;
+    longitude: number;
+    alertCount: number;
+    bySeverity: AnalyticsGroup[];
+    byType: AnalyticsGroup[];
+  }>;
+}
 export interface ConflictTrendAnalysis {
-  scope: 'ALL_PARKS_UNASSIGNED';
+  scope: 'SELECTED_PARK';
   scopeNotice: string;
+  locations: ConflictLocationAnalysis;
   totalAlerts: number;
   alertsOverTime: AnalyticsTimeSeries;
   bySeverity: AnalyticsGroup[];
@@ -134,11 +149,7 @@ export interface AnalyticsResult {
   };
   categoryAvailability: Array<{
     category: AnalysisCategory;
-    status:
-      | 'AVAILABLE'
-      | 'AVAILABLE_UNSCOPED'
-      | 'NOT_IMPLEMENTED'
-      | 'UNAVAILABLE_PARK_ASSOCIATION';
+    status: 'AVAILABLE' | 'NOT_IMPLEMENTED' | 'UNAVAILABLE_PARK_ASSOCIATION';
   }>;
   limitations: string[];
   summary: {
@@ -164,11 +175,67 @@ export interface AnalyticsResult {
   patrolCoverage?: PatrolCoverageAnalysis;
 }
 
+// No domain-specific historical cutoff exists. Support the full four-digit
+// civil calendar from year 1; year 0 is not a supported conservation date.
+export const MIN_ANALYSIS_DATE = '0001-01-01';
+export const SUPPORTED_DATE_MESSAGE = `Choose a supported date on or after ${MIN_ANALYSIS_DATE}.`;
+export const FUTURE_PERIOD_MESSAGE =
+  'The selected period is entirely in the future. Choose a period that includes today or an earlier date.';
+
 export function isValidAnalysisDate(value: string): boolean {
   // Date.parse alone normalizes impossible dates such as February 30.
   return (
     /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    value >= MIN_ANALYSIS_DATE &&
     Number.isFinite(Date.parse(value)) &&
     new Date(value).toISOString().slice(0, 10) === value
+  );
+}
+
+export function includesElapsedAnalysisDay(
+  start: string,
+  now = new Date(),
+): boolean {
+  // Compare UTC calendar dates, not local midnights. Today remains valid even
+  // before its last records arrive; future-only routes cannot be called neglected.
+  return !isValidAnalysisDate(start) || start <= now.toISOString().slice(0, 10);
+}
+
+export function isValidAnalysisId(value: string): boolean {
+  // Park.id uses Prisma cuid(), not cuid2(), UUIDs or the former ObjectIDs.
+  // Existence is checked separately against the central database before analysis.
+  return /^c[a-z0-9]{24}$/.test(value);
+}
+
+export function isAnalysisDateRangeOrdered(
+  start: string,
+  end: string,
+): boolean {
+  // Individual date errors take priority over comparison of malformed strings.
+  return (
+    !isValidAnalysisDate(start) || !isValidAnalysisDate(end) || start <= end
+  );
+}
+
+export const OPTIONAL_ANALYSIS_FILTERS = [
+  'rangerId',
+  'incidentType',
+  'incidentStatus',
+  'severity',
+  'conflictStatus',
+  'conflictSource',
+  'conflictType',
+] as const;
+
+export function normalizeAnalysisControls(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  // Only empty optional form controls mean "all". Required fields and malformed
+  // values must reach validation instead of being silently discarded.
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, entry]) =>
+        !OPTIONAL_ANALYSIS_FILTERS.some((field) => field === key) ||
+        (entry !== '' && entry !== undefined),
+    ),
   );
 }

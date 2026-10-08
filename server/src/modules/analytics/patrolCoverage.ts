@@ -5,12 +5,13 @@ import type {
 } from './contract.js';
 
 interface RouteRecord {
-  _id: unknown;
+  id: string;
   name?: string;
-  geometry?: { type?: string; coordinates?: unknown } | null;
+  geometry?: unknown;
 }
 export interface CoverageSessionRecord {
-  patrolRoute?: unknown;
+  id?: string;
+  patrolRouteId?: string;
   startTime?: Date | string;
   endTime?: Date | string | null;
   status?: string;
@@ -36,10 +37,19 @@ function validCoordinate(value: unknown): value is [number, number] {
 }
 function waypointTimes(waypoints: unknown): Array<number | null> {
   if (!Array.isArray(waypoints)) return [];
+  const seen = new Set<string>();
   return waypoints.map((point: unknown) => {
     if (!point || typeof point !== 'object') return null;
     const record = point as Record<string, unknown>;
     if (!validCoordinate([record.longitude, record.latitude])) return null;
+    // Replayed waypoint rows must not inflate activity. Prefer their persisted
+    // ID; old projections without IDs use the exact timestamp/coordinate tuple.
+    const key =
+      typeof record.id === 'string'
+        ? record.id
+        : `${String(record.timestamp)}:${String(record.latitude)}:${String(record.longitude)}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
     return record.timestamp instanceof Date ||
       typeof record.timestamp === 'string'
       ? eventTime(record.timestamp)
@@ -47,7 +57,11 @@ function waypointTimes(waypoints: unknown): Array<number | null> {
   });
 }
 function routeGeometry(route: RouteRecord): PatrolRouteCoverage['geometry'] {
-  const geometry = route.geometry;
+  // Prisma Json is not guaranteed to contain a GeoJSON object.
+  const geometry =
+    route.geometry && typeof route.geometry === 'object'
+      ? (route.geometry as Record<string, unknown>)
+      : null;
   // Reject a broken LineString as a whole rather than connecting disjoint valid
   // fragments and inventing an unrecorded path. Its route still appears in the list.
   return geometry?.type === 'LineString' &&
@@ -58,17 +72,62 @@ function routeGeometry(route: RouteRecord): PatrolRouteCoverage['geometry'] {
     : null;
 }
 
+// Share activity qualification between route coverage and report summary totals.
+// The query finds candidate events; this also checks coordinates and lifecycle.
+export function patrolSessionActivity(
+  session: CoverageSessionRecord,
+  start: Date,
+  end: Date,
+) {
+  const inPeriod = (time: number | null): time is number =>
+    time !== null && time >= start.getTime() && time <= end.getTime();
+  const started = eventTime(session.startTime);
+  const ended = eventTime(session.endTime);
+  // Historical malformed waypoint arrays/entries are ignored locally; they
+  // must not turn an otherwise valid park analysis into a system error.
+  const recordedTimes = waypointTimes(session.waypoints)
+    .filter(inPeriod)
+    .filter(
+      (time) =>
+        (started === null || time >= started) &&
+        (session.status !== PatrolStatus.COMPLETED ||
+          ended === null ||
+          time <= ended),
+    );
+  // A completed patrol is dated by completion. Older records lacking an
+  // endTime use their recorded start; a later completion never covers an earlier period.
+  const completionTime = session.endTime == null ? started : ended;
+  // An explicitly invalid endTime or reversed lifecycle cannot establish an
+  // in-period completion; any trustworthy start/waypoints can still be activity.
+  const completed =
+    session.status === PatrolStatus.COMPLETED &&
+    (started === null || ended === null || ended >= started) &&
+    inPeriod(completionTime);
+  const startedActivity =
+    (session.status === PatrolStatus.ACTIVE ||
+      session.status === PatrolStatus.COMPLETED) &&
+    inPeriod(started);
+  // ASSIGNED alone is planning, not field activity. Valid in-period waypoints
+  // can still evidence activity on an imperfect historical session record.
+  const activityTimes = [...recordedTimes];
+  if (startedActivity && started !== null) activityTimes.push(started);
+  if (completed && completionTime !== null) activityTimes.push(completionTime);
+  return {
+    completed,
+    waypointCount: recordedTimes.length,
+    times: activityTimes,
+  };
+}
+
 export function calculatePatrolCoverage(
   parkRoutes: RouteRecord[],
   sessions: CoverageSessionRecord[],
   start: Date,
   end: Date,
 ): PatrolCoverageAnalysis {
-  const inPeriod = (time: number | null): time is number =>
-    time !== null && time >= start.getTime() && time <= end.getTime();
   const routes = new Map<string, PatrolRouteCoverage>();
   for (const route of parkRoutes) {
-    const routeId = String(route._id ?? '');
+    const routeId = route.id;
     if (!routeId || routes.has(routeId)) continue;
     routes.set(routeId, {
       routeId,
@@ -82,50 +141,23 @@ export function calculatePatrolCoverage(
     });
   }
   let excludedSessionCount = 0;
+  const seenSessions = new Set<string>();
   for (const session of sessions) {
-    // UC-A copies assignment.patrolRoute onto the session. Only that explicit
-    // route link determines park membership; a missing link is never inferred.
-    const route = routes.get(String(session.patrolRoute ?? ''));
+    // Use Prisma's stored foreign key, not an optional populated relation object.
+    // The park route set prevents another park's session from establishing coverage.
+    if (session.id && seenSessions.has(session.id)) continue;
+    if (session.id) seenSessions.add(session.id);
+    const route = routes.get(session.patrolRouteId ?? '');
     if (!route) {
       excludedSessionCount++;
       continue;
     }
-    const started = eventTime(session.startTime);
-    const ended = eventTime(session.endTime);
-    // Historical malformed waypoint arrays/entries are ignored locally; they
-    // must not turn an otherwise valid park analysis into a system error.
-    const recordedTimes = waypointTimes(session.waypoints)
-      .filter(inPeriod)
-      .filter(
-        (time) =>
-          (started === null || time >= started) &&
-          (session.status !== PatrolStatus.COMPLETED ||
-            ended === null ||
-            time <= ended),
-      );
-    // A completed patrol is dated by completion. Older documents lacking an
-    // endTime use their recorded start; a later completion never covers an earlier period.
-    const completionTime = session.endTime == null ? started : ended;
-    // An explicitly invalid endTime or reversed lifecycle cannot establish an
-    // in-period completion; any trustworthy start/waypoints can still be activity.
-    const completed =
-      session.status === PatrolStatus.COMPLETED &&
-      (started === null || ended === null || ended >= started) &&
-      inPeriod(completionTime);
-    const startedActivity =
-      (session.status === PatrolStatus.ACTIVE ||
-        session.status === PatrolStatus.COMPLETED) &&
-      inPeriod(started);
-    // ASSIGNED alone is planning, not field activity. Valid in-period waypoints
-    // can still evidence activity on an imperfect historical session document.
-    if (!completed && !startedActivity && !recordedTimes.length) continue;
+    const activity = patrolSessionActivity(session, start, end);
+    if (!activity.times.length) continue;
     route.sessionCount++;
-    route.completedSessionCount += Number(completed);
-    route.waypointCount += recordedTimes.length;
-    const activityTimes = [...recordedTimes];
-    if (startedActivity && started !== null) activityTimes.push(started);
-    if (completed && completionTime !== null)
-      activityTimes.push(completionTime);
+    route.completedSessionCount += Number(activity.completed);
+    route.waypointCount += activity.waypointCount;
+    const activityTimes = activity.times;
     const last = new Date(Math.max(...activityTimes)).toISOString();
     if (!route.lastPatrolDate || last > route.lastPatrolDate)
       route.lastPatrolDate = last;

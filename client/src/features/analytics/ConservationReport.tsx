@@ -4,6 +4,13 @@ import {
   type ConservationReportSnapshot,
 } from '../../../../server/src/modules/analytics/reportContract';
 import { FeedbackPanel } from './AnalyticsFeedback';
+import {
+  REPORT_EXPORT_FORMATS,
+  REPORT_FORMAT_LABELS,
+  type ReportExportFormat,
+} from '../../../../server/src/modules/analytics/reportContract';
+import { ReportSections } from './ReportSections';
+import { REPORT_PRESENTATION } from './formatting';
 
 export function ReportGeneration({
   canGenerate,
@@ -30,13 +37,18 @@ export function ReportGeneration({
     >
       <h2>Generate a Conservation Report</h2>
       <p id="analytics-report-eligibility">
-        Generate Report is available after a successful analysis with matching
-        conservation data.
+        Generate &amp; Save Report is available after a successful analysis with
+        meaningful findings, including registered routes with no patrol
+        activity.
       </p>
       <p>
         {draftChanged
-          ? 'Draft criteria have changed. The report will use the reviewed applied analysis, including its original criteria and filters.'
-          : 'Generate a report from the applied criteria and the findings you reviewed.'}
+          ? 'Draft criteria have changed. The report will use the reviewed applied analysis criteria and filters.'
+          : 'Generate and save a report using the applied criteria.'}
+      </p>
+      <p>
+        The server recalculates current findings before saving. Review the saved
+        preview if source data changed since Analyze.
       </p>
       <div className="analytics-actions">
         <button
@@ -46,7 +58,9 @@ export function ReportGeneration({
           aria-describedby="analytics-report-eligibility"
           onClick={() => onGenerate()}
         >
-          {generating ? 'Generating Report...' : 'Generate Report'}
+          {generating
+            ? 'Generating & Saving Report...'
+            : 'Generate & Save Report'}
         </button>
         {hasReport && (
           <button
@@ -73,7 +87,7 @@ export function ReportGeneration({
             disabled={!canGenerate || generating}
             onClick={() => onGenerate(true)}
           >
-            Retry Generate Report
+            Retry Generate &amp; Save Report
           </button>
         </FeedbackPanel>
       )}
@@ -88,6 +102,10 @@ export function ConservationReportPreview({
   exportedFilename,
   onBack,
   onExport,
+  backLabel = 'Return to Analysis',
+  format = 'pdf',
+  onFormatChange,
+  disabled = false,
 }: {
   snapshot: ConservationReportSnapshot;
   exporting: boolean;
@@ -95,13 +113,17 @@ export function ConservationReportPreview({
   exportedFilename: string;
   onBack: () => void;
   onExport: () => void;
+  backLabel?: string;
+  format?: ReportExportFormat;
+  onFormatChange?: (format: ReportExportFormat) => void;
+  disabled?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus({ preventScroll: true });
     heading.current?.scrollIntoView?.({ block: 'start' });
   }, [snapshot]);
-  const report = buildReportDocument(snapshot);
+  const report = buildReportDocument(snapshot, REPORT_PRESENTATION);
   function lines(values: string[]) {
     return (
       <ul>
@@ -114,7 +136,8 @@ export function ConservationReportPreview({
   return (
     <section className="analytics-report-preview" aria-label="Report Preview">
       <p className="analytics-report-success" role="status">
-        Report generated successfully. Review the report below, then export PDF.
+        Saved report loaded successfully. Review the saved findings below, then
+        choose PDF, CSV or Excel to export.
       </p>
       <article className="card analytics-report-paper">
         <header>
@@ -145,15 +168,7 @@ export function ConservationReportPreview({
           <h3>Executive Summary</h3>
           {lines(report.summary)}
         </section>
-        {report.sections.map((section) => (
-          <section
-            key={section.title}
-            aria-label={`${section.title} report section`}
-          >
-            <h3>{section.title}</h3>
-            {lines(section.lines)}
-          </section>
-        ))}
+        <ReportSections snapshot={snapshot} />
         {!!report.limitations.length && (
           <section aria-label="Report limitations">
             <h3>Data Scope and Limitations</h3>
@@ -163,37 +178,76 @@ export function ConservationReportPreview({
       </article>
       <div className="card analytics-report-export" aria-busy={exporting}>
         <h3>Export Report</h3>
-        <p>Export this reviewed report as PDF.</p>
+        <p>Export the saved findings in your preferred format.</p>
+        <fieldset
+          className="analytics-export-formats"
+          disabled={exporting || disabled}
+        >
+          <legend>Export Format</legend>
+          {REPORT_EXPORT_FORMATS.map((value) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="report-export-format"
+                value={value}
+                checked={format === value}
+                onChange={() => onFormatChange?.(value)}
+              />
+              {value === 'xlsx' ? 'Excel (.xlsx)' : REPORT_FORMAT_LABELS[value]}
+            </label>
+          ))}
+        </fieldset>
         <div className="analytics-actions">
           <button
             type="button"
             className="button analytics-button analytics-button--secondary"
             onClick={onBack}
+            disabled={exporting || disabled}
           >
-            Return to Analysis
+            {backLabel}
           </button>
           <button
             type="button"
             className="button analytics-button analytics-button--primary"
-            disabled={exporting}
+            disabled={exporting || disabled}
             onClick={onExport}
           >
-            {exporting ? 'Exporting PDF...' : 'Export PDF'}
+            {exporting
+              ? `Exporting ${REPORT_FORMAT_LABELS[format]}...`
+              : `Export ${REPORT_FORMAT_LABELS[format]}`}
           </button>
         </div>
         {exporting && (
-          <p role="status">Exporting your retained report as PDF...</p>
+          <p role="status">
+            Exporting your saved report as {REPORT_FORMAT_LABELS[format]}...
+          </p>
         )}
         {exportedFilename && (
           <p className="analytics-report-success" role="status">
-            Report exported successfully. <strong>{exportedFilename}</strong>
+            {
+              REPORT_FORMAT_LABELS[
+                exportedFilename.endsWith('.xlsx')
+                  ? 'xlsx'
+                  : exportedFilename.endsWith('.csv')
+                    ? 'csv'
+                    : 'pdf'
+              ]
+            }{' '}
+            exported successfully. <strong>{exportedFilename}</strong>
           </p>
         )}
         {error && (
-          <FeedbackPanel tone="system" title="PDF export failed">
+          <FeedbackPanel
+            tone="system"
+            title={`${REPORT_FORMAT_LABELS[format]} export failed`}
+          >
             <p>{error}</p>
-            <button type="button" disabled={exporting} onClick={onExport}>
-              Retry Export
+            <button
+              type="button"
+              disabled={exporting || disabled}
+              onClick={onExport}
+            >
+              Retry Export {REPORT_FORMAT_LABELS[format]}
             </button>
           </FeedbackPanel>
         )}
