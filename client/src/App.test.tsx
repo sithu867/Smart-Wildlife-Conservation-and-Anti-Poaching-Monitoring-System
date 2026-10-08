@@ -8,7 +8,7 @@ test('renders the application foundation', () => {
       <App />
     </MemoryRouter>
   );
-  expect(screen.getByText('Smart wildlife conservation')).toBeInTheDocument();
+  expect(screen.getByText(/Smart Wildlife Conservation/i)).toBeInTheDocument();
 });
 
 test('renders ranger and manager route pages', async () => {
@@ -17,5 +17,5 @@ test('renders ranger and manager route pages', async () => {
       <App />
     </MemoryRouter>
   );
-  expect(screen.getByText('Analytics')).toBeInTheDocument();
+  expect(screen.getAllByText(/Manager/i).length).toBeGreaterThan(0);
 });

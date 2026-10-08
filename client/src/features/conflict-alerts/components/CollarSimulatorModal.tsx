@@ -156,6 +156,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
             </button>
             <button
               type="submit"
+              aria-label="Generate Collar Alert"
               className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm"
               disabled={isSubmitting}
             >

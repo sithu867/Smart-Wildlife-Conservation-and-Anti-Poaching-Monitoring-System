@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from 'react-router-dom';
 import './styles.css';
+import { Navbar } from './shared/components/Navbar';
 import { HomePage } from './features/home/HomePage';
 import { AssignedPatrolPage } from './features/patrols/pages/AssignedPatrolPage';
 import { PatrolRoutePage } from './features/patrols/pages/PatrolRoutePage';
@@ -14,27 +15,19 @@ import { CollarMonitoringPage } from './features/collars/pages/CollarMonitoringP
 import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 
 const Placeholder = ({ title, description }: { title: string; description: string }) => (
-  <main className="page">
-    <p className="eyebrow">WildlifeGuard foundation</p>
-    <h1>{title}</h1>
-    <p>{description}</p>
-    <Link className="button" to="/">Back to overview</Link>
+  <main className="page px-4 py-8 max-w-xl mx-auto text-slate-100">
+    <p className="eyebrow text-xs font-bold uppercase tracking-widest text-emerald-400">WildlifeGuard foundation</p>
+    <h1 className="text-2xl font-black text-white mt-1 mb-2">{title}</h1>
+    <p className="text-sm text-slate-300 mb-4">{description}</p>
+    <Link className="inline-block py-2.5 px-4 bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs" to="/">Back to overview</Link>
   </main>
 );
 
 export default function App() {
   return (
-    <div className="app">
-      <header>
-        <Link to="/" className="brand">WildlifeGuard</Link>
-        <nav>
-          <Link to="/ranger/patrol">Patrols</Link>
-          <Link to="/ranger/incidents">Incidents</Link>
-          <Link to="/ranger/alerts">Conflict Alerts</Link>
-          <Link to="/ranger/collars">Collar Devices</Link>
-          <Link to="/manager/analytics">Manager</Link>
-        </nav>
-      </header>
+    <div className="app min-h-screen pb-24 md:pb-8 bg-[#0b1320]">
+      <Navbar />
+
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/home" element={<HomePage />} />

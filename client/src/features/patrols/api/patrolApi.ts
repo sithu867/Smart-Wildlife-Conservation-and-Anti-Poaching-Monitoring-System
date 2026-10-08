@@ -43,58 +43,13 @@ export function calculateTotalWaypointsDistanceKm(waypoints: Waypoint[]): number
 
 const DEFAULT_SEED_ROUTES: PatrolRoute[] = [
   {
-    _id: 'route-seed-yala-01',
-    name: 'Yala Block I Coastal & River Corridor',
+    _id: 'route-seed-udawalawe-01',
+    name: 'Udawalawe Reservoir Elephant Patrol',
     park: {
-      _id: 'park-seed-yala-01',
+      _id: 'park-seed-udawalawe-01',
       name: 'Yala National Park (Ruhuna)',
       code: 'YALA-NP',
       description: 'Southern Sri Lanka conservation park guarding Asian elephant and leopard habitats.'
-    },
-    description: '12.5km coastal sector sweep guarding Asian elephant corridors and river crossings.',
-    distanceKm: 12.5,
-    estimatedDurationHours: 3.5,
-    geometry: {
-      type: 'LineString',
-      coordinates: [
-        [81.5100, 6.3750],
-        [81.5220, 6.3820],
-        [81.5350, 6.3900],
-        [81.5480, 6.3980],
-        [81.5600, 6.4060]
-      ]
-    }
-  },
-  {
-    _id: 'route-seed-wilpattu-02',
-    name: 'Wilpattu Willu Basin Sweep',
-    park: {
-      _id: 'park-seed-wilpattu-02',
-      name: 'Wilpattu National Park',
-      code: 'WILPATTU-NP',
-      description: 'North Western conservation zone guarding sloth bear and elephant watering holes.'
-    },
-    description: '8.2km natural lake basin sweep guarding sloth bear and leopard habitats.',
-    distanceKm: 8.2,
-    estimatedDurationHours: 2.5,
-    geometry: {
-      type: 'LineString',
-      coordinates: [
-        [80.0500, 8.4500],
-        [80.0620, 8.4580],
-        [80.0750, 8.4660],
-        [80.0880, 8.4740]
-      ]
-    }
-  },
-  {
-    _id: 'route-seed-udawalawe-03',
-    name: 'Udawalawe Reservoir Elephant Patrol',
-    park: {
-      _id: 'park-seed-udawalawe-03',
-      name: 'Udawalawe National Park',
-      code: 'UDAWALAWE-NP',
-      description: 'Sabaragamuwa sanctuary protecting high-density Sri Lankan elephant populations.'
     },
     description: '15.0km reservoir perimeter check guarding elephant sanctuary boundary fence.',
     distanceKm: 15.0,
@@ -119,25 +74,7 @@ const DEFAULT_SEED_ASSIGNMENTS: PatrolAssignment[] = [
     patrolRoute: DEFAULT_SEED_ROUTES[0],
     assignedDate: new Date().toISOString(),
     status: PatrolStatus.ASSIGNED,
-    notes: 'Scheduled morning anti-poaching sweep in Yala Block I.'
-  },
-  {
-    _id: 'assign-seed-02',
-    rangerId: 'R-101',
-    rangerName: 'Ranger John',
-    patrolRoute: DEFAULT_SEED_ROUTES[1],
-    assignedDate: new Date().toISOString(),
-    status: PatrolStatus.ASSIGNED,
-    notes: 'Willu lake basin wildlife monitoring sweep.'
-  },
-  {
-    _id: 'assign-seed-03',
-    rangerId: 'R-101',
-    rangerName: 'Ranger John',
-    patrolRoute: DEFAULT_SEED_ROUTES[2],
-    assignedDate: new Date().toISOString(),
-    status: PatrolStatus.ASSIGNED,
-    notes: 'High-priority perimeter defense for Udawalawe Elephant Sanctuary.'
+    notes: 'Scheduled anti-poaching patrol for Udawalawe Reservoir Elephant Patrol.'
   }
 ];
 
@@ -192,52 +129,11 @@ const DEFAULT_SEED_HISTORY: PatrolSession[] = [
       },
       {
         _id: 'wp-demo-5',
-        latitude: 6.4060,
-        longitude: 81.5600,
+        latitude: 6.4980,
+        longitude: 80.9250,
         timestamp: new Date(Date.now() - 3600 * 1.5 * 1000).toISOString(),
         source: LocationSource.GPS,
         accuracy: 6
-      }
-    ]
-  },
-  {
-    _id: 'sess-demo-wilpattu-02',
-    clientSessionId: 'sess-demo-wilpattu-02',
-    rangerId: 'R-101',
-    rangerName: 'Ranger John',
-    patrolAssignment: 'assign-seed-02',
-    patrolRoute: DEFAULT_SEED_ROUTES[1],
-    startTime: new Date(Date.now() - 86400 * 1000).toISOString(),
-    endTime: new Date(Date.now() - 86400 * 1000 + 9000 * 1000).toISOString(),
-    status: PatrolStatus.COMPLETED,
-    syncStatus: SyncStatus.SYNCED,
-    totalDistanceKm: 8.2,
-    durationSeconds: 9000,
-    waypoints: [
-      {
-        _id: 'wp-wilp-1',
-        latitude: 8.4500,
-        longitude: 80.0500,
-        timestamp: new Date(Date.now() - 86400 * 1000).toISOString(),
-        source: LocationSource.GPS,
-        accuracy: 4
-      },
-      {
-        _id: 'wp-wilp-2',
-        latitude: 8.4580,
-        longitude: 80.0620,
-        timestamp: new Date(Date.now() - 86400 * 1000 + 3000 * 1000).toISOString(),
-        source: LocationSource.MANUAL,
-        accuracy: 6,
-        note: 'Fresh sloth bear footprints recorded near Kali Villu lake.'
-      },
-      {
-        _id: 'wp-wilp-3',
-        latitude: 8.4740,
-        longitude: 80.0880,
-        timestamp: new Date(Date.now() - 86400 * 1000 + 9000 * 1000).toISOString(),
-        source: LocationSource.GPS,
-        accuracy: 5
       }
     ]
   }
@@ -258,6 +154,17 @@ export const patrolApi = {
             updatedAt: new Date().toISOString(),
             payload: activeSession
           });
+        } else {
+          // Server confirmed no active session. Clean up stale active records in local store
+          const cachedSessions = await offlineDb.patrolSessions.toArray();
+          for (const item of cachedSessions) {
+            const p = item.payload as PatrolSession;
+            if (p && (p.status === PatrolStatus.ACTIVE || p.status === PatrolStatus.PAUSED)) {
+              await offlineDb.patrolSessions.update(item.id!, {
+                payload: { ...p, status: PatrolStatus.COMPLETED }
+              });
+            }
+          }
         }
         return {
           assignment: assignment || DEFAULT_SEED_ASSIGNMENTS[0],
@@ -570,11 +477,21 @@ export const patrolApi = {
       };
 
       try {
-        await offlineDb.patrolSessions.update(local.id, {
-          syncStatus: SyncStatus.PENDING,
-          updatedAt: new Date().toISOString(),
-          payload: completedSession
-        });
+        const allCached = await offlineDb.patrolSessions.toArray();
+        for (const item of allCached) {
+          const p = item.payload as PatrolSession;
+          if (p && (item.remoteId === sessionId || p._id === sessionId || p.clientSessionId === sessionId)) {
+            await offlineDb.patrolSessions.update(item.id!, {
+              syncStatus: SyncStatus.PENDING,
+              updatedAt: new Date().toISOString(),
+              payload: completedSession
+            });
+          } else if (p && (p.status === PatrolStatus.ACTIVE || p.status === PatrolStatus.PAUSED)) {
+            await offlineDb.patrolSessions.update(item.id!, {
+              payload: { ...p, status: PatrolStatus.COMPLETED }
+            });
+          }
+        }
 
         await syncService.enqueue({
           entity: 'PATROL_SESSION',

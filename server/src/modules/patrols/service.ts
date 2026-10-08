@@ -43,47 +43,27 @@ async function ensureSeedData(rangerId: string, rangerName = 'Ranger John') {
     }
   });
 
-  const routesData = [
-    {
-      name: 'Yala Block I Coastal & River Corridor',
-      description: '12.5km coastal sector sweep guarding Asian elephant corridors and river crossings.',
-      distanceKm: 12.5,
-      estimatedDurationHours: 3.5,
-      geometry: { type: 'LineString', coordinates: [[81.5100, 6.3750], [81.5220, 6.3820], [81.5350, 6.3900], [81.5480, 6.3980], [81.5600, 6.4060]] }
-    },
-    {
-      name: 'Wilpattu Willu Basin Sweep',
-      description: '8.2km natural lake basin sweep guarding sloth bear and leopard habitats.',
-      distanceKm: 8.2,
-      estimatedDurationHours: 2.5,
-      geometry: { type: 'LineString', coordinates: [[80.0500, 8.4500], [80.0620, 8.4580], [80.0750, 8.4660], [80.0880, 8.4740]] }
-    },
-    {
-      name: 'Udawalawe Reservoir Elephant Patrol',
-      description: '15.0km reservoir perimeter check guarding elephant sanctuary boundary fence.',
-      distanceKm: 15.0,
-      estimatedDurationHours: 4.0,
-      geometry: { type: 'LineString', coordinates: [[80.8800, 6.4750], [80.8950, 6.4820], [80.9100, 6.4900], [80.9250, 6.4980]] }
-    }
-  ];
+  const udawalaweData = {
+    name: 'Udawalawe Reservoir Elephant Patrol',
+    description: '15.0km reservoir perimeter check guarding elephant sanctuary boundary fence.',
+    distanceKm: 15.0,
+    estimatedDurationHours: 4.0,
+    geometry: { type: 'LineString', coordinates: [[80.8800, 6.4750], [80.8950, 6.4820], [80.9100, 6.4900], [80.9250, 6.4980]] }
+  };
 
-  const createdRoutes = [];
-  for (const r of routesData) {
-    const existing = await prisma.patrolRoute.findFirst({ where: { parkId: park.id, name: r.name } });
-    const route = existing ?? await prisma.patrolRoute.create({ data: { parkId: park.id, ...r } });
-    createdRoutes.push(route);
-  }
+  const existingRoute = await prisma.patrolRoute.findFirst({ where: { parkId: park.id, name: udawalaweData.name } });
+  const udawalaweRoute = existingRoute ?? await prisma.patrolRoute.create({ data: { parkId: park.id, ...udawalaweData } });
 
   // Pre-seed a completed demo session with GPS & Manual waypoints if history is empty
   const sessionCount = await prisma.patrolSession.count({ where: { rangerId } });
-  if (sessionCount === 0 && createdRoutes.length > 0) {
+  if (sessionCount === 0) {
     const demoAssignment = await prisma.patrolAssignment.create({
       data: {
         rangerId,
         rangerName,
-        patrolRouteId: createdRoutes[0].id,
+        patrolRouteId: udawalaweRoute.id,
         status: PatrolStatus.COMPLETED as any,
-        notes: 'Pre-seeded demonstration patrol in Yala Block I.'
+        notes: 'Pre-seeded demonstration patrol in Udawalawe Sanctuary.'
       }
     });
 
@@ -92,53 +72,70 @@ async function ensureSeedData(rangerId: string, rangerName = 'Ranger John') {
 
     await prisma.patrolSession.create({
       data: {
-        clientSessionId: 'sess-demo-yala-01',
+        clientSessionId: 'sess-demo-udawalawe-01',
         rangerId,
         rangerName,
         patrolAssignmentId: demoAssignment.id,
-        patrolRouteId: createdRoutes[0].id,
+        patrolRouteId: udawalaweRoute.id,
         startTime,
         endTime,
         status: PatrolStatus.COMPLETED as any,
         syncStatus: SyncStatus.SYNCED as any,
-        totalDistanceKm: 12.5,
+        totalDistanceKm: 15.0,
         durationSeconds: 12600,
         waypoints: {
           create: [
-            { latitude: 6.3750, longitude: 81.5100, timestamp: new Date(startTime.getTime()), source: LocationSource.GPS as any, accuracy: 5 },
-            { latitude: 6.3820, longitude: 81.5220, timestamp: new Date(startTime.getTime() + 3600 * 1000), source: LocationSource.MANUAL as any, accuracy: 8, note: 'Spotted herd of 6 Asian Elephants near watering hole.' },
-            { latitude: 6.3900, longitude: 81.5350, timestamp: new Date(startTime.getTime() + 3600 * 2 * 1000), source: LocationSource.GPS as any, accuracy: 4 },
-            { latitude: 6.3980, longitude: 81.5480, timestamp: new Date(startTime.getTime() + 3600 * 3 * 1000), source: LocationSource.MANUAL as any, accuracy: 10, note: 'Unlawful wire snare identified and safely disarmed near perimeter fence.' },
-            { latitude: 6.4060, longitude: 81.5600, timestamp: new Date(endTime.getTime()), source: LocationSource.GPS as any, accuracy: 6 }
+            { latitude: 6.4750, longitude: 80.8800, timestamp: new Date(startTime.getTime()), source: LocationSource.GPS as any, accuracy: 5 },
+            { latitude: 6.4820, longitude: 80.8950, timestamp: new Date(startTime.getTime() + 3600 * 1000), source: LocationSource.MANUAL as any, accuracy: 8, note: 'Spotted herd of Asian Elephants near Udawalawe reservoir.' },
+            { latitude: 6.4900, longitude: 80.9100, timestamp: new Date(startTime.getTime() + 3600 * 2 * 1000), source: LocationSource.GPS as any, accuracy: 4 },
+            { latitude: 6.4980, longitude: 80.9250, timestamp: new Date(endTime.getTime()), source: LocationSource.GPS as any, accuracy: 6 }
           ]
         }
       }
     });
   }
 
-  const existingAssignments = await prisma.patrolAssignment.findMany({
-    where: { rangerId, status: { in: [PatrolStatus.ASSIGNED as any, PatrolStatus.ACTIVE as any] } },
+  // Check if there is an active session in progress for this ranger
+  const activeSession = await prisma.patrolSession.findFirst({
+    where: { rangerId, status: { in: [PatrolStatus.ACTIVE as any, PatrolStatus.PAUSED as any] } }
+  });
+
+  // Clean up any extra/other route assignments so ranger has strictly 1 primary assigned route
+  await prisma.patrolAssignment.deleteMany({
+    where: {
+      rangerId,
+      patrolRouteId: { not: udawalaweRoute.id },
+      status: { in: [PatrolStatus.ASSIGNED as any, PatrolStatus.ACTIVE as any] }
+    }
+  });
+
+  // If no session is active, reset assignment status to ASSIGNED
+  if (!activeSession) {
+    await prisma.patrolAssignment.updateMany({
+      where: { rangerId, patrolRouteId: udawalaweRoute.id, status: PatrolStatus.ACTIVE as any },
+      data: { status: PatrolStatus.ASSIGNED as any }
+    });
+  }
+
+  let existingAssignment = await prisma.patrolAssignment.findFirst({
+    where: { rangerId, patrolRouteId: udawalaweRoute.id, status: { in: [PatrolStatus.ASSIGNED as any, PatrolStatus.ACTIVE as any] } },
     include: { patrolRoute: { include: { park: true } } }
   });
 
-  if (existingAssignments.length > 0) return existingAssignments;
-
-  const newAssignments = [];
-  for (const route of createdRoutes) {
-    const assignment = await prisma.patrolAssignment.create({
+  if (!existingAssignment) {
+    existingAssignment = await prisma.patrolAssignment.create({
       data: {
         rangerId,
         rangerName,
-        patrolRouteId: route.id,
-        status: PatrolStatus.ASSIGNED as any,
-        notes: `Scheduled anti-poaching patrol for ${route.name}.`
+        patrolRouteId: udawalaweRoute.id,
+        status: activeSession ? (PatrolStatus.ACTIVE as any) : (PatrolStatus.ASSIGNED as any),
+        notes: `Scheduled anti-poaching patrol for ${udawalaweRoute.name}.`
       },
       include: { patrolRoute: { include: { park: true } } }
     });
-    newAssignments.push(assignment);
   }
 
-  return newAssignments;
+  return [existingAssignment];
 }
 
 export class PatrolService {

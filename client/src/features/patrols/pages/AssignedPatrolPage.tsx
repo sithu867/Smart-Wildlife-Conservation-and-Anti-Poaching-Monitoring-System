@@ -72,21 +72,21 @@ export const AssignedPatrolPage: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 text-slate-100 flex flex-col gap-6">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <span className="text-xs font-bold uppercase tracking-widest text-amber-400">Ranger Field Workspace</span>
-          <h1 className="text-2xl font-black text-white mt-1">My Assigned Patrol Routes</h1>
+          <h1 className="text-xl sm:text-2xl font-black text-white mt-0.5">My Assigned Patrol Routes</h1>
         </div>
         <SyncStatusIndicator />
       </div>
 
       {/* Active/Paused Session Notification Banner */}
       {isSessionActive && (
-        <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-emerald-900/80 border border-emerald-500/50 p-4 rounded-2xl flex items-center justify-between shadow-xl animate-pulse">
+        <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-emerald-900/80 border border-emerald-500/50 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl">
           <div className="flex items-center gap-3">
             <span className="text-2xl">📡</span>
             <div>
-              <h3 className="font-extrabold text-emerald-300 text-sm flex items-center gap-2">
+              <h3 className="font-extrabold text-emerald-300 text-sm flex flex-wrap items-center gap-2">
                 <span>{session.status === 'PAUSED' ? 'Patrol Session Paused' : 'Active Patrol Session in Progress'}</span>
                 <span className="text-[10px] bg-emerald-400 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase">
                   {session.status}
@@ -99,7 +99,7 @@ export const AssignedPatrolPage: React.FC = () => {
           </div>
           <button
             onClick={handleResumePatrol}
-            className="py-2.5 px-4 rounded-xl text-xs font-black bg-emerald-400 text-slate-950 hover:bg-emerald-300 shadow-lg shadow-emerald-400/20 active:scale-95 transition-all"
+            className="w-full sm:w-auto py-2.5 px-4 rounded-xl text-xs font-black bg-emerald-400 text-slate-950 hover:bg-emerald-300 shadow-lg shadow-emerald-400/20 active:scale-95 transition-all text-center"
           >
             {session.status === 'PAUSED' ? 'Resume Patrol' : 'Open Tracking Screen →'}
           </button>
@@ -118,9 +118,18 @@ export const AssignedPatrolPage: React.FC = () => {
         </div>
 
         {assignments.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={assignments.length === 1 ? "w-full flex flex-col" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
             {assignments.map(assign => {
               const isSelected = assignment?._id === assign._id;
+              const isSessionForAssignment = Boolean(
+                session && (
+                  (typeof session.patrolAssignment === 'string' && session.patrolAssignment === assign._id) ||
+                  (typeof session.patrolAssignment === 'object' && session.patrolAssignment?._id === assign._id) ||
+                  session.patrolRoute?._id === assign.patrolRoute?._id
+                )
+              );
+              const isAnotherActive = Boolean(isSessionActive && !isSessionForAssignment);
+
               return (
                 <div
                   key={assign._id}
@@ -131,7 +140,8 @@ export const AssignedPatrolPage: React.FC = () => {
                 >
                   <PatrolCard
                     assignment={assign}
-                    activeSession={session?.patrolAssignment === assign._id ? session : null}
+                    activeSession={isSessionForAssignment ? session : null}
+                    isAnotherPatrolActive={isAnotherActive}
                     onStartPatrol={() => handleStartSelectedPatrol(assign._id)}
                     onViewRoute={() => navigate(`/ranger/patrol/route/${assign.patrolRoute._id}`)}
                     onContinuePatrol={handleResumePatrol}

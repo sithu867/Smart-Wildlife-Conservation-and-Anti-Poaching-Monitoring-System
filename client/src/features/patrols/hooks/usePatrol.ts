@@ -18,8 +18,8 @@ export function usePatrol(sessionIdParam?: string) {
   const watchIdRef = useRef<number | null>(null);
   const lastWaypointTimeRef = useRef<number>(0);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
+  const loadData = useCallback(async (showLoadingSpinner = false) => {
+    if (showLoadingSpinner) setLoading(true);
     setError(null);
     try {
       if (sessionIdParam) {
@@ -34,12 +34,23 @@ export function usePatrol(sessionIdParam?: string) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load patrol assignment');
     } finally {
-      setLoading(false);
+      if (showLoadingSpinner) setLoading(false);
     }
   }, [sessionIdParam]);
 
   useEffect(() => {
-    void loadData();
+    void loadData(true);
+
+    const handleSyncOrOnline = () => {
+      void loadData(false);
+    };
+
+    window.addEventListener('online', handleSyncOrOnline);
+    window.addEventListener('sync-completed', handleSyncOrOnline);
+    return () => {
+      window.removeEventListener('online', handleSyncOrOnline);
+      window.removeEventListener('sync-completed', handleSyncOrOnline);
+    };
   }, [loadData]);
 
   // Timer for active patrol session elapsed time

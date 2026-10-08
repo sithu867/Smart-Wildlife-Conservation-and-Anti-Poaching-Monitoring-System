@@ -29,15 +29,6 @@ export class SyncService {
         this.online = false;
         void offlineDb.syncQueue.where('status').equals(SyncStatus.SYNCING).modify({ status: SyncStatus.PENDING });
       });
-      // Browser DevTools offline mode and some mobile browsers do not always
-      // emit online/offline events. Polling lets queued field actions recover
-      // without requiring a page refresh.
-      window.setInterval(() => {
-        if (navigator.onLine) {
-          this.online = true;
-          void this.processAll();
-        }
-      }, 5000);
     }
   }
 
@@ -122,6 +113,9 @@ export class SyncService {
             break;
           }
         }
+      }
+      if (typeof window !== 'undefined' && items.length > 0) {
+        window.dispatchEvent(new CustomEvent('sync-completed'));
       }
     } catch (err) {
       console.warn('SyncService batch execution error:', err);

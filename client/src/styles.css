@@ -19,6 +19,16 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Touch target & PWA scrolling optimizations */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
 /* Fix input contrast inside modals and light form containers */
 input, select, textarea {
   color: #0f172a !important;
@@ -27,26 +37,6 @@ input, select, textarea {
 
 input::placeholder, textarea::placeholder {
   color: #64748b !important;
-}
-
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.875rem 1.25rem;
-  background: #091a14;
-  border-bottom: 1px solid #16382c;
-  color: white;
-}
-
-header a {
-  color: inherit;
-  text-decoration: none;
-}
-
-nav {
-  display: flex;
-  gap: 1rem;
 }
 
 .brand {
