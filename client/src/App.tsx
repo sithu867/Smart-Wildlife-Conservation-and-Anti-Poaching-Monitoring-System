@@ -1,5 +1,6 @@
 import { Link, Route, Routes } from 'react-router-dom';
 import './styles.css';
+import { HomePage } from './features/home/HomePage';
 import { AssignedPatrolPage } from './features/patrols/pages/AssignedPatrolPage';
 import { PatrolRoutePage } from './features/patrols/pages/PatrolRoutePage';
 import { ActivePatrolPage } from './features/patrols/pages/ActivePatrolPage';
@@ -35,7 +36,10 @@ export default function App() {
         </nav>
       </header>
       <Routes>
-        <Route path="/" element={<Placeholder title="Smart wildlife conservation" description="The shared application foundation is ready for UC-A through UC-D." />} />
+        <Route path="/" element={<HomePage />} />
+        <Route path="/home" element={<HomePage />} />
+        <Route path="/login" element={<HomePage />} />
+
         <Route path="/ranger" element={<AssignedPatrolPage />} />
         <Route path="/ranger/patrol" element={<AssignedPatrolPage />} />
         <Route path="/ranger/patrol/route/:routeId" element={<PatrolRoutePage />} />
