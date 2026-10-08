@@ -15,7 +15,8 @@ export const collarIngestionController = {
 
   async receiveVendorWebhook(req: Request, res: Response, next: NextFunction) {
     try {
-      const vendor = req.params.vendor || 'generic';
+      const rawVendor = req.params.vendor;
+      const vendor = (Array.isArray(rawVendor) ? rawVendor[0] : rawVendor) || 'generic';
       const normalized = normalizeVendorPayload(req.body, vendor);
       const data = await collarIngestionService.ingest(normalized);
       return res.status(data.duplicate ? 200 : 202).json({ success: true, vendor, data });
@@ -36,7 +37,8 @@ export const collarIngestionController = {
 
   async getTelemetryHistory(req: Request, res: Response, next: NextFunction) {
     try {
-      const { deviceId } = req.params;
+      const rawDeviceId = req.params.deviceId;
+      const deviceId = (Array.isArray(rawDeviceId) ? rawDeviceId[0] : rawDeviceId) || '';
       const history = await collarIngestionService.getCollarTelemetryHistory(deviceId);
       return res.status(200).json({ success: true, data: history });
     } catch (error) {

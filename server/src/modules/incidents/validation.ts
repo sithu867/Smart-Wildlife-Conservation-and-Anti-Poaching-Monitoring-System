@@ -95,8 +95,6 @@ export const createIncidentSchema = z
 
 export type CreateIncidentInput = z.infer<typeof createIncidentSchema>;
 
-export type CreateIncidentInput = z.infer<typeof createIncidentSchema>;
-
 /** The only report fields a ranger may change (status, reporter, times, etc. are never editable). */
 const EDITABLE_FIELDS = [
   'incidentType',

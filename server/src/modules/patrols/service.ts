@@ -314,10 +314,13 @@ export class PatrolService {
     // id (for example the offline seed assignment). Resolve it again on the
     // server instead of failing the whole sync. This also makes retries
     // idempotent when the original assignment id is stale or was recreated.
-    let assignment = payload.patrolAssignmentId
+    let assignment: any = payload.patrolAssignmentId
       ? await prisma.patrolAssignment.findUnique({ where: { id: payload.patrolAssignmentId } })
       : null;
-    if (!assignment) assignment = await ensureSeedData(rangerId, rangerName);
+    if (!assignment) {
+      const seedResult = await ensureSeedData(rangerId, rangerName);
+      assignment = Array.isArray(seedResult) ? seedResult[0] : seedResult;
+    }
     if (!assignment) throw new Error('Failed to resolve assignment for sync.');
     if (assignment.rangerId !== rangerId) throw new Error('Unauthorized: Patrol assignment does not belong to this ranger.');
     if (existing) {

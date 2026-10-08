@@ -163,7 +163,8 @@ export const incidentApi = {
    */
   async getMyIncidents(): Promise<ConservationIncident[]> {
     let remoteIncidents: ConservationIncident[] = [];
-let remoteFetchSucceeded = false;
+    let remoteFetchSucceeded = false;
+    let serverAnswered = false;
     if (syncService.getIsOnline()) {
       await syncService.processAll();
     }

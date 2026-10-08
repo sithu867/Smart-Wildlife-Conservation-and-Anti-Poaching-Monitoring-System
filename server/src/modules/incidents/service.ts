@@ -56,6 +56,91 @@ const incidentInclude = {
   patrolSession: true,
   evidence: { where: { removedAt: null }, orderBy: { capturedAt: 'asc' as const } }
 } as const;
+
+/**
+ * Works out whether the incident may be edited at time `at`.
+ * Patrol-linked reports are editable while the patrol is open, or for an edit made before the patrol ended
+ * (offline edits sync later). Standalone reports are editable for 24 hours.
+ */
+export function getEditLockReason(incident: any, at: Date): EditLockReason | null {
+  if (incident.status === IncidentStatus.INVESTIGATING) return 'UNDER_INVESTIGATION';
+  if (incident.status === IncidentStatus.RESOLVED) return 'INCIDENT_RESOLVED';
+
+  const session = incident.patrolSession;
+  if (session) {
+    if (OPEN_PATROL_STATUSES.includes(session.status)) return null;
+    const endedAt: Date | null = session.endTime ? new Date(session.endTime) : null;
+    if (endedAt && at.getTime() <= endedAt.getTime()) return null;
+    return session.status === PatrolStatus.CANCELLED ? 'PATROL_CANCELLED' : 'PATROL_COMPLETED';
+  }
+
+  const reportedAt = new Date(incident.reportedAt).getTime();
+  return at.getTime() - reportedAt > STANDALONE_EDIT_WINDOW_MS ? 'EDIT_WINDOW_EXPIRED' : null;
+}
+
+/**
+ * Converts a database row into the API shape: id -> _id (the client's naming) plus the permission flags
+ * the client uses to show/hide Edit, Delete and Undo, so the rules live only on the server.
+ */
+function shapeIncident(incident: any, now = new Date()): any {
+  if (!incident) return incident;
+  const { id, patrolSession, evidence, revisions: _revisions, ...rest } = incident;
+  const editLockedReason = getEditLockReason(incident, now);
+  const isWithdrawn = Boolean(incident.deletedAt);
+  return {
+    _id: id,
+    ...rest,
+    patrolSession,
+    evidence,
+    canEdit: !isWithdrawn && editLockedReason === null,
+    // Delete follows the same lock rules as edit; kept as its own flag so the rules can diverge later
+    canDelete: !isWithdrawn && editLockedReason === null,
+    canRestore: isWithdrawn && editLockedReason === null,
+    editLockedReason
+  };
+}
+
+/** Client-reported action time (offline-aware): not in the future, not before the report existed. */
+function assertValidClientTime(field: string, at: Date, reportedAt: Date, now: Date): void {
+  if (at.getTime() > now.getTime() + CLOCK_SKEW_TOLERANCE_MS) {
+    throw new AppError(400, 'INVALID_EDIT_TIME', `${field} cannot be in the future. Check the device clock.`);
+  }
+  if (at.getTime() < reportedAt.getTime() - CLOCK_SKEW_TOLERANCE_MS) {
+    throw new AppError(400, 'INVALID_EDIT_TIME', `${field} cannot be earlier than the time the incident was reported.`);
+  }
+}
+
+/** 410 Gone - the report exists but was withdrawn (soft-deleted). */
+function withdrawnError(): AppError {
+  return new AppError(410, 'INCIDENT_DELETED', 'This report has been deleted.');
+}
+
+/** Public, unique id for one photo (used by the client to remove a specific photo). */
+function newEvidenceId(idx: number): string {
+  return `evid-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Validated photo input -> IncidentEvidence row. capturedAt defaults to the report/edit time. */
+function toEvidenceRow(ev: EvidenceInput, idx: number, fallbackCapturedAt: Date) {
+  return {
+    evidenceId: newEvidenceId(idx),
+    imageUrl: ev.imageUrl,
+    capturedAt: ev.capturedAt ? new Date(ev.capturedAt) : fallbackCapturedAt,
+    fileSize: ev.fileSize,
+    mimeType: ev.mimeType || 'image/jpeg'
+  };
+}
+
+/** Distance (km) from a point to the nearest recorded waypoint or route vertex of a patrol session. */
+function distanceToPatrolTrackKm(session: any, latitude: number, longitude: number): number | null {
+  const points: Array<{ latitude: number; longitude: number }> = (session.waypoints ?? []).map((w: any) => ({
+    latitude: w.latitude,
+    longitude: w.longitude
+  }));
+  const routeCoords: unknown = session.patrolRoute?.geometry?.coordinates;
+  if (Array.isArray(routeCoords)) {
+    for (const coord of routeCoords) {
+      if (Array.isArray(coord) && coord.length >= 2) points.push({ latitude: Number(coord[1]), longitude: Number(coord[0]) });
     }
   }
   if (points.length === 0) return null;
@@ -122,6 +207,23 @@ export class IncidentService {
   async createIncident(rangerId: string, rangerName: string, input: CreateIncidentInput): Promise<any> {
     const reportedAt = this.resolveReportedAt(input.reportedAt, new Date());
     const patrolSessionId = await this.resolvePatrolSessionId(rangerId, input.patrolSessionId, reportedAt);
+
+    let parkId = input.parkId;
+    if (patrolSessionId) {
+      const session = await prisma.patrolSession.findUnique({
+        where: { id: patrolSessionId },
+        include: { patrolRoute: { select: { parkId: true } } }
+      });
+      if (session) {
+        const sessionParkId = session.patrolRoute.parkId;
+        if (parkId && parkId !== sessionParkId) {
+          invalidParkScope('Selected park does not match the attached patrol session.');
+        }
+        parkId = sessionParkId;
+      }
+    }
+    await validateOptionalPark(parkId);
+
     if (input.clientIncidentId) {
       const existing = await prisma.conservationIncident.findFirst({ where: { clientIncidentId: input.clientIncidentId, reportedBy: rangerId }, include: incidentInclude });
       if (existing) return shapeIncident(existing);
@@ -165,17 +267,11 @@ export class IncidentService {
     // Reports still missing a place name get one in the background (shown on a later refresh)
     placeNameBackfill.schedule(incidents);
     const now = new Date();
-    return incidents.map((incident) => shapeIncident(incident, now));
+    return incidents.map(incident => shapeIncident(incident, now));
   }
 
   /** READ - one report: 404 if it does not exist, 403 if it is another ranger's, 410 if withdrawn. */
   async getIncidentById(rangerId: string, incidentId: string): Promise<any> {
-    const incident = await prisma.conservationIncident.findUnique({ where: { id: incidentId }, include: incidentInclude });
-    if (!incident) throw new AppError(404, 'INCIDENT_NOT_FOUND', 'Conservation incident not found.');
-    if (incident.reportedBy !== rangerId) throw new AppError(403, 'FORBIDDEN', 'Unauthorized: Incident report does not belong to this ranger.');
-    if (incident.deletedAt) throw withdrawnError();
-    return shapeIncident(incident, new Date());
-  }
     const incident = await prisma.conservationIncident.findUnique({ where: { id: incidentId }, include: incidentInclude });
     if (!incident) throw new AppError(404, 'INCIDENT_NOT_FOUND', 'Conservation incident not found.');
     if (incident.reportedBy !== rangerId) throw new AppError(403, 'FORBIDDEN', 'Unauthorized: Incident report does not belong to this ranger.');

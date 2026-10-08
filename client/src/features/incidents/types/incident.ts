@@ -77,14 +77,9 @@ export interface ConservationIncident {
 /** Body of POST /incidents (create, and offline sync). */
 export interface CreateIncidentPayload {
   clientIncidentId?: string;
-export interface CreateIncidentPayload {
-  clientIncidentId?: string;
   parkId?: string;
   /** Device time of the report; only sent to the server when an offline report is synced */
   reportedAt?: string;
-  incidentType: IncidentType;
-  otherTypeDescription?: string;
-  description: string;
   incidentType: IncidentType;
   otherTypeDescription?: string;
   description: string;
