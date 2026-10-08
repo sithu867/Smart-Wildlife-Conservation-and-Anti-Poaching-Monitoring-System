@@ -8,9 +8,14 @@ import { patrolRoutes, patrolSessionRoutes } from './modules/patrols/routes.js';
 import { incidentRoutes } from './modules/incidents/routes.js';
 import { conflictAlertRoutes } from './modules/conflict-alerts/routes.js';
 import { analyticsRoutes } from './modules/analytics/routes.js';
+import { collarIngestionRoutes } from './modules/collar-ingestion/routes.js';
 
 export function createApp() {
   const app = express();
+  // API responses should be explicit 200 responses. Conditional GET/ETag
+  // caching is useful for static assets, but it makes API logs show 304 and
+  // can confuse the offline-first client while data is being synchronized.
+  app.disable('etag');
   app.use(helmet());
   app.use(cors({ origin: env.CLIENT_URL }));
   app.use(express.json({ limit: '8mb' }));
@@ -32,6 +37,7 @@ export function createApp() {
   app.use('/api/incidents', incidentRoutes);
   app.use('/api/conflict-alerts', conflictAlertRoutes);
   app.use('/api/analytics', analyticsRoutes);
+  app.use('/api/device-ingestion', collarIngestionRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

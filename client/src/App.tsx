@@ -8,6 +8,7 @@ import { ReportIncidentPage } from './features/incidents/pages/ReportIncidentPag
 import { IncidentHistoryPage } from './features/incidents/pages/IncidentHistoryPage';
 import { ConflictAlertsPage } from './features/conflict-alerts/pages/ConflictAlertsPage';
 import { ConflictAlertDetailPage } from './features/conflict-alerts/pages/ConflictAlertDetailPage';
+import { CollarMonitoringPage } from './features/collars/pages/CollarMonitoringPage';
 import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 
 const Placeholder = ({ title, description }: { title: string; description: string }) => (
@@ -28,6 +29,7 @@ export default function App() {
           <Link to="/ranger/patrol">Patrols</Link>
           <Link to="/ranger/incidents">Incidents</Link>
           <Link to="/ranger/alerts">Conflict Alerts</Link>
+          <Link to="/ranger/collars">Collar Devices</Link>
           <Link to="/manager/analytics">Manager</Link>
         </nav>
       </header>
@@ -45,9 +47,12 @@ export default function App() {
         <Route path="/ranger/alerts" element={<ConflictAlertsPage />} />
         <Route path="/ranger/alerts/:alertId" element={<ConflictAlertDetailPage />} />
 
+        <Route path="/ranger/collars" element={<CollarMonitoringPage />} />
+        <Route path="/manager/collars" element={<CollarMonitoringPage />} />
+
         <Route path="/manager" element={<Placeholder title="Park manager" description="Central online manager route group." />} />
         <Route path="/manager/analytics" element={<AnalyticsPage />} />
-        <Route path="/dev/collar-simulator" element={<ConflictAlertsPage />} />
+        <Route path="/dev/collar-simulator" element={<CollarMonitoringPage />} />
         <Route path="/community-report" element={<ConflictAlertsPage />} />
         <Route path="*" element={<Placeholder title="Page not found" description="The requested route is not registered." />} />
       </Routes>

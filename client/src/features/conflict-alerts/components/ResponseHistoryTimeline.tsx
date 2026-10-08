@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ConflictResponse } from '../types/conflictAlert';
+import type { ConflictResponse, ConflictAuditEntry } from '../types/conflictAlert';
 
 interface Props {
   responses: ConflictResponse[];
@@ -11,6 +11,9 @@ interface Props {
   resolvedAt?: string;
   resolutionNotes?: string;
   createdAt: string;
+  onEditResponse?: (response: ConflictResponse) => void;
+  onDeleteResponse?: (response: ConflictResponse) => void;
+  auditEntries?: ConflictAuditEntry[];
 }
 
 export const ResponseHistoryTimeline: React.FC<Props> = ({
@@ -22,13 +25,13 @@ export const ResponseHistoryTimeline: React.FC<Props> = ({
   resolvedName,
   resolvedAt,
   resolutionNotes,
-  createdAt
+  createdAt, onEditResponse, onDeleteResponse, auditEntries = []
 }) => {
   return (
     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
       <h3 className="text-sm font-bold text-gray-900 border-b pb-2 mb-4 flex items-center justify-between">
-        <span>📜 Auditable Response & Status History</span>
-        <span className="text-xs font-normal text-gray-500">{responses.length + (acknowledgedAt ? 1 : 0) + (resolvedAt ? 1 : 0) + 1} events</span>
+        <span>📜 Alert & Audit History</span>
+        <span className="text-xs font-normal text-gray-500">{responses.length + (acknowledgedAt ? 1 : 0) + (resolvedAt ? 1 : 0) + 1 + auditEntries.filter(entry => !['CREATE', 'ACKNOWLEDGE', 'ADD_RESPONSE', 'RESOLVE'].includes(entry.action)).length} events</span>
       </h3>
 
       <div className="relative border-l-2 border-emerald-200 ml-3 space-y-6">
@@ -77,6 +80,7 @@ export const ResponseHistoryTimeline: React.FC<Props> = ({
                 </p>
               )}
             </div>
+            {(onEditResponse || onDeleteResponse) && <div className="flex gap-2 mt-2"><button className="text-xs text-emerald-700 underline" onClick={() => onEditResponse?.(resp)}>Edit</button><button className="text-xs text-red-700 underline" onClick={() => onDeleteResponse?.(resp)}>Delete</button></div>}
           </div>
         ))}
 
@@ -98,6 +102,15 @@ export const ResponseHistoryTimeline: React.FC<Props> = ({
             )}
           </div>
         )}
+
+        {auditEntries.filter(entry => !['CREATE', 'ACKNOWLEDGE', 'ADD_RESPONSE', 'RESOLVE'].includes(entry.action)).map(entry => (
+          <div key={entry.id} className="relative pl-6">
+            <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-purple-600 border-2 border-white" />
+            <div className="text-xs"><span className="font-bold text-gray-900">{entry.action.replace(/_/g, ' ')}</span><span className="text-gray-500 ml-2">{new Date(entry.timestamp).toLocaleString()}</span></div>
+            <p className="text-xs text-gray-700 mt-0.5">By: {entry.performedName || entry.performedBy}</p>
+            {entry.reason && <p className="text-xs text-gray-600 mt-1">Reason: {entry.reason}</p>}
+          </div>
+        ))}
       </div>
     </div>
   );

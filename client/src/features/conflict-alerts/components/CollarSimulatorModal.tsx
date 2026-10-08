@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { ConflictAlertType, AlertSeverity } from '../../../shared/types/enums';
 import type { SimulateCollarInput } from '../types/conflictAlert';
+import { conflictAlertApi } from '../api/conflictAlertApi';
 
 interface Props {
-  onSimulate: (input: SimulateCollarInput) => Promise<void>;
+  onSimulate?: (input: SimulateCollarInput) => Promise<void>;
   onClose: () => void;
 }
 
@@ -23,14 +24,20 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
     setIsSubmitting(true);
 
     try {
-      await onSimulate({
+      const input: SimulateCollarInput = {
         animalId: animalId.trim(),
         latitude: Number(latitude),
         longitude: Number(longitude),
         alertType,
         severity,
         description: description.trim()
-      });
+      };
+
+      if (onSimulate) {
+        await onSimulate(input);
+      } else {
+        await conflictAlertApi.simulateCollar(input);
+      }
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to simulate collar event.');
@@ -148,7 +155,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
               className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Generating Alert...' : 'Generate Collar Alert'}
+              {isSubmitting ? 'Generating Alert...' : 'Generate Collar Conflict Alert'}
             </button>
           </div>
         </form>

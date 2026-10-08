@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import type { WildlifeConflictAlert, AddResponseInput } from '../types/conflictAlert';
+import type { WildlifeConflictAlert, AddResponseInput, UpdateResponseInput, ConflictAuditEntry } from '../types/conflictAlert';
 import { conflictAlertApi } from '../api/conflictAlertApi';
 import { AlertSeverityBadge } from '../components/AlertSeverityBadge';
 import { AlertStatusBadge } from '../components/AlertStatusBadge';
 import { ConflictAlertMap } from '../components/ConflictAlertMap';
 import { ConflictResponseForm } from '../components/ConflictResponseForm';
 import { ResponseHistoryTimeline } from '../components/ResponseHistoryTimeline';
-import { AlertStatus, AlertSource } from '../../../shared/types/enums';
+import { AlertStatus, AlertSource, AlertSeverity, ConflictAlertType, LocationSource, ResponseAction } from '../../../shared/types/enums';
 
 export const ConflictAlertDetailPage: React.FC = () => {
   const { alertId } = useParams<{ alertId: string }>();
@@ -21,6 +21,13 @@ export const ConflictAlertDetailPage: React.FC = () => {
   const [resolutionInput, setResolutionInput] = useState('');
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [history, setHistory] = useState<ConflictAuditEntry[]>([]);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editDescription, setEditDescription] = useState('');
+  const [editSeverity, setEditSeverity] = useState<AlertSeverity>(AlertSeverity.MEDIUM);
+  const [cancelReason, setCancelReason] = useState('');
+  const [showCancel, setShowCancel] = useState(false);
+  const [editingResponse, setEditingResponse] = useState<any>(null);
 
   const fetchAlert = async () => {
     if (!alertId) return;
@@ -29,6 +36,8 @@ export const ConflictAlertDetailPage: React.FC = () => {
     try {
       const data = await conflictAlertApi.getAlertById(alertId);
       setAlert(data);
+      setHistory([]);
+      void conflictAlertApi.getHistory(alertId).then(setHistory).catch(() => undefined);
     } catch (err: any) {
       console.error('Failed fetching alert details:', err);
       setError(err.message || 'Wildlife conflict alert not found.');
@@ -36,6 +45,12 @@ export const ConflictAlertDetailPage: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  const handleEdit = async (e: React.FormEvent) => { e.preventDefault(); if (!alertId || editDescription.trim().length < 3) return; setIsSubmitting(true); try { const updated = await conflictAlertApi.updateAlert(alertId, { description: editDescription.trim(), severity: editSeverity }); setAlert(updated); setShowEdit(false); setFeedbackMessage(updated.syncStatus === 'PENDING' ? 'Alert edited locally; pending synchronization.' : 'Alert updated and synchronized.'); } catch (err: any) { setError(err.message); } finally { setIsSubmitting(false); } };
+  const handleCancel = async (e: React.FormEvent) => { e.preventDefault(); if (!alertId || cancelReason.trim().length < 3) return; setIsSubmitting(true); try { const updated = await conflictAlertApi.cancelAlert(alertId, cancelReason.trim()); setAlert(updated); setShowCancel(false); setCancelReason(''); setFeedbackMessage(updated.syncStatus === 'PENDING' ? 'Alert cancelled locally; pending synchronization.' : 'Alert cancelled.'); } catch (err: any) { setError(err.message); } finally { setIsSubmitting(false); } };
+  const handleDelete = async () => { if (!alertId || !window.confirm('Soft-delete this alert? It will be hidden from the normal list.')) return; try { await conflictAlertApi.deleteAlert(alertId, 'Deleted from alert detail'); setFeedbackMessage('Alert soft-deleted.'); } catch (err: any) { setError(err.message); } };
+  const handleUpdateResponse = async (e: React.FormEvent) => { e.preventDefault(); if (!alertId || !editingResponse) return; try { const updated = await conflictAlertApi.updateResponse(alertId, editingResponse.responseId, { action: editingResponse.action, notes: editingResponse.notes, outcome: editingResponse.outcome }); setAlert(updated); setEditingResponse(null); setFeedbackMessage(updated.syncStatus === 'PENDING' ? 'Response edited locally; pending synchronization.' : 'Response updated.'); } catch (err: any) { setError(err.message); } };
+  const handleDeleteResponse = async (response: any) => { if (!alertId || !window.confirm('Soft-delete this response?')) return; try { const updated = await conflictAlertApi.deleteResponse(alertId, response.responseId); setAlert(updated); setFeedbackMessage(updated.syncStatus === 'PENDING' ? 'Response deleted locally; pending synchronization.' : 'Response deleted.'); } catch (err: any) { setError(err.message); } };
 
   useEffect(() => {
     fetchAlert();
@@ -176,6 +191,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
         <h1 className="text-xl font-bold text-gray-900">
           {alert.alertType.replace(/_/g, ' ')}
         </h1>
+        <div className="flex flex-wrap gap-2">{![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) && <><button className="button button-secondary text-xs px-3 py-1.5" onClick={() => { setEditDescription(alert.description); setEditSeverity(alert.severity); setShowEdit(true); }}>Edit Alert</button><button className="button button-secondary text-xs px-3 py-1.5 text-amber-700" onClick={() => setShowCancel(true)}>Cancel Alert</button></>}<button className="button button-secondary text-xs px-3 py-1.5 text-red-700" onClick={handleDelete}>Delete Alert</button></div>
 
         <p className="text-sm text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100 italic">
           "{alert.description}"
@@ -239,7 +255,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
         {alert.status === AlertStatus.ACKNOWLEDGED && (
           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-800 p-3 rounded-lg border border-slate-700">
             <p className="text-xs text-slate-300">
-              Alert is <span className="font-bold text-blue-400">ACKNOWLEDGED</span>. Record an initial response action before resolving.
+              Alert is ACKNOWLEDGED. Record an initial response action before resolving.
             </p>
             <button
               onClick={() => setShowResponseForm(!showResponseForm)}
@@ -277,6 +293,7 @@ export const ConflictAlertDetailPage: React.FC = () => {
             {alert.resolutionNotes && <p className="mt-1 text-emerald-300">Notes: {alert.resolutionNotes}</p>}
           </div>
         )}
+        {alert.status === AlertStatus.CANCELLED && <div className="bg-amber-900/50 border border-amber-700/60 p-3 rounded-lg text-xs text-amber-200">This alert is CANCELLED. No further lifecycle actions are allowed.</div>}
       </div>
 
       {/* Response Form Component */}
@@ -330,6 +347,10 @@ export const ConflictAlertDetailPage: React.FC = () => {
         </div>
       )}
 
+      {showEdit && <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"><form onSubmit={handleEdit} className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-3"><h3 className="font-bold">Edit Alert</h3><textarea className="w-full border rounded p-2" value={editDescription} onChange={e => setEditDescription(e.target.value)} minLength={3} /><select className="w-full border rounded p-2" value={editSeverity} onChange={e => setEditSeverity(e.target.value as AlertSeverity)}>{Object.values(AlertSeverity).map(v => <option key={v} value={v}>{v}</option>)}</select><div className="flex justify-end gap-2"><button type="button" className="button button-secondary" onClick={() => setShowEdit(false)}>Close</button><button className="button button-primary" disabled={isSubmitting}>Save</button></div></form></div>}
+      {showCancel && <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowCancel(false); }}><form onSubmit={handleCancel} className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-3 text-gray-900"><div className="flex items-center justify-between border-b pb-2"><h3 className="font-bold">Cancel Alert</h3><button type="button" aria-label="Close cancel alert" className="rounded px-2 py-1 text-lg font-bold text-gray-700 hover:bg-gray-100" onClick={() => setShowCancel(false)}>×</button></div><textarea className="w-full border rounded p-2" placeholder="Cancellation reason (required)" value={cancelReason} onChange={e => setCancelReason(e.target.value)} minLength={3} required /><div className="flex justify-end gap-2 border-t pt-3"><button type="button" className="rounded border border-gray-400 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-100" onClick={() => setShowCancel(false)}>Close</button><button type="submit" className="rounded bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">Confirm Cancel</button></div></form></div>}
+      {editingResponse && <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setEditingResponse(null); }}><form onSubmit={handleUpdateResponse} className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-3 text-gray-900"><div className="flex items-center justify-between border-b pb-2"><h3 className="font-bold">Edit Response</h3><button type="button" aria-label="Close edit response" className="rounded px-2 py-1 text-lg font-bold text-gray-700 hover:bg-gray-100" onClick={() => setEditingResponse(null)}>×</button></div><select className="w-full border rounded p-2" value={editingResponse.action} onChange={e => setEditingResponse({ ...editingResponse, action: e.target.value as ResponseAction })}>{Object.values(ResponseAction).map(v => <option key={v} value={v}>{v}</option>)}</select><textarea className="w-full border rounded p-2" value={editingResponse.notes} onChange={e => setEditingResponse({ ...editingResponse, notes: e.target.value })} minLength={3} /><input className="w-full border rounded p-2" value={editingResponse.outcome || ''} onChange={e => setEditingResponse({ ...editingResponse, outcome: e.target.value })} placeholder="Outcome" /><div className="flex justify-end gap-2 border-t pt-3"><button type="button" className="rounded border border-gray-400 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-100" onClick={() => setEditingResponse(null)}>Close</button><button type="submit" className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Save</button></div></form></div>}
+
       {/* Response History Timeline */}
       <ResponseHistoryTimeline
         responses={alert.responses || []}
@@ -341,6 +362,9 @@ export const ConflictAlertDetailPage: React.FC = () => {
         resolvedAt={alert.resolvedAt}
         resolutionNotes={alert.resolutionNotes}
         createdAt={alert.createdAt}
+        onEditResponse={![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) ? setEditingResponse : undefined}
+        onDeleteResponse={![AlertStatus.RESOLVED, AlertStatus.CANCELLED].includes(alert.status) ? handleDeleteResponse : undefined}
+        auditEntries={history}
       />
     </main>
   );

@@ -5,6 +5,8 @@ const schema = z.object({
   DATABASE_URL: z.string().default(''),
   DIRECT_URL: z.string().default(''),
   CLIENT_URL: z.string().default('http://localhost:5173'),
-  NODE_ENV: z.enum(['development','test','production']).default('development')
+  NODE_ENV: z.enum(['development','test','production']).default('development'),
+  COLLAR_INGESTION_API_KEY: z.string().default(''),
+  COLLAR_WEBHOOK_SECRET: z.string().default('')
 });
 export const env = schema.parse(process.env);

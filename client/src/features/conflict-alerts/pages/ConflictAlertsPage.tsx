@@ -42,6 +42,25 @@ export const ConflictAlertsPage: React.FC = () => {
 
   useEffect(() => {
     fetchAlerts();
+
+    // SSE live stream connection
+    let eventSource: EventSource | null = null;
+    try {
+      const streamUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/device-ingestion/stream`;
+      eventSource = new EventSource(streamUrl);
+      eventSource.addEventListener('conflict-alert', () => {
+        fetchAlerts();
+      });
+      eventSource.addEventListener('collar-telemetry', () => {
+        fetchAlerts();
+      });
+    } catch {
+      // Ignore SSE fallback to interval
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+    };
   }, [statusFilter, severityFilter]);
 
   useEffect(() => {
@@ -68,6 +87,10 @@ export const ConflictAlertsPage: React.FC = () => {
   const handleCommunityReport = async (input: CommunityReportInput) => {
     await conflictAlertApi.submitCommunityReport(input);
     await fetchAlerts();
+  };
+  const handleDelete = async (alert: WildlifeConflictAlert) => {
+    if (!window.confirm('Soft-delete this alert?')) return;
+    try { const updated = await conflictAlertApi.deleteAlert(alert._id, 'Deleted from alert list'); setAlerts(current => current.filter(item => item._id !== alert._id)); if (updated.syncStatus === 'PENDING') setError('Alert deleted locally; deletion is pending synchronization.'); } catch (err: any) { setError(err.message || 'Unable to delete alert.'); }
   };
 
   const activeCount = alerts.filter(a => a.status === AlertStatus.OPEN || a.status === AlertStatus.ACKNOWLEDGED || a.status === AlertStatus.RESPONDING).length;
@@ -134,6 +157,7 @@ export const ConflictAlertsPage: React.FC = () => {
               <option value={AlertStatus.ACKNOWLEDGED}>ACKNOWLEDGED</option>
               <option value={AlertStatus.RESPONDING}>RESPONDING</option>
               <option value={AlertStatus.RESOLVED}>RESOLVED</option>
+              <option value={AlertStatus.CANCELLED}>CANCELLED</option>
             </select>
           </div>
           <div>
@@ -185,7 +209,7 @@ export const ConflictAlertsPage: React.FC = () => {
         /* Alert List Grid */
         <div className="grid gap-4 sm:grid-cols-2">
           {alerts.map(alert => (
-            <ConflictAlertCard key={alert._id} alert={alert} />
+            <ConflictAlertCard key={alert._id} alert={alert} onDelete={handleDelete} />
           ))}
         </div>
       )}

@@ -14,6 +14,7 @@ import type {
   CommunityReportInput,
   AddResponseInput,
   ResolveAlertInput
+  , UpdateAlertInput, UpdateResponseInput, ConflictAuditEntry
 } from '../types/conflictAlert';
 
 const DEFAULT_SEED_ALERTS: WildlifeConflictAlert[] = [
@@ -114,6 +115,18 @@ async function safeDexieUpdate(alertId: string, alert: WildlifeConflictAlert, sy
   }
 }
 
+async function safeDexieRemove(alertId: string) {
+  if (typeof indexedDB === 'undefined') return;
+  try {
+    const cached = await offlineDb.conflictAlerts
+      .filter(item => item.remoteId === alertId || (item.payload as any)?._id === alertId)
+      .toArray();
+    await Promise.all(cached.filter(item => item.id !== undefined).map(item => offlineDb.conflictAlerts.delete(item.id!)));
+  } catch (err) {
+    console.warn('Dexie remove ignored in test/unsupported environment:', err);
+  }
+}
+
 async function safeDexieGetArray(): Promise<WildlifeConflictAlert[]> {
   if (typeof indexedDB === 'undefined') return [];
   try {
@@ -125,7 +138,14 @@ async function safeDexieGetArray(): Promise<WildlifeConflictAlert[]> {
         map.set(alert._id, { ...alert, syncStatus: c.syncStatus });
       }
     }
-    return Array.from(map.values());
+    const cachedAlerts = Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const activeStatuses = new Set([AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED, AlertStatus.RESPONDING]);
+    let activeCount = 0;
+    return cachedAlerts.filter(alert => {
+      if (!activeStatuses.has(alert.status)) return true;
+      activeCount += 1;
+      return activeCount <= 5;
+    });
   } catch (err) {
     return [];
   }
@@ -172,6 +192,31 @@ export const conflictAlertApi = {
 
     throw new Error('Wildlife conflict alert not found.');
   },
+
+  async getHistory(alertId: string): Promise<ConflictAuditEntry[]> { const response = await http.get(`/conflict-alerts/${alertId}/history`); return response.data.data; },
+  async updateAlert(alertId: string, input: UpdateAlertInput): Promise<WildlifeConflictAlert> {
+    try { const response = await http.put(`/conflict-alerts/${alertId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
+    catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, ...input, location: { ...alert.location, latitude: input.latitude ?? alert.location.latitude, longitude: input.longitude ?? alert.location.longitude, source: input.locationSource ?? alert.location.source }, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_ALERT', alertId, { alertId, input }); return updated; }
+  },
+  async deleteAlert(alertId: string, reason?: string): Promise<WildlifeConflictAlert> {
+    try { const response = await http.delete(`/conflict-alerts/${alertId}`, { data: { reason } }); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
+    catch (error: any) {
+      if (error?.response?.status === 404) {
+        // The server has already removed this record or it was created only
+        // in an old browser cache. Remove the stale local copy and stop
+        // retrying a delete that can never succeed remotely.
+        await safeDexieRemove(alertId);
+        return { _id: alertId, isDeleted: true, syncStatus: SyncStatus.SYNCED } as WildlifeConflictAlert;
+      }
+      const alert = await this.getAlertById(alertId); const updated = { ...alert, isDeleted: true, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_ALERT', alertId, { alertId, reason }); return updated;
+    }
+  },
+  async cancelAlert(alertId: string, reason: string): Promise<WildlifeConflictAlert> {
+    try { const response = await http.post(`/conflict-alerts/${alertId}/cancel`, { reason }); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
+    catch { const alert = await this.getAlertById(alertId); if (alert.status === AlertStatus.RESOLVED || alert.status === AlertStatus.CANCELLED) throw new Error('Alert cannot be cancelled from its current state.'); const updated = { ...alert, status: AlertStatus.CANCELLED, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('CANCEL_ALERT', alertId, { alertId, reason }); return updated; }
+  },
+  async updateResponse(alertId: string, responseId: string, input: UpdateResponseInput): Promise<WildlifeConflictAlert> { try { const response = await http.put(`/conflict-alerts/${alertId}/responses/${responseId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.map(r => r.responseId === responseId ? { ...r, ...input } : r), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_RESPONSE', alertId, { alertId, responseId, input }); return updated; } },
+  async deleteResponse(alertId: string, responseId: string): Promise<WildlifeConflictAlert> { try { const response = await http.delete(`/conflict-alerts/${alertId}/responses/${responseId}`); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.filter(r => r.responseId !== responseId), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_RESPONSE', alertId, { alertId, responseId }); return updated; } },
 
   async acknowledgeAlert(alertId: string): Promise<WildlifeConflictAlert> {
     const clientAcknowledgementId = crypto.randomUUID();
@@ -288,23 +333,47 @@ export const conflictAlertApi = {
     }
   },
 
-  async simulateCollar(input: SimulateCollarInput): Promise<WildlifeConflictAlert> {
-    const response = await http.post('/conflict-alerts/simulate-collar', input);
-    return response.data.data;
+  async simulateCollar(input: SimulateCollarInput): Promise<WildlifeConflictAlert | null> {
+    const queuedInput = { ...input, sourceEventId: input.sourceEventId ?? `offline-collar-${crypto.randomUUID()}` };
+    try {
+      const response = await http.post('/conflict-alerts/simulate-collar', queuedInput);
+      return response.data.data;
+    } catch (error) {
+      if (!isRetryableNetworkError(error)) throw error;
+      await enqueueAction('SIMULATE_COLLAR', queuedInput.sourceEventId!, { input: queuedInput });
+      return null;
+    }
   },
 
-  async submitCommunityReport(input: CommunityReportInput): Promise<WildlifeConflictAlert> {
-    const response = await http.post('/conflict-alerts/community-report', input);
-    return response.data.data;
+  async submitCommunityReport(input: CommunityReportInput): Promise<WildlifeConflictAlert | null> {
+    const queuedInput = { ...input, sourceEventId: input.sourceEventId ?? `offline-community-${crypto.randomUUID()}` };
+    try {
+      const response = await http.post('/conflict-alerts/community-report', queuedInput);
+      return response.data.data;
+    } catch (error) {
+      if (!isRetryableNetworkError(error)) throw error;
+      await enqueueAction('COMMUNITY_REPORT', queuedInput.sourceEventId!, { input: queuedInput });
+      return null;
+    }
   }
 };
 
-async function enqueueAction(operation: 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT', alertId: string, payload: unknown) {
-  await syncService.enqueue({ entity: 'conflict-alerts', operation, recordId: 0, clientId: typeof payload === 'object' && payload !== null && 'input' in payload ? String((payload as { input?: { clientResponseId?: string } }).input?.clientResponseId ?? alertId) : alertId, payload });
+function isRetryableNetworkError(error: unknown): boolean {
+  const axiosError = error as { response?: unknown; code?: string };
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (axiosError?.code === 'ERR_NETWORK' || axiosError?.code === 'ECONNABORTED') return true;
+  if (!axiosError?.response) return true;
+  const status = (axiosError.response as { status?: number })?.status;
+  return status === 408 || status === 429 || (typeof status === 'number' && status >= 500);
+}
+
+async function enqueueAction(operation: 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT' | 'UPDATE_ALERT' | 'DELETE_ALERT' | 'CANCEL_ALERT' | 'UPDATE_RESPONSE' | 'DELETE_RESPONSE' | 'SIMULATE_COLLAR' | 'COMMUNITY_REPORT', alertId: string, payload: unknown) {
+  const payloadObject = payload as { input?: { clientResponseId?: string; sourceEventId?: string } };
+  await syncService.enqueue({ entity: 'conflict-alerts', operation, recordId: 0, clientId: String(payloadObject.input?.clientResponseId ?? payloadObject.input?.sourceEventId ?? alertId), payload });
 }
 
 syncService.registerTransport('conflict-alerts', async item => {
-  const payload = item.payload as { alertId: string; input?: AddResponseInput | ResolveAlertInput };
+  const payload = item.payload as { alertId: string; responseId?: string; reason?: string; input?: AddResponseInput | ResolveAlertInput | UpdateAlertInput | UpdateResponseInput | SimulateCollarInput | CommunityReportInput };
   let response: any;
   if (item.operation === 'ACKNOWLEDGE_ALERT') {
     response = await http.post(`/conflict-alerts/${payload.alertId}/acknowledge`, payload);
@@ -312,8 +381,33 @@ syncService.registerTransport('conflict-alerts', async item => {
     response = await http.post(`/conflict-alerts/${payload.alertId}/responses`, payload.input);
   } else if (item.operation === 'RESOLVE_ALERT') {
     response = await http.post(`/conflict-alerts/${payload.alertId}/resolve`, payload.input);
+  } else if (item.operation === 'UPDATE_ALERT') {
+    response = await http.put(`/conflict-alerts/${payload.alertId}`, payload.input);
+  } else if (item.operation === 'DELETE_ALERT') {
+    try {
+      response = await http.delete(`/conflict-alerts/${payload.alertId}`, { data: { reason: payload.reason } });
+    } catch (error: any) {
+      // A delete is idempotent: if the server says the alert is already gone,
+      // the desired state has already been achieved.
+      if (error?.response?.status === 404) {
+        await safeDexieRemove(payload.alertId);
+        return;
+      }
+      throw error;
+    }
+  } else if (item.operation === 'CANCEL_ALERT') {
+    response = await http.post(`/conflict-alerts/${payload.alertId}/cancel`, { reason: payload.reason });
+  } else if (item.operation === 'UPDATE_RESPONSE') {
+    response = await http.put(`/conflict-alerts/${payload.alertId}/responses/${payload.responseId}`, payload.input);
+  } else if (item.operation === 'DELETE_RESPONSE') {
+    response = await http.delete(`/conflict-alerts/${payload.alertId}/responses/${payload.responseId}`);
+  } else if (item.operation === 'SIMULATE_COLLAR') {
+    response = await http.post('/conflict-alerts/simulate-collar', payload.input);
+  } else if (item.operation === 'COMMUNITY_REPORT') {
+    response = await http.post('/conflict-alerts/community-report', payload.input);
   }
   if (response?.data?.data) {
-    await safeDexieUpdate(payload.alertId, response.data.data, SyncStatus.SYNCED);
+    const data = response.data.data as WildlifeConflictAlert;
+    if (data._id) await safeDexiePut(data, SyncStatus.SYNCED);
   }
 });
