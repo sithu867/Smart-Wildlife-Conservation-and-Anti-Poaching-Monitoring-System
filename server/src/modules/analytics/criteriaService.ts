@@ -46,7 +46,7 @@ export async function getCriteriaAnalytics(
   const wantsPatrols = selected.has('PATROL_COVERAGE');
   const wantsConflicts = selected.has('HWC_TRENDS');
   const { start, end } = analysisDateRange(criteria);
-  const period = { gte: start, lte: end };
+const period = { gte: start, lte: end };
   const routes =
     wantsIncidents || wantsPatrols
       ? await prisma.patrolRoute.findMany({
@@ -68,8 +68,7 @@ export async function getCriteriaAnalytics(
   const incidentRows = wantsIncidents
     ? await prisma.conservationIncident.findMany({
         where: {
-          // The linked patrol is authoritative, even if a historical explicit
-          // parkId disagrees. NULL standalone links never match every park.
+          deletedAt: null,
           OR: [
             {
               patrolSessionId: {
@@ -99,9 +98,6 @@ export async function getCriteriaAnalytics(
         where: {
           patrolRouteId: { in: routeIds },
           rangerId: criteria.rangerId,
-          // Neon contains historical CANCELLED sessions outside today's Prisma
-          // enum. Unsupported lifecycle rows cannot establish coverage and must
-          // not make Prisma reject the entire selected-park analysis.
           status: {
             in: [
               PatrolStatus.ASSIGNED,
@@ -118,8 +114,7 @@ export async function getCriteriaAnalytics(
         include: { waypoints: { where: { timestamp: period } } },
       })
     : [];
-  // Prisma foreign keys match the calculation contract without populated relations.
-  // Keep JSON/waypoint defenses local instead of changing the shared patrol module.
+
   const patrolCoverage = wantsPatrols
     ? calculatePatrolCoverage(routes, sessionRows, start, end)
     : undefined;
@@ -157,10 +152,6 @@ export async function getCriteriaAnalytics(
         },
       })
     : [];
-  // Responses have their own activity date; their parent alert can predate the
-  // period. Park membership and optional filters come from that parent alert.
-  // Legacy alerts without parkId are excluded: counting them in every park
-  // would inflate both alert and response totals.
   const responseAlerts = wantsConflicts
     ? await prisma.wildlifeConflictAlert.findMany({
         where: {
@@ -178,8 +169,7 @@ export async function getCriteriaAnalytics(
   const responses = responseAlerts
     .flatMap((alert) => alert.responses)
     .filter(
-      (response) =>
-        response.respondedAt >= start && response.respondedAt <= end,
+      (response) => response.respondedAt >= start && response.respondedAt <= end,
     );
   const limitations: string[] = [];
   if (wantsIncidents)

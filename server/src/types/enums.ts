@@ -33,6 +33,13 @@ export enum IncidentStatus {
   RESOLVED = 'RESOLVED'
 }
 
+export enum IncidentDeletionReason {
+  DUPLICATE = 'DUPLICATE',
+  CREATED_BY_MISTAKE = 'CREATED_BY_MISTAKE',
+  FALSE_ALARM = 'FALSE_ALARM',
+  OTHER = 'OTHER'
+}
+
 export enum AlertSource {
   COLLAR = 'COLLAR',
   COMMUNITY_REPORT = 'COMMUNITY_REPORT'

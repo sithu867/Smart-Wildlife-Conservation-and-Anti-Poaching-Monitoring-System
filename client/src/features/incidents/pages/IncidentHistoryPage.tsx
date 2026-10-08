@@ -1,17 +1,51 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+/**
+ * UC-B READ (+ entry point for UPDATE and DELETE) - "My Incident Reports" (route /ranger/incidents).
+ *
+ * Lists the ranger's reports with sync status (Synced / Pending / Failed + Retry Sync), place name, photo and
+ * description. Editable reports show Edit and Delete; locked ones show why. Deleting asks for a reason and offers
+ * Undo; unsynced drafts can be discarded from the device.
+ */
+import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { incidentApi } from '../api/incidentApi';
-import type { ConservationIncident } from '../types/incident';
+import type { ConservationIncident, IncidentDeletionReason } from '../types/incident';
 import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
 import { SyncStatus } from '../../../shared/types/enums';
+import { ApiError } from '../../../shared/api/apiError';
+import { EDIT_LOCK_MESSAGES, buildSubmitIssue } from '../utils/incidentFormIssues';
+import { buildDeletePayload, incidentDisplayName } from '../utils/incidentEdit';
+import { DeleteIncidentDialog } from '../components/DeleteIncidentDialog';
+import { UndoToast } from '../components/UndoToast';
+import { IncidentLocationLabel } from '../components/IncidentLocationLabel';
+import { ValidationErrorDialog, type DialogOverrides, type ValidationIssue } from '../components/ValidationErrorDialog';
 
+/** Router state passed by the edit page after it withdrew a report, so this page can offer Undo. */
+export interface WithdrawnReportState {
+  withdrawn?: { incidentId: string; label: string };
+}
+
+type DeleteTarget = { incident: ConservationIncident; mode: 'withdraw' | 'discard' };
+type ErrorDialogState = { issues: ValidationIssue[]; overrides: DialogOverrides };
+
+// Server answers after which the list on screen is out of date
+const RELOAD_CODES = ['EDIT_CONFLICT', 'INCIDENT_LOCKED', 'INCIDENT_DELETED', 'INCIDENT_NOT_DELETED'];
+
+/** The My Incident Reports page. */
 export const IncidentHistoryPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [incidents, setIncidents] = useState<ConservationIncident[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(null);
+  const [undo, setUndo] = useState<{ incidentId: string; label: string } | null>(
+    () => (location.state as WithdrawnReportState | null)?.withdrawn ?? null
+  );
 
+  /** READ: loads the list (server reports + unsynced drafts on this device). */
   const fetchIncidents = () => {
     setLoading(true);
     incidentApi
@@ -23,8 +57,72 @@ export const IncidentHistoryPage: React.FC = () => {
 
   useEffect(() => {
     fetchIncidents();
+    // Consume the one-time Undo offer from the edit page so a refresh doesn't show it again
+    if ((location.state as WithdrawnReportState | null)?.withdrawn) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
   }, []);
 
+  const dismissUndo = useCallback(() => setUndo(null), []);
+  const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
+
+  /** Explains a failed delete/undo; offers "Reload Reports" when the list on screen is out of date. */
+  const showActionError = (err: unknown, action: 'delete' | 'restore') => {
+    const issue = buildSubmitIssue(err, action, { description: '', otherDescription: '' });
+    const code = err instanceof ApiError ? err.code : undefined;
+    const overrides: DialogOverrides = {
+      eyebrow: action === 'delete' ? 'Delete failed' : 'Undo failed',
+      heading: action === 'delete' ? "We couldn't delete this report" : "We couldn't restore this report",
+      intro: 'Nothing was changed.'
+    };
+    if (code && RELOAD_CODES.includes(code)) {
+      overrides.primaryAction = {
+        label: 'Reload Reports',
+        onClick: () => {
+          setErrorDialog(null);
+          fetchIncidents();
+        }
+      };
+    }
+    setErrorDialog({ issues: [issue], overrides });
+  };
+
+  /** DELETE: withdraws a synced report (then offers Undo) or discards an unsynced draft from the device. */
+  const handleConfirmDelete = async (reason?: IncidentDeletionReason, note?: string) => {
+    if (!deleteTarget || isDeleting) return;
+    const { incident, mode } = deleteTarget;
+    setIsDeleting(true);
+    try {
+      if (mode === 'discard') {
+        await incidentApi.discardLocalDraft(incident.clientIncidentId || incident._id);
+      } else {
+        await incidentApi.deleteIncident(incident._id, buildDeletePayload(incident, reason!, note));
+        setUndo({ incidentId: incident._id, label: incidentDisplayName(incident) });
+      }
+      setIncidents(prev => prev.filter(item => item._id !== incident._id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteTarget(null);
+      showActionError(err, 'delete');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /** Undo of a delete: restores the report and reloads the list. */
+  const handleUndo = async () => {
+    if (!undo) return;
+    try {
+      await incidentApi.restoreIncident(undo.incidentId);
+      setUndo(null);
+      fetchIncidents();
+    } catch (err) {
+      setUndo(null);
+      showActionError(err, 'restore');
+    }
+  };
+
+  /** "Retry Sync": sends a pending/failed offline report now. */
   const handleManualRetry = async (inc: ConservationIncident) => {
     const idToRetry = inc.clientIncidentId || inc._id;
     if (!idToRetry) return;
@@ -150,11 +248,9 @@ export const IncidentHistoryPage: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-500 block uppercase font-sans">
-                      Coordinates ({inc.location?.source || 'GPS'})
+                      Location ({inc.location?.source || 'GPS'})
                     </span>
-                    <span className="text-emerald-400">
-                      {inc.location.latitude.toFixed(4)}°, {inc.location.longitude.toFixed(4)}°
-                    </span>
+                    <IncidentLocationLabel location={inc.location} />
                   </div>
                 </div>
 
@@ -171,11 +267,77 @@ export const IncidentHistoryPage: React.FC = () => {
                     />
                   </div>
                 )}
+
+                {isSynced && (
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-[10px] text-slate-500">
+                      {inc.editCount ? `✏️ Edited ${inc.editCount}× · last ${new Date(inc.lastEditedAt ?? inc.reportedAt).toLocaleString()}` : ''}
+                    </span>
+                    {inc.canEdit === false ? (
+                      <span
+                        className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-slate-950 border border-slate-700 text-slate-400"
+                        title={inc.editLockedReason ? EDIT_LOCK_MESSAGES[inc.editLockedReason].message : undefined}
+                      >
+                        🔒 Locked{inc.editLockedReason ? ` · ${EDIT_LOCK_MESSAGES[inc.editLockedReason].short}` : ''}
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {inc.canDelete !== false && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget({ incident: inc, mode: 'withdraw' })}
+                            aria-label={`Delete ${incidentDisplayName(inc)} report`}
+                            className="py-1.5 px-3 rounded-full bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-500/50 text-rose-300 text-[11px] font-extrabold"
+                          >
+                            🗑️ Delete
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/ranger/incidents/${inc._id}/edit`)}
+                          className="py-1.5 px-3.5 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 text-[11px] font-extrabold shadow"
+                        >
+                          ✏️ Edit Report
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!isSynced && (
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget({ incident: inc, mode: 'discard' })}
+                      className="py-1.5 px-3 rounded-full bg-slate-800 hover:bg-rose-950 border border-slate-700 hover:border-rose-500/50 text-rose-300 text-[11px] font-extrabold"
+                    >
+                      🗑️ Discard Draft
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
+          {/* Required attribution for place names from OpenStreetMap (ODbL) */}
+          <p className="text-[10px] text-slate-500 text-center">Place names © OpenStreetMap contributors</p>
         </div>
       )}
+
+      {deleteTarget && (
+        <DeleteIncidentDialog
+          incident={deleteTarget.incident}
+          mode={deleteTarget.mode}
+          isWorking={isDeleting}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleConfirmDelete}
+        />
+      )}
+
+      {errorDialog && (
+        <ValidationErrorDialog variant="submit" issues={errorDialog.issues} onClose={closeErrorDialog} {...errorDialog.overrides} />
+      )}
+
+      {undo && <UndoToast message={`"${undo.label}" report deleted`} onUndo={handleUndo} onDismiss={dismissUndo} />}
     </div>
   );
 };

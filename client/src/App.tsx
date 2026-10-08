@@ -6,6 +6,7 @@ import { ActivePatrolPage } from './features/patrols/pages/ActivePatrolPage';
 import { PatrolCompletionPage } from './features/patrols/pages/PatrolCompletionPage';
 import { ReportIncidentPage } from './features/incidents/pages/ReportIncidentPage';
 import { IncidentHistoryPage } from './features/incidents/pages/IncidentHistoryPage';
+import { EditIncidentPage } from './features/incidents/pages/EditIncidentPage';
 import { ConflictAlertsPage } from './features/conflict-alerts/pages/ConflictAlertsPage';
 import { ConflictAlertDetailPage } from './features/conflict-alerts/pages/ConflictAlertDetailPage';
 import { CollarMonitoringPage } from './features/collars/pages/CollarMonitoringPage';
@@ -43,6 +44,7 @@ export default function App() {
 
         <Route path="/ranger/incidents" element={<IncidentHistoryPage />} />
         <Route path="/ranger/incidents/new" element={<ReportIncidentPage />} />
+        <Route path="/ranger/incidents/:incidentId/edit" element={<EditIncidentPage />} />
 
         <Route path="/ranger/alerts" element={<ConflictAlertsPage />} />
         <Route path="/ranger/alerts/:alertId" element={<ConflictAlertDetailPage />} />

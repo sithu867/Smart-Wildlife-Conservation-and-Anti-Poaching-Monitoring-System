@@ -22,28 +22,14 @@ export const analyticsService = {
         : {}),
     });
     const [patrols, incidents, alerts] = await Promise.all([
-      prisma.patrolSession.findMany({
-        where: { ...dateFilter('startTime'), rangerId: filters.rangerId },
-        include: { waypoints: true },
-      }),
       prisma.conservationIncident.findMany({
         where: {
+          deletedAt: null,
           ...dateFilter('reportedAt'),
           reportedBy: filters.rangerId,
           incidentType: filters.incidentType,
           status: filters.incidentStatus,
         },
-      }),
-      prisma.wildlifeConflictAlert.findMany({
-        where: {
-          ...dateFilter('createdAt'),
-          acknowledgedBy: filters.rangerId,
-          severity: filters.severity,
-          status: filters.conflictStatus,
-          source: filters.conflictSource,
-          alertType: filters.conflictType,
-        },
-        include: { responses: true },
       }),
     ]);
     const responses = alerts

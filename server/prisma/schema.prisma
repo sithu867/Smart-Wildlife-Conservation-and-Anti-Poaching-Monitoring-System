@@ -27,6 +27,9 @@ enum LocationSource {
   MANUAL
 }
 
+// ---------- UC-B Report & Manage Conservation Incidents ----------
+
+// What the ranger found
 enum IncidentType {
   SNARE
   ANIMAL_CARCASS
@@ -35,10 +38,19 @@ enum IncidentType {
   OTHER
 }
 
+// Manager workflow; rangers can only edit/delete while REPORTED
 enum IncidentStatus {
   REPORTED
   INVESTIGATING
   RESOLVED
+}
+
+// Reason the ranger gave when withdrawing (deleting) a report
+enum IncidentDeletionReason {
+  DUPLICATE
+  CREATED_BY_MISTAKE
+  FALSE_ALARM
+  OTHER
 }
 
 enum AlertSource {
@@ -196,8 +208,15 @@ model Waypoint {
   @@index([patrolSessionId, timestamp])
 }
 
+// A conservation incident report. Never hard-deleted: withdrawing sets deletedAt (see below).
+// location JSON: { latitude, longitude, timestamp, source: GPS|MANUAL, placeName? }
 model ConservationIncident {
   id                   String             @id @default(cuid())
+  clientIncidentId     String?
+  incidentType         IncidentType
+  otherTypeDescription String?
+model ConservationIncident {
+  id                   String                @id @default(cuid())
   clientIncidentId     String?
   incidentType         IncidentType
   otherTypeDescription String?
@@ -209,48 +228,74 @@ model ConservationIncident {
   patrolSessionId      String?
   // Explicit scope for standalone reports; patrol-linked reports retain their route's park.
   parkId               String?
-  park                 Park?           @relation(fields: [parkId], references: [id], onDelete: SetNull)
-  status               IncidentStatus  @default(REPORTED)
-  syncStatus           SyncStatus      @default(SYNCED)
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-  patrolSession        PatrolSession?  @relation(fields: [patrolSessionId], references: [id], onDelete: SetNull)
+  park                 Park?                 @relation(fields: [parkId], references: [id], onDelete: SetNull)
+  status               IncidentStatus        @default(REPORTED)
+  syncStatus           SyncStatus            @default(SYNCED)
+  editCount            Int                   @default(0)
+  lastEditedAt         DateTime?
+  // Withdrawal (soft delete): the report is hidden from the ranger, patrol and analytics but kept for audit
+  deletedAt            DateTime?
+  deletedBy            String?
+  deletionReason       IncidentDeletionReason?
+  deletionNote         String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  patrolSession        PatrolSession?        @relation(fields: [patrolSessionId], references: [id], onDelete: SetNull)
   evidence             IncidentEvidence[]
+  revisions            IncidentRevision[]
+
   @@index([clientIncidentId])
   @@index([reportedBy])
   @@index([reportedAt])
   @@index([patrolSessionId])
   @@index([parkId, reportedAt])
+  @@index([reportedBy, deletedAt])
+}
+  @@index([clientIncidentId])
+  @@index([reportedBy])
+  @@index([reportedAt])
+  @@index([patrolSessionId])
+@@index([clientIncidentId])
+  @@index([reportedBy])
+  @@index([reportedAt])
+  @@index([patrolSessionId])
+  @@index([parkId, reportedAt])
+  @@index([reportedBy, deletedAt])
 }
 
+// Photo evidence (base64 data URL). Photos removed in an edit keep their row with removedAt set.
 model IncidentEvidence {
-  id         String               @id @default(cuid())
-  evidenceId String               @unique
+model IncidentEvidence {
+  id         String                @id @default(cuid())
+  evidenceId String                @unique
   incidentId String
   imageUrl   String
-  capturedAt DateTime             @default(now())
+  capturedAt DateTime              @default(now())
   fileSize   Int?
-  mimeType   String               @default("image/jpeg")
-  incident   ConservationIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  mimeType   String                @default("image/jpeg")
+  // Soft delete: evidence removed during an edit is kept for audit, just hidden from the report
+  removedAt  DateTime?
+  incident   ConservationIncident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
   @@index([incidentId])
 }
 
-model CollarTelemetry {
-  id              String   @id @default(cuid())
-  eventId         String   @unique
-  deviceId        String
-  animalId        String
-  latitude        Float
-  longitude       Float
-  recordedAt      DateTime
-  batteryPercent  Int?
-  accuracyMeters  Float?
-  receivedAt      DateTime @default(now())
-  alertCreated    Boolean  @default(false)
+// Audit trail of ranger edits, deletes and restores of a conservation incident report
+model IncidentRevision {
+  id           String                @id @default(cuid())
+  incidentId   String
+  clientEditId String
+  action       String                @default("EDIT") // EDIT | DELETE | RESTORE
+  editedBy     String
+  editedByName String
+  editedAt     DateTime
+  receivedAt   DateTime              @default(now())
+  changes      Json                  // { field: { from, to } }, evidence: { added, removed }
+  incident     ConservationIncident  @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
-  @@index([deviceId, recordedAt])
-  @@index([animalId, recordedAt])
+  @@unique([incidentId, clientEditId])
+  @@index([incidentId, receivedAt])
+}
 }
 
 model WildlifeConflictAlert {

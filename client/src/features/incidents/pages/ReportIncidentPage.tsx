@@ -1,32 +1,42 @@
+/**
+ * UC-B CREATE - "Ranger Reports a Field Conservation Incident" (route /ranger/incidents/new).
+ *
+ * Main flow: get GPS location -> choose type -> capture photo -> write description -> Review -> Confirm & Submit
+ * -> confirmation screen. Alternate flows: no network (saved on device as Pending Synchronization), manual
+ * location (map picker), retake photo, edit draft before submitting. Exceptions: missing information (popup with
+ * every problem), GPS failure (message + manual location), photo failure (message + retry).
+ * Opened with ?sessionId=... from the active patrol screen to link the report to that patrol.
+ */
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { OptionalParkSelect } from '../../../shared/components/OptionalParkSelect';
-import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { geolocationService, type GeoLocation } from '../../../shared/geolocation/geolocation';
 import { SyncStatusIndicator } from '../../patrols/components/SyncStatus';
 import { PhotoCapture } from '../components/PhotoCapture';
 import { ManualLocationPicker } from '../components/ManualLocationPicker';
+import { ValidationErrorDialog, type IncidentField, type ValidationIssue } from '../components/ValidationErrorDialog';
+import { FieldHint } from '../components/FieldHint';
+import { IncidentTypeSelector } from '../components/IncidentTypeSelector';
+import { IncidentDescriptionField } from '../components/IncidentDescriptionField';
+import { IncidentLocationLabel } from '../components/IncidentLocationLabel';
 import { incidentApi } from '../api/incidentApi';
 import { reportIncidentFormSchema } from '../schemas/incidentSchemas';
+import { SCHEMA_PATH_TO_FIELD, buildFieldIssue, buildSubmitIssue, sortIssues } from '../utils/incidentFormIssues';
 import { IncidentType, LocationSource, SyncStatus } from '../../../shared/types/enums';
 import type { ConservationIncident } from '../types/incident';
 
-const INCIDENT_TYPE_OPTIONS = [
-  { type: IncidentType.SNARE, label: 'Wire Snare / Trap', icon: '🪤', desc: 'Illegal animal snares, traps, or nets' },
-  { type: IncidentType.ANIMAL_CARCASS, label: 'Animal Carcass', icon: '🦴', desc: 'Deceased animal or suspected poaching kill' },
-  { type: IncidentType.ILLEGAL_CAMPSITE, label: 'Illegal Campsite', icon: '⛺', desc: 'Unauthorized human encampments or firepits' },
-  { type: IncidentType.AT_RISK_FOOTPRINTS, label: 'Species Tracks', icon: '🐾', desc: 'Footprints or signs of endangered species' },
-  { type: IncidentType.OTHER, label: 'Other Threat', icon: '⚠️', desc: 'Fencing breaches, logging, or other threats' }
-];
+const generateClientIncidentId = () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 
+type ErrorDialogState = { variant: 'validation' | 'submit'; issues: ValidationIssue[] };
+
+/** The Report Incident page: form, review modal and confirmation screen. */
 export const ReportIncidentPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const patrolSessionId = searchParams.get('sessionId') || undefined;
 
-  // Stable client ID generated for this report draft session
-  const [clientIncidentId] = useState<string>(
-    () => `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
-  );
+  // Stable client ID for the current report draft; regenerated when starting a new report
+  const [clientIncidentId, setClientIncidentId] = useState<string>(generateClientIncidentId);
 
   const [parkId, setParkId] = useState('');
   const [selectedType, setSelectedType] = useState<IncidentType | null>(null);
@@ -43,11 +53,54 @@ export const ReportIncidentPage: React.FC = () => {
   const [isManualPickerOpen, setIsManualPickerOpen] = useState<boolean>(false);
   const [isReviewOpen, setIsReviewOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [validationError, setValidationError] = useState<string | null>(null);
+  const [errorDialog, setErrorDialog] = useState<ErrorDialogState | null>(null);
+  // Inline hints that stay on the form after the popup is closed, until each field is fixed
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<IncidentField, string>>>({});
   const [submittedIncident, setSubmittedIncident] = useState<ConservationIncident | null>(null);
 
-  // Request GPS location on mount
-  useEffect(() => {
+  const fieldRefs = useRef<Partial<Record<IncidentField, HTMLElement | null>>>({});
+
+  /** Removes a field's red highlight once the ranger has fixed it. */
+  const clearFieldError = (field: IncidentField) => {
+    setFieldErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const issueContext = { description, otherDescription };
+
+  /** Highlights every invalid field and opens the popup listing them. */
+  const showValidationIssues = (issues: ValidationIssue[]) => {
+    const sorted = sortIssues(issues);
+    setFieldErrors(Object.fromEntries(sorted.map(issue => [issue.field, issue.title])));
+    setErrorDialog({ variant: 'validation', issues: sorted });
+  };
+
+  // Stable reference so the dialog's Escape-key listener isn't re-registered on every render
+  const closeErrorDialog = useCallback(() => setErrorDialog(null), []);
+
+  /** Popup action button: closes the popup and takes the ranger to that field (the map picker for location). */
+  const handleFixField = (field: IncidentField) => {
+    setErrorDialog(null);
+    setIsReviewOpen(false);
+
+    if (field === 'location' && !location) {
+      setIsManualPickerOpen(true);
+      return;
+    }
+
+    const el = fieldRefs.current[field];
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      el.focus({ preventScroll: true });
+    }
+  };
+
+  /** Main flow steps 4-5: ask the device for the current GPS position. */
+  const requestGpsLocation = () => {
     setLocationStatus('obtaining');
 
     geolocationService
@@ -56,13 +109,37 @@ export const ReportIncidentPage: React.FC = () => {
         setLocation(loc);
         setLocationStatus('available');
         setLocationSource(LocationSource.GPS);
+        clearFieldError('location');
       })
       .catch(err => {
         console.warn('GPS location request failed or permission denied:', err);
         setLocationStatus('unavailable');
       });
+  };
+
+  // Request GPS location on mount
+  useEffect(() => {
+    requestGpsLocation();
   }, []);
 
+  /** "Report Another Incident": clears the form and starts a new draft with a new client id. */
+  const handleReportAnother = () => {
+    setClientIncidentId(generateClientIncidentId());
+    setSubmittedIncident(null);
+    setSelectedType(null);
+    setOtherDescription('');
+    setDescription('');
+    handlePhotoCleared();
+    setLocation(null);
+    setLocationSource(LocationSource.GPS);
+    setIsReviewOpen(false);
+    setIsSubmitting(false);
+    setErrorDialog(null);
+    setFieldErrors({});
+    requestGpsLocation();
+  };
+
+  /** Manual Location alternate flow: use the point chosen on the map (source = MANUAL). */
   const handleManualLocationSelect = (selectedLoc: { latitude: number; longitude: number }) => {
     setLocation({
       latitude: selectedLoc.latitude,
@@ -72,14 +149,15 @@ export const ReportIncidentPage: React.FC = () => {
     setLocationSource(LocationSource.MANUAL);
     setLocationStatus('available');
     setIsManualPickerOpen(false);
-    setValidationError(null);
+    clearFieldError('location');
   };
 
+  /** Main flow step 8: attach the captured photo (also used by Retake). */
   const handlePhotoCaptured = (dataUrl: string, size?: number, mime?: string) => {
     setImageUrl(dataUrl);
     setFileSize(size);
     setMimeType(mime);
-    setValidationError(null);
+    clearFieldError('imageUrl');
   };
 
   const handlePhotoCleared = () => {
@@ -88,40 +166,54 @@ export const ReportIncidentPage: React.FC = () => {
     setMimeType(undefined);
   };
 
+  /** Main flow steps 10/12: validate everything, then open the review screen (or show the problems popup). */
   const handleOpenReview = (e: React.FormEvent) => {
     e.preventDefault();
-    setValidationError(null);
 
-    const lat = location ? location.latitude : -2.1523;
-    const lng = location ? location.longitude : 34.8214;
+    // Collect every problem at once so the ranger can fix them all in one pass
+    const issuesByField = new Map<IncidentField, ValidationIssue>();
+    if (!location) {
+      issuesByField.set('location', buildFieldIssue('location', '', issueContext));
+    }
 
     const parseResult = reportIncidentFormSchema.safeParse({
       incidentType: selectedType,
       otherTypeDescription: selectedType === IncidentType.OTHER ? otherDescription : undefined,
       description,
-      latitude: lat,
-      longitude: lng,
+      // Missing location is reported above; placeholder keeps the schema focused on the other fields
+      latitude: location ? location.latitude : 0,
+      longitude: location ? location.longitude : 0,
       locationSource: location ? locationSource : LocationSource.MANUAL,
       patrolSessionId,
       imageUrl: imageUrl || ''
     });
 
     if (!parseResult.success) {
-      const msg = parseResult.error.issues[0]?.message || 'Please fill in all required incident details.';
-      setValidationError(msg);
+      for (const issue of parseResult.error.issues) {
+        const field = SCHEMA_PATH_TO_FIELD[String(issue.path[0])];
+        if (field && !issuesByField.has(field)) {
+          issuesByField.set(field, buildFieldIssue(field, issue.message, issueContext));
+        }
+      }
+    }
+
+    if (issuesByField.size > 0) {
+      showValidationIssues([...issuesByField.values()]);
       return;
     }
 
+    setFieldErrors({});
     setIsReviewOpen(true);
   };
 
+  /** Main flow steps 11-15: submit the report (saved on the device instead when there is no network). */
   const handleFinalSubmit = async () => {
     if (isSubmitting) return; // Prevent duplicate submissions
     setIsSubmitting(true);
-    setValidationError(null);
 
     if (!location) {
-      setValidationError('Location is missing. Please select a valid location before submitting.');
+      setIsReviewOpen(false);
+      showValidationIssues([buildFieldIssue('location', '', issueContext)]);
       setIsSubmitting(false);
       return;
     }
@@ -150,7 +242,8 @@ export const ReportIncidentPage: React.FC = () => {
       setSubmittedIncident(created);
       setIsReviewOpen(false);
     } catch (err) {
-      setValidationError(err instanceof Error ? err.message : 'Failed to submit incident report');
+      setErrorDialog({ variant: 'submit', issues: [buildSubmitIssue(err, 'submit', issueContext)] });
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -196,8 +289,8 @@ export const ReportIncidentPage: React.FC = () => {
             </div>
             <div className="flex justify-between border-b border-slate-900 pb-2">
               <span className="text-slate-400">Location ({submittedIncident.location.source})</span>
-              <span className="font-mono text-emerald-400">
-                {submittedIncident.location.latitude.toFixed(4)}°, {submittedIncident.location.longitude.toFixed(4)}°
+              <span className="text-right">
+                <IncidentLocationLabel location={submittedIncident.location} />
               </span>
             </div>
             <div className="flex justify-between border-b border-slate-900 pb-2">
@@ -216,7 +309,11 @@ export const ReportIncidentPage: React.FC = () => {
 
           <div className="flex flex-col gap-2 w-full mt-2">
             {(() => {
-              const linkedSessId = patrolSessionId || (typeof submittedIncident.patrolSession === 'object' ? submittedIncident.patrolSession?._id : submittedIncident.patrolSession);
+              // The server also links reports made from the Incidents screen to the ranger's open patrol
+              const linkedSessId =
+                patrolSessionId ||
+                submittedIncident.patrolSessionId ||
+                (typeof submittedIncident.patrolSession === 'object' ? submittedIncident.patrolSession?._id : submittedIncident.patrolSession);
               return linkedSessId ? (
                 <button
                   onClick={() => navigate(`/ranger/patrol/active/${linkedSessId}`)}
@@ -234,15 +331,7 @@ export const ReportIncidentPage: React.FC = () => {
               View My Reported Incidents →
             </button>
             <button
-              onClick={() => {
-                setSubmittedIncident(null);
-                setSelectedType(null);
-                setDescription('');
-                setImageUrl(null);
-                setLocation(null);
-                setLocationStatus('obtaining');
-                setLocationSource(LocationSource.GPS);
-              }}
+              onClick={handleReportAnother}
               className="w-full py-2.5 rounded-2xl font-semibold bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-xs"
             >
               Report Another Incident
@@ -280,22 +369,16 @@ export const ReportIncidentPage: React.FC = () => {
         </div>
       )}
 
-      {/* Validation / System Error Banner */}
-      {validationError && (
-        <div className="p-4 bg-rose-950/90 border border-rose-700/80 rounded-2xl text-xs text-rose-200 font-semibold flex items-start gap-2 shadow-lg animate-bounce">
-          <span className="text-base">⚠️</span>
-          <div className="flex-1">
-            <p className="font-bold text-rose-100">Validation Error</p>
-            <p className="mt-0.5 opacity-90">{validationError}</p>
-          </div>
-        </div>
-      )}
-
       {/* Main Incident Reporting Form */}
-      <form onSubmit={handleOpenReview} className="flex flex-col gap-5">
+<form onSubmit={handleOpenReview} noValidate className="flex flex-col gap-5">
         {!patrolSessionId && <OptionalParkSelect value={parkId} onChange={setParkId} />}
         {/* 1. Location Status & Selection Box */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
+        <div
+          ref={el => { fieldRefs.current.location = el; }}
+          className={`bg-slate-900 border rounded-2xl p-4 flex flex-col gap-3 transition-colors ${
+            fieldErrors.location ? 'border-rose-500 ring-2 ring-rose-500/30' : 'border-slate-800'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs">
             <span className="font-bold text-slate-300 uppercase tracking-wider text-[11px]">
               Location ({locationSource})
@@ -351,88 +434,57 @@ export const ReportIncidentPage: React.FC = () => {
               </button>
             </div>
           )}
+          <FieldHint message={fieldErrors.location} />
         </div>
 
         {/* 2. Incident Type Selection */}
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
-            Select Incident Type <span className="text-rose-400">*</span>
-          </label>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {INCIDENT_TYPE_OPTIONS.map(opt => {
-              const isSelected = selectedType === opt.type;
-              return (
-                <button
-                  type="button"
-                  key={opt.type}
-                  onClick={() => {
-                    setSelectedType(opt.type);
-                    setValidationError(null);
-                  }}
-                  className={`p-3.5 rounded-2xl border text-left flex items-start gap-3 transition-all active:scale-[0.98] ${
-                    isSelected
-                      ? 'bg-amber-400/10 border-amber-400 text-white shadow-lg shadow-amber-400/10'
-                      : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <span className="text-2xl p-2 rounded-xl bg-slate-950 border border-slate-800">{opt.icon}</span>
-                  <div>
-                    <span className="font-black text-sm block text-white">{opt.label}</span>
-                    <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">{opt.desc}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {selectedType === IncidentType.OTHER && (
-            <div className="mt-2">
-              <label className="block text-xs font-semibold text-slate-300 mb-1 uppercase">
-                Specify Other Incident Type
-              </label>
-              <input
-                type="text"
-                value={otherDescription}
-                onChange={e => setOtherDescription(e.target.value)}
-                placeholder="Specify specific threat details..."
-                maxLength={200}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-amber-400"
-              />
-            </div>
-          )}
-        </div>
+        <IncidentTypeSelector
+          selectedType={selectedType}
+          onSelect={type => {
+            setSelectedType(type);
+            clearFieldError('incidentType');
+            if (type !== IncidentType.OTHER) clearFieldError('otherTypeDescription');
+          }}
+          otherDescription={otherDescription}
+          onOtherDescriptionChange={value => {
+            setOtherDescription(value);
+            clearFieldError('otherTypeDescription');
+          }}
+          typeError={fieldErrors.incidentType}
+          otherError={fieldErrors.otherTypeDescription}
+          sectionRef={el => { fieldRefs.current.incidentType = el; }}
+          otherInputRef={el => { fieldRefs.current.otherTypeDescription = el; }}
+        />
 
         {/* 3. Photo Capture Evidence */}
-        <div className="flex flex-col gap-2">
+        <div ref={el => { fieldRefs.current.imageUrl = el; }} className="flex flex-col gap-2">
           <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
             Photographic Evidence <span className="text-rose-400">*</span>
           </label>
-          <PhotoCapture
-            initialPhotoUrl={imageUrl}
-            onPhotoCaptured={handlePhotoCaptured}
-            onPhotoCleared={handlePhotoCleared}
-          />
+          <div
+            className={`rounded-2xl transition-shadow ${
+              fieldErrors.imageUrl ? 'ring-2 ring-rose-500/60 ring-offset-4 ring-offset-slate-950' : ''
+            }`}
+          >
+            <PhotoCapture
+              initialPhotoUrl={imageUrl}
+              onPhotoCaptured={handlePhotoCaptured}
+              onPhotoCleared={handlePhotoCleared}
+            />
+          </div>
+          <FieldHint message={fieldErrors.imageUrl} />
         </div>
 
         {/* 4. Description Notes */}
-        <div className="flex flex-col gap-2">
-          <label className="text-xs font-extrabold text-slate-300 uppercase tracking-wider">
-            Field Description & Notes <span className="text-rose-400">*</span>
-          </label>
-          <textarea
-            value={description}
-            onChange={e => {
-              setDescription(e.target.value);
-              setValidationError(null);
-            }}
-            placeholder="Describe observations, quantity, exact landmarks, or immediate action taken..."
-            rows={3}
-            maxLength={1000}
-            className="w-full bg-slate-950 border border-slate-700 rounded-2xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-400 shadow-inner"
-          />
-          <span className="text-[10px] text-slate-500 float-right text-right">{description.length}/1000</span>
-        </div>
+        <IncidentDescriptionField
+          value={description}
+          onChange={value => {
+            setDescription(value);
+            clearFieldError('description');
+          }}
+          error={fieldErrors.description}
+          textareaRef={el => { fieldRefs.current.description = el; }}
+        />
 
         {/* Review Action Button */}
         <button
@@ -542,6 +594,16 @@ export const ReportIncidentPage: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Validation / Submission Error Popup (renders above the review modal) */}
+      {errorDialog && (
+        <ValidationErrorDialog
+          variant={errorDialog.variant}
+          issues={errorDialog.issues}
+          onClose={closeErrorDialog}
+          onFix={handleFixField}
+        />
       )}
     </div>
   );

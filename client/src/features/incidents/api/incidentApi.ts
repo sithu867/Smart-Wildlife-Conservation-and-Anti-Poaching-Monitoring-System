@@ -1,10 +1,44 @@
-import axios from 'axios';
+/**
+ * UC-B incident API client - the only place the app talks to /api/incidents.
+ *
+ * Offline-first: a report that cannot reach the server is saved in IndexedDB (offlineDb.incidents) as PENDING and
+ * queued in offlineDb.syncQueue; syncService sends it when the device is back online (see registerTransport below).
+ * Server answers (4xx/5xx with a body) are surfaced as ApiError with the server's `code`, never queued.
+ *
+ *  - CREATE  createIncident, syncIncidentPayload (offline queue), retrySyncIncident (manual retry)
+ *  - READ    getMyIncidents, getIncidentById
+ *  - UPDATE  updateIncident
+ *  - DELETE  deleteIncident (withdraw), restoreIncident (undo), discardLocalDraft (unsynced drafts)
+ */
 import { http } from '../../../shared/api/http';
+import { ApiError, toApiError } from '../../../shared/api/apiError';
 import { offlineDb, type OfflineRecord } from '../../../offline/db';
 import { syncService } from '../../../offline/syncService';
 import { SyncStatus, IncidentStatus, LocationSource } from '../../../shared/types/enums';
-import type { ConservationIncident, CreateIncidentPayload } from '../types/incident';
+import type { ConservationIncident, CreateIncidentPayload, DeleteIncidentPayload, UpdateIncidentPayload } from '../types/incident';
 
+/** Keeps the device copy of a report in step with the server's latest version (used after create/edit/delete). */
+async function cacheSyncedIncident(incident: ConservationIncident): Promise<void> {
+  try {
+    const local = await findLocalIncidentByRemoteId(incident._id);
+    const record = {
+      remoteId: incident._id,
+      syncStatus: SyncStatus.SYNCED,
+      createdAt: incident.reportedAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      payload: incident
+    };
+    if (local?.id !== undefined) {
+      await offlineDb.incidents.update(local.id, record);
+    } else {
+      await offlineDb.incidents.put(record);
+    }
+  } catch (dbErr) {
+    console.warn('Could not cache incident to local storage:', dbErr);
+  }
+}
+
+/** Finds the device copy of a report by server id or client id (offline reports only have a client id). */
 async function findLocalIncidentByRemoteId(remoteId: string): Promise<OfflineRecord | undefined> {
   try {
     return await offlineDb.incidents
@@ -22,9 +56,17 @@ async function findLocalIncidentByRemoteId(remoteId: string): Promise<OfflineRec
 }
 
 export const incidentApi = {
+  /**
+   * CREATE - submits a new report. Online: returns the server's report (cached as SYNCED).
+   * No connection: saves it on the device as PENDING, queues it for sync and returns the local copy.
+   * A server error (e.g. validation) is thrown as ApiError so the ranger can fix it.
+   */
   async createIncident(payload: CreateIncidentPayload): Promise<ConservationIncident> {
     const clientIncidentId = payload.clientIncidentId || `inc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-    const fullPayload = { ...payload, clientIncidentId };
+    // The moment the ranger submitted - captured before the network attempt, which can take a long time to fail
+    const reportedAt = payload.reportedAt || new Date().toISOString();
+    // Online the server's clock is authoritative, so the device time is only sent when the report is synced later
+    const { reportedAt: _deviceTime, ...fullPayload } = { ...payload, clientIncidentId };
 
     try {
       const response = await http.post('/incidents', fullPayload);
@@ -45,12 +87,9 @@ export const incidentApi = {
 
       return incident;
     } catch (error) {
-      if (axios.isAxiosError(error) && error.response) {
-        const responseData = error.response.data as { error?: { message?: string } } | undefined;
-        throw new Error(
-          responseData?.error?.message || `Incident submission failed (${error.response.status}).`
-        );
-      }
+      // The server answered with an error: surface it instead of queueing invalid data offline
+      const apiError = toApiError(error);
+      if (apiError) throw apiError;
 
       console.warn('Network request failed for createIncident, storing locally with PENDING sync status:', error);
 
@@ -63,12 +102,12 @@ export const incidentApi = {
         location: {
           latitude: payload.latitude,
           longitude: payload.longitude,
-          timestamp: new Date().toISOString(),
+          timestamp: reportedAt,
           source: payload.locationSource || LocationSource.GPS
         },
         reportedBy: 'R-101',
         rangerName: 'Ranger John',
-        reportedAt: new Date().toISOString(),
+        reportedAt,
         patrolSession: payload.patrolSessionId,
         parkId: payload.parkId,
         evidence: payload.evidence.map((ev, idx) => ({
@@ -118,9 +157,13 @@ export const incidentApi = {
     }
   },
 
+  /**
+   * READ - the ranger's reports for the history page. Flushes the sync queue first, then merges the server list
+   * with unsynced drafts from the device (offline: the cached copies are shown instead).
+   */
   async getMyIncidents(): Promise<ConservationIncident[]> {
     let remoteIncidents: ConservationIncident[] = [];
-    let remoteFetchSucceeded = false;
+let remoteFetchSucceeded = false;
     if (syncService.getIsOnline()) {
       await syncService.processAll();
     }
@@ -130,6 +173,7 @@ export const incidentApi = {
       if (response.data?.success) {
         remoteFetchSucceeded = true;
         remoteIncidents = response.data.data;
+        serverAnswered = true;
 
         for (const inc of remoteIncidents) {
           const local = await findLocalIncidentByRemoteId(inc._id);
@@ -217,11 +261,13 @@ export const incidentApi = {
     // Merge local cached items (prioritizing local pending/failed status if unsynced)
     for (const c of cached) {
       const inc = c.payload as ConservationIncident;
-      if (inc) {
-        const key = inc.clientIncidentId || inc._id;
-        if (!itemsMap.has(key) || c.syncStatus === SyncStatus.PENDING || c.syncStatus === SyncStatus.FAILED) {
-          itemsMap.set(key, { ...inc, syncStatus: c.syncStatus });
-        }
+      if (!inc || inc.deletedAt) continue;
+      const key = inc.clientIncidentId || inc._id;
+      const isUnsynced = c.syncStatus === SyncStatus.PENDING || c.syncStatus === SyncStatus.FAILED;
+      // When the server answered it is the source of truth for synced reports (e.g. ones withdrawn on another device);
+      // only unsynced local drafts are added on top. Offline, the cached copies are all we have.
+      if (isUnsynced || (!serverAnswered && !itemsMap.has(key))) {
+        itemsMap.set(key, { ...inc, syncStatus: c.syncStatus });
       }
     }
 
@@ -230,6 +276,7 @@ export const incidentApi = {
     );
   },
 
+  /** READ - one report (used by the edit page). Falls back to the device copy only when offline. */
   async getIncidentById(incidentId: string): Promise<ConservationIncident> {
     try {
       const response = await http.get(`/incidents/${incidentId}`);
@@ -237,21 +284,102 @@ export const incidentApi = {
         return response.data.data;
       }
     } catch (error) {
+      // 403/404 etc. are real answers from the server; only fall back to the device copy when offline
+      const apiError = toApiError(error);
+      if (apiError) throw apiError;
+
       console.warn('Network failed for getIncidentById, fetching from local storage:', error);
       const local = await findLocalIncidentByRemoteId(incidentId);
       if (local && local.payload) {
-        return local.payload as ConservationIncident;
+        return { ...(local.payload as ConservationIncident), syncStatus: local.syncStatus };
       }
     }
-    throw new Error('Conservation incident report not found.');
+    throw new ApiError('Conservation incident report not found.', 404, 'INCIDENT_NOT_FOUND');
   },
 
+  /** Withdraws (soft-deletes) a synced report. Requires a connection for now (offline deletes come with the offline queue step). */
+  async deleteIncident(incidentId: string, payload: DeleteIncidentPayload): Promise<ConservationIncident> {
+    try {
+      const response = await http.delete(`/incidents/${incidentId}`, { data: payload });
+      const withdrawn: ConservationIncident = response.data.data;
+      await cacheSyncedIncident(withdrawn);
+      return withdrawn;
+    } catch (error) {
+      const apiError = toApiError(error);
+      if (apiError) throw apiError;
+      throw new ApiError('Deleting a report needs an internet connection. Try again when you are back online.', 0, 'OFFLINE');
+    }
+  },
+
+  /** Undo of a withdrawal. */
+  async restoreIncident(incidentId: string): Promise<ConservationIncident> {
+    try {
+      const response = await http.post(`/incidents/${incidentId}/restore`, {
+        restoredAt: new Date().toISOString(),
+        clientRestoreId: `restore-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
+      });
+      const restored: ConservationIncident = response.data.data;
+      await cacheSyncedIncident(restored);
+      return restored;
+    } catch (error) {
+      const apiError = toApiError(error);
+      if (apiError) throw apiError;
+      throw new ApiError('Restoring a report needs an internet connection. Try again when you are back online.', 0, 'OFFLINE');
+    }
+  },
+
+  /**
+   * Discards a report that never reached the server: removes the device copy and its queued upload.
+   * Refused while the upload is in flight, because the server may already be creating it.
+   */
+  async discardLocalDraft(clientIncidentId: string): Promise<void> {
+    const local = await findLocalIncidentByRemoteId(clientIncidentId);
+    if (!local || local.id === undefined) return;
+    if (local.syncStatus === SyncStatus.SYNCED) {
+      throw new ApiError('This report has already synced. Delete it instead.', 0, 'ALREADY_SYNCED');
+    }
+
+    const queueItems = await offlineDb.syncQueue.where('entity').equals('INCIDENT').filter(item => item.recordId === local.id).toArray();
+    if (queueItems.some(item => item.status === SyncStatus.SYNCING)) {
+      throw new ApiError('This report is uploading right now. Wait a moment, then delete it.', 0, 'SYNC_IN_PROGRESS');
+    }
+
+    await offlineDb.transaction('rw', [offlineDb.incidents, offlineDb.syncQueue], async () => {
+      await offlineDb.syncQueue.bulkDelete(queueItems.map(item => item.id!).filter(id => id !== undefined));
+      await offlineDb.incidents.delete(local.id!);
+    });
+  },
+
+  /** Saves edits to a synced report. Editing currently requires a connection (offline edits come in a later step). */
+  async updateIncident(incidentId: string, payload: UpdateIncidentPayload): Promise<ConservationIncident> {
+    try {
+      const response = await http.patch(`/incidents/${incidentId}`, payload);
+      const updated: ConservationIncident = response.data.data;
+      await cacheSyncedIncident(updated);
+      return updated;
+    } catch (error) {
+      const apiError = toApiError(error);
+      if (apiError) throw apiError;
+      throw new ApiError(
+        'Saving changes needs an internet connection. Your edits are still on this screen, so try again when you are back online.',
+        0,
+        'OFFLINE'
+      );
+    }
+  },
+
+  /**
+   * CREATE (offline sync) - sends a queued offline report to the server. Same clientIncidentId, so a retry never
+   * creates a duplicate; the original reportedAt keeps the real report time. Marks the device copy SYNCED/FAILED.
+   */
   async syncIncidentPayload(payload: unknown): Promise<ConservationIncident> {
     const inc = payload as ConservationIncident;
     const local = await findLocalIncidentByRemoteId(inc._id);
     try {
       const response = await http.post('/incidents', {
         clientIncidentId: inc.clientIncidentId || inc._id,
+        // Keep the real time the ranger reported it, not the time the device came back online
+        reportedAt: inc.reportedAt,
         incidentType: inc.incidentType,
         parkId: inc.parkId || undefined,
         otherTypeDescription: inc.otherTypeDescription,
@@ -291,6 +419,7 @@ export const incidentApi = {
     }
   },
 
+  /** "Retry Sync" button on the history page: re-sends one PENDING/FAILED report now and updates its queue items. */
   async retrySyncIncident(clientIncidentId: string): Promise<ConservationIncident> {
     const localRecord = await findLocalIncidentByRemoteId(clientIncidentId);
     if (!localRecord || !localRecord.payload) {
@@ -335,6 +464,7 @@ export const incidentApi = {
 };
 
 // Register transport with SyncService
+// Lets the background sync service send queued INCIDENT items (offline reports) when the device is online
 syncService.registerTransport('INCIDENT', async item => {
   if (item.payload) {
     await incidentApi.syncIncidentPayload(item.payload);
