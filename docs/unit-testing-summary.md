@@ -782,3 +782,501 @@ All rows below come from the Jest and Vitest JSON results of the final run. The 
 | UT-B323 | UC-B | Client · time and location (existing) › ManualLocationPicker input handling | Edge | parseCoordinate accepts only complete, in-range numbers | Behaved as expected | Pass |
 | UT-B324 | UC-B | Client · time and location (existing) › ManualLocationPicker input handling | Negative | clearing a coordinate no longer crashes; it shows an error and blocks confirm | Behaved as expected | Pass |
 | UT-B325 | UC-B | Client · time and location (existing) › ManualLocationPicker input handling | Edge | partial input such as "-" is allowed while typing, then the finished value is confirmed | Behaved as expected | Pass |
+
+## UC-C – Manage Wildlife Conflict Alerts & Response
+
+Results recorded on 9 October 2026 from the final code of this phase.
+
+### Frameworks and isolation
+
+- **Server:** Jest, ts-jest and Supertest. Prisma is replaced by `server/tests/conflictAlertPrismaMock.ts`; the conflict-alert service that decides whether a collar reading becomes an alert runs for real. Collar gateway credentials are set per test on the parsed `env` object, the clock is fixed with Jest fake timers, and risk zones are swapped for deterministic test zones where a test needs exact distances.
+- **Client:** Vitest, React Testing Library and userEvent. HTTP calls are mocked, while Dexie (on `fake-indexeddb`) and the shared `SyncService` run for real, so offline field responses and their synchronisation are checked against real IndexedDB contents.
+- Responder notification is a log call in this implementation; tests make it fail by mocking it. No external notification service is involved.
+
+### Test files
+
+| File | Layer | Tests | Notes |
+|---|---|---|---|
+| `server/tests/conflictAlertValidation.test.ts` | Server request validation (zod) | 41 | New |
+| `server/tests/conflictAlertService.test.ts` | Server conflict-alert service: risk zones, community reports, lifecycle, notification, Prisma mocked | 87 | New |
+| `server/tests/conflictAlertRoutes.test.ts` | Server HTTP controller, routes and error mapping (Supertest) | 24 | New |
+| `server/tests/collarIngestion.test.ts` | Collar telemetry validation, vendor normalisation, gateway key / HMAC middleware, ingestion, device monitoring, routes, live stream | 70 | New |
+| `server/tests/conflictAlertPrismaMock.ts` | Reusable Prisma mock for UC-C | – | Test helper |
+| `client/src/features/conflict-alerts/api/conflictAlertApi.test.ts` | Conflict-alert API: online, server rejection vs lost connection, offline (Dexie), sync, retry | 82 | New |
+| `client/src/features/conflict-alerts/pages/ConflictAlertPages.test.tsx` | Alerts list and alert detail pages | 31 | New |
+| `client/src/features/conflict-alerts/components/ConflictAlertComponents.test.tsx` | Alert card, response form, history timeline, community report and collar simulator modals | 15 | New |
+| `client/src/features/collars/Collars.test.tsx` | Collar API, collar monitoring page, telemetry history | 13 | New |
+| `client/src/features/conflict-alerts/ConflictAlerts.test.tsx` | Existing UC-C component and offline tests | 16 | Existing, unchanged |
+
+Total UC-C unit tests executed: **379** (222 server, 157 client), **379 passed**. Of these, 363 are new.
+
+By type: **120 Positive, 134 Negative, 63 Edge, 62 Error.**
+
+`server/tests/parkAssociationWorkflows.test.ts` (shared park context) also exercises some conflict-alert routes. It is counted with the existing shared tests, not with UC-C.
+
+The database-backed tests in `server/tests/integration/conflictAlerts.integration.test.ts` and `server/tests/integration/collarIngestion.integration.test.ts` are integration tests. They were not run in this phase.
+
+### Scenarios covered
+
+- **Validation (direct schema tests):**
+  - latitude and longitude at exactly ±90 and ±180, coordinates 0,0, values just outside the range, NaN, null, numeric strings and Infinity
+  - required animal ID, device ID, event ID, community location, report type and description; the 5-character minimum community description; the 3-character minimum response and resolution notes
+  - ISO-8601 collar timestamps (UTC or offset) accepted; date-only, local-format and free-text timestamps rejected
+  - battery 0–100 (integers), non-negative GPS accuracy, supported alert types, severities and response actions
+- **GPS collar alerts:**
+  - a reading inside a configured risk zone creates an OPEN alert with source COLLAR, the animal, location and time, an audit entry and a responder notification
+  - a valid reading outside every zone is stored as tracking data only; no alert is looked up, created, audited or notified
+  - repeated readings are idempotent on the event ID; a duplicate delivery returns 200 instead of 202
+- **Risk-zone logic (the service's own Haversine check, not a map library):**
+  - clearly inside, clearly outside, 4.99 km and 5.01 km from a 5 km zone, the inclusive boundary (distance equal to the radius), overlapping zones, no zones and 0,0
+  - the proximity severity bands (CRITICAL, HIGH, MEDIUM, LOW)
+  - malformed zone data (NaN radius or centre), NaN reading coordinates and a zone calculation that throws never create an alert
+- **Community reports:**
+  - source COMMUNITY_REPORT, MANUAL location, description, reporter name ("Community Member" when absent) and severity by report type
+- **Lifecycle (OPEN → ACKNOWLEDGED → RESPONDING → RESOLVED, and CANCELLED):**
+  - responder, acknowledgement time, response action, notes, outcome, resolver, resolution time and notes are stored and audited
+  - each forbidden transition is rejected with HTTP 409: acknowledging a non-OPEN alert, responding before acknowledgement or after resolution or cancellation, resolving before a response, resolving twice, and cancelling a terminal alert
+  - resolved and cancelled alerts are read-only (403); only the original responder may edit or delete a response
+  - offline retries with the same client ID never duplicate an acknowledgement, response or resolution
+- **Notification failure:** the alert stays persisted and is still returned, and the failure is logged.
+- **Collar gateway security:** a correct key in any supported header, a missing or wrong key, an unconfigured gateway (503), valid and invalid HMAC signatures. A rejected request never reaches the ingestion service.
+- **Server error versus lost connection (client):**
+  - for every alert action, a 400, 403, 409 or 500 answer is shown to the ranger with the server's message, and nothing is saved offline or queued
+  - only a request with no response (network error or timeout) switches to offline mode
+- **Offline field response and synchronisation (real Dexie):**
+  - acknowledge, respond, resolve, edit, cancel, delete and response edits offline are saved on the device as PENDING and queued with their client IDs
+  - reconnecting syncs them to the matching endpoints and the device copy becomes SYNCED
+  - a lost connection during sync keeps the item queued; a server rejection marks it FAILED
+  - no failed sync deletes the local alert or its responses; Retry later succeeds
+- **Collar monitoring (client):**
+  - device table, risk-zone state, battery and online status, search and filters, telemetry log, empty and error states
+  - the simulator inside and outside a risk zone
+
+### Coverage
+
+Measured with Jest (server, unit suites only) and Vitest V8 (client). Folder figures are the coverage tool's per-file numbers summed over the folder.
+
+| Area | Before: Stmts / Branch / Funcs / Lines | After: Stmts / Branch / Funcs / Lines |
+|---|---|---|
+| Server `src/modules/conflict-alerts` | 55.70 / 40.55 / 54.76 / 75.48 | **99.66 / 94.41 / 100 / 100** |
+| Server `src/modules/collar-ingestion` | 6.61 / 0 / 0 / 6.87 | **100 / 93.28 / 100 / 100** |
+| Client `src/features/conflict-alerts` | 75.42 / 60.81 / 38.89 / 75.42 | **92.53 / 87.22 / 87.04 / 92.53** |
+| Client `src/features/collars` | 12.44 / 33.33 / 11.11 / 12.44 | **91.49 / 83.33 / 85.71 / 91.49** |
+| Server overall | 84.25 / 74.35 / 83.96 / 87.67 | 97.46 / 90.19 / 92.94 / 97.83 |
+| Client overall | 86.94 / 86.89 / 77.33 / 86.94 | 94.12 / 88.96 / 87.62 / 94.12 |
+
+"Before" is the end of the UC-B phase. `conflict-alerts/types/conflictAlert.ts` and `collars/types/collar.ts` contain only TypeScript types and report 0%; they are still counted in the feature figures.
+
+### Defects found and fixed
+
+Each listed regression test was confirmed to fail against the code before the fix (15 server service tests, 1 collar-ingestion test, 45 client API tests and 2 component tests).
+
+| # | File | Defect | Fix | Regression tests |
+|---|---|---|---|---|
+| 1 | `server/src/modules/conflict-alerts/service.ts` | Invalid lifecycle transitions were plain `Error`s, so the API answered **HTTP 500**. The client's sync queue treats 5xx as retryable, so an offline action the server could never accept was retried indefinitely instead of being marked FAILED. | Transitions throw `AppError(409, 'INVALID_STATE_TRANSITION')` with the same messages. | UT-C094 to UT-C097, UT-C103 to UT-C105, UT-C109 to UT-C112, UT-C119, UT-C120. UT-C142 checks the resulting HTTP 409 response. |
+| 2 | `server/src/modules/conflict-alerts/service.ts` | If the responder notification failed, `createAlert` threw **after** the alert had been saved and audited. The caller was told the alert failed, collar ingestion did not mark the reading as alerted, and a retried community report could create a duplicate. | The notification is isolated with `try/catch`; the failure is logged and the saved alert is returned. | UT-C049, UT-C050 |
+| 3 | `server/src/modules/collar-ingestion/service.ts` | The reading is stored before the alert step. If alert creation failed, the gateway's retry of the same event was answered "duplicate, no alert", so a genuine breach **never** produced an alert. | A stored reading that has no alert is evaluated again on retry. Alert creation is already idempotent on the event ID, so this never duplicates an alert. | UT-C200 |
+| 4 | `client/src/features/conflict-alerts/api/conflictAlertApi.ts` | Acknowledge, respond, resolve, edit, cancel, delete and response edits treated **every** error, including 400, 403, 404 and 409 server answers, as being offline. The ranger saw a false "saved locally" success, and a request the server had already refused was queued. A 5xx on a collar reading or community report was also queued instead of shown. | As in UC-B, a request that received an HTTP answer throws `ApiError` with the server's message. Only a request with no response falls back to offline mode. | UT-C232 to UT-C272 and UT-C274 (42 tests). UT-C273 covers delete-after-404, which was already correct. |
+| 5 | `client/src/features/conflict-alerts/api/conflictAlertApi.ts` | Offline edits used the alert ID as the queue `clientId`. The shared queue merges items with the same `clientId`, so a second offline edit of an alert, or an edit or delete of a **different** response on the same alert, was dropped. After sync, the server's copy of the first edit overwrote the newer local edit. This is the same class of defect as UC-A defect 1. | Each alert or response edit gets its own queue ID. A response delete is keyed by alert and response. | UT-C288, UT-C289, UT-C304 |
+| 6 | `client/src/features/conflict-alerts/components/CollarSimulatorModal.tsx`, `CommunityReportModal.tsx` | Coordinates were stored as `parseFloat(input)`. Typing a leading "-" gave `NaN`, and React cleared the field, so the minus sign was lost. **−2.5 was submitted as 2.5**, creating the alert in the wrong hemisphere. | The typed text is kept in state and converted on submit, which the forms already did. | UT-C345, UT-C348 |
+
+Integration-test expectations that encoded the old behaviour were updated without being run: 500 → 409 for invalid transitions (6 assertions). One assertion that already disagreed with the shared error handler before this phase was also corrected: an unknown alert is 404, not 500.
+
+### Known gaps (not changed in this phase)
+
+- There is no animal registry, so unknown or inactive animal IDs are accepted. Those checks are not implemented and are therefore not tested.
+- Risk zones are a fixed configuration list (`CONFIG_RISK_ZONES`) and are not stored per park.
+- The proximity-based severity bands are applied only when no severity is given. The simulate-collar schema defaults severity to HIGH, and collar ingestion always passes HIGH, so through the API every collar alert is HIGH unless a severity is supplied. The bands are tested at service level.
+- An audit-log failure after the alert row is written is reported to the caller as an error, although the alert exists. A test records this current behaviour.
+- The offline client allows some transitions that the server rejects, for example acknowledging an already acknowledged alert, or resolving before a response. The UI does not offer these actions. If one is queued, the server answers 409, the queue item becomes FAILED, and no data is deleted.
+- After a failed sync, the alert's device copy stays PENDING while the queue item is FAILED. The alerts page shows "Retry sync (n)".
+- Reading the alert list or an alert falls back to the device cache on any error, not only when offline.
+- The gateway HMAC is computed over the re-serialised JSON body, not the raw request bytes. A signature of the wrong length is rejected outright, while a well-formed wrong signature falls back to the API-key check.
+- "Not found" and "Unauthorized" errors in this module are still plain `Error`s, which the shared handler maps by message text (404/403).
+- The client's live-update `EventSource` is not available in jsdom and is not unit-tested; the server stream is.
+
+### UC-C test cases
+
+All rows below come from the Jest and Vitest JSON results of the final run. The type column was assigned by reviewing each test.
+
+| Test ID | Use Case | Scenario | Type | Expected Result | Actual Result | Status |
+|---|---|---|---|---|---|---|
+| UT-C001 | UC-C | Server · validation › collar reading (simulate-collar) validation | Positive | a minimal reading is accepted and defaults the alert type to DANGEROUS_WILDLIFE_ACTIVITY and severity to HIGH | Behaved as expected | Pass |
+| UT-C002 | UC-C | Server · validation › collar reading (simulate-collar) validation | Positive | explicit park, event id, type, severity and description are retained | Behaved as expected | Pass |
+| UT-C003 | UC-C | Server · validation › collar reading (simulate-collar) validation | Edge | latitude exactly -90 is on the valid boundary | Behaved as expected | Pass |
+| UT-C004 | UC-C | Server · validation › collar reading (simulate-collar) validation | Edge | latitude exactly 90 is on the valid boundary | Behaved as expected | Pass |
+| UT-C005 | UC-C | Server · validation › collar reading (simulate-collar) validation | Edge | longitude exactly -180 is on the valid boundary | Behaved as expected | Pass |
+| UT-C006 | UC-C | Server · validation › collar reading (simulate-collar) validation | Edge | longitude exactly 180 is on the valid boundary | Behaved as expected | Pass |
+| UT-C007 | UC-C | Server · validation › collar reading (simulate-collar) validation | Edge | coordinates 0,0 are valid | Behaved as expected | Pass |
+| UT-C008 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | latitude -90.000001 just outside the range is rejected | Behaved as expected | Pass |
+| UT-C009 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | latitude 90.000001 just outside the range is rejected | Behaved as expected | Pass |
+| UT-C010 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | longitude -180.000001 just outside the range is rejected | Behaved as expected | Pass |
+| UT-C011 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | longitude 180.000001 just outside the range is rejected | Behaved as expected | Pass |
+| UT-C012 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | a malformed latitude (a numeric string) is rejected | Behaved as expected | Pass |
+| UT-C013 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | a malformed latitude (NaN) is rejected | Behaved as expected | Pass |
+| UT-C014 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | a malformed latitude (null) is rejected | Behaved as expected | Pass |
+| UT-C015 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | a missing or empty animal ID is rejected with the documented message | Behaved as expected | Pass |
+| UT-C016 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | missing coordinates are rejected | Behaved as expected | Pass |
+| UT-C017 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | an unsupported alert type or severity is rejected | Behaved as expected | Pass |
+| UT-C018 | UC-C | Server · validation › collar reading (simulate-collar) validation | Negative | an invalid park id is rejected | Behaved as expected | Pass |
+| UT-C019 | UC-C | Server · validation › community report validation | Positive | a valid crop-raid report is accepted with the default reporter name and MEDIUM severity | Behaved as expected | Pass |
+| UT-C020 | UC-C | Server · validation › community report validation | Positive | report type WILDLIFE_NEAR_COMMUNITY is accepted | Behaved as expected | Pass |
+| UT-C021 | UC-C | Server · validation › community report validation | Positive | report type WILDLIFE_NEAR_RANGER is accepted | Behaved as expected | Pass |
+| UT-C022 | UC-C | Server · validation › community report validation | Positive | report type CROP_RAID is accepted | Behaved as expected | Pass |
+| UT-C023 | UC-C | Server · validation › community report validation | Positive | report type LIVESTOCK_THREAT is accepted | Behaved as expected | Pass |
+| UT-C024 | UC-C | Server · validation › community report validation | Positive | report type DANGEROUS_WILDLIFE_ACTIVITY is accepted | Behaved as expected | Pass |
+| UT-C025 | UC-C | Server · validation › community report validation | Positive | report type OTHER is accepted | Behaved as expected | Pass |
+| UT-C026 | UC-C | Server · validation › community report validation | Edge | the shortest permitted description is exactly 5 characters | Behaved as expected | Pass |
+| UT-C027 | UC-C | Server · validation › community report validation | Negative | missing description, type and location are each reported | Behaved as expected | Pass |
+| UT-C028 | UC-C | Server · validation › community report validation | Negative | an out-of-range community location is rejected | Behaved as expected | Pass |
+| UT-C029 | UC-C | Server · validation › community report validation | Edge | a non-string reporter name is rejected but an absent one is optional | Behaved as expected | Pass |
+| UT-C030 | UC-C | Server · validation › community report validation | Edge | coordinates on the exact boundaries are accepted | Behaved as expected | Pass |
+| UT-C031 | UC-C | Server · validation › direct alert creation validation | Positive | a valid alert defaults its location source to GPS | Behaved as expected | Pass |
+| UT-C032 | UC-C | Server · validation › direct alert creation validation | Negative | source, type and severity must be supported values | Behaved as expected | Pass |
+| UT-C033 | UC-C | Server · validation › direct alert creation validation | Edge | the description must have at least 3 characters | Behaved as expected | Pass |
+| UT-C034 | UC-C | Server · validation › direct alert creation validation | Edge | the shared location schema applies the same coordinate limits | Behaved as expected | Pass |
+| UT-C035 | UC-C | Server · validation › response, acknowledgement and resolution validation | Edge | acknowledgement accepts an empty body or a non-empty client acknowledgement id | Behaved as expected | Pass |
+| UT-C036 | UC-C | Server · validation › response, acknowledgement and resolution validation | Positive | a field response defaults markResolved to false | Behaved as expected | Pass |
+| UT-C037 | UC-C | Server · validation › response, acknowledgement and resolution validation | Negative | response notes need 3 characters and the action must be supported | Behaved as expected | Pass |
+| UT-C038 | UC-C | Server · validation › response, acknowledgement and resolution validation | Negative | resolution requires notes of at least 3 characters | Behaved as expected | Pass |
+| UT-C039 | UC-C | Server · validation › response, acknowledgement and resolution validation | Negative | cancellation requires a reason; deletion reason is optional but must be 3+ characters | Behaved as expected | Pass |
+| UT-C040 | UC-C | Server · validation › response, acknowledgement and resolution validation | Negative | alert and response updates require at least one editable field | Behaved as expected | Pass |
+| UT-C041 | UC-C | Server · validation › response, acknowledgement and resolution validation | Negative | alert updates validate coordinates and enum values | Behaved as expected | Pass |
+| UT-C042 | UC-C | Server · service › createAlert | Positive | persists a new OPEN, SYNCED alert with its location and source, audits CREATE and notifies responders | Behaved as expected | Pass |
+| UT-C043 | UC-C | Server · service › createAlert | Edge | generates a source event id and fills the collar animal / community reporter defaults | Behaved as expected | Pass |
+| UT-C044 | UC-C | Server · service › createAlert | Edge | a repeated source event id returns the stored alert without creating, auditing or notifying again | Behaved as expected | Pass |
+| UT-C045 | UC-C | Server · service › createAlert | Edge | a repeated client alert id is idempotent | Behaved as expected | Pass |
+| UT-C046 | UC-C | Server · service › createAlert | Negative | an explicit existing park is stored; an unknown park is rejected before anything is written | Behaved as expected | Pass |
+| UT-C047 | UC-C | Server · service › createAlert | Error | a database failure while creating propagates and nothing is audited or notified | Behaved as expected | Pass |
+| UT-C048 | UC-C | Server · service › createAlert | Error | an audit failure after the alert is persisted is reported to the caller (alert row already written) | Behaved as expected | Pass |
+| UT-C049 | UC-C | Server · service › notification failure | Error | a failed responder notification does not lose the persisted alert: it is still returned and the failure is logged | Behaved as expected | Pass |
+| UT-C050 | UC-C | Server · service › notification failure | Error | a collar breach still reports alertCreated when notification fails | Behaved as expected | Pass |
+| UT-C051 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Positive | a reading inside a risk zone creates an OPEN COLLAR alert with the animal, location and zone | Behaved as expected | Pass |
+| UT-C052 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Positive | a valid reading outside every risk zone stays telemetry only: no alert is looked up, created, audited or notified | Behaved as expected | Pass |
+| UT-C053 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Edge | coordinates 0,0 are far from the configured zones and create no alert | Behaved as expected | Pass |
+| UT-C054 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Edge | when zones overlap the first configured zone is reported (village centre lies in the northern buffer) | Behaved as expected | Pass |
+| UT-C055 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Positive | a point only inside the southern livestock zone is attributed to that zone | Behaved as expected | Pass |
+| UT-C056 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Positive | an explicit upstream event id is used and an explicit park gets its own generated key | Behaved as expected | Pass |
+| UT-C057 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Edge | a repeated breach for the same animal and position returns the existing alert (idempotent) | Behaved as expected | Pass |
+| UT-C058 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Error | alert creation failure inside a zone propagates instead of reporting a created alert | Behaved as expected | Pass |
+| UT-C059 | UC-C | Server · service › GPS collar alert generation against the configured risk zones | Error | a database read failure during the idempotency check propagates and nothing is created | Behaved as expected | Pass |
+| UT-C060 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Edge | without an explicit severity, a point 0° from the centre is rated by proximity as CRITICAL | Behaved as expected | Pass |
+| UT-C061 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Positive | without an explicit severity, a point 0.02° from the centre is rated by proximity as CRITICAL | Behaved as expected | Pass |
+| UT-C062 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Positive | without an explicit severity, a point 0.04° from the centre is rated by proximity as HIGH | Behaved as expected | Pass |
+| UT-C063 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Positive | without an explicit severity, a point 0.07° from the centre is rated by proximity as MEDIUM | Behaved as expected | Pass |
+| UT-C064 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Positive | without an explicit severity, a point 0.085° from the centre is rated by proximity as LOW | Behaved as expected | Pass |
+| UT-C065 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Positive | an explicit severity overrides the proximity rating | Behaved as expected | Pass |
+| UT-C066 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Edge | near the boundary: 4.99 km inside a 5 km zone alerts, 5.01 km outside does not | Behaved as expected | Pass |
+| UT-C067 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Edge | the boundary is inclusive: distance exactly equal to the radius (0 km of a 0 km zone) is inside | Behaved as expected | Pass |
+| UT-C068 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Edge | a zone at 0,0 makes 0,0 a valid in-zone position | Behaved as expected | Pass |
+| UT-C069 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Edge | with no zones configured nothing ever alerts | Behaved as expected | Pass |
+| UT-C070 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Error | malformed zone data (a NaN radius) never produces a false positive alert | Behaved as expected | Pass |
+| UT-C071 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Error | malformed zone data (a NaN centre latitude) never produces a false positive alert | Behaved as expected | Pass |
+| UT-C072 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Error | malformed zone data (an undefined centre longitude) never produces a false positive alert | Behaved as expected | Pass |
+| UT-C073 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Negative | malformed reading coordinates that bypass validation (NaN) never produce an alert | Behaved as expected | Pass |
+| UT-C074 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Error | if the risk-zone calculation throws, the error propagates and no alert is created | Behaved as expected | Pass |
+| UT-C075 | UC-C | Server · service › risk-zone spatial logic (deterministic test zones) | Edge | of several matching zones the first in configuration order wins | Behaved as expected | Pass |
+| UT-C076 | UC-C | Server · service › community report workflow | Positive | creates an OPEN COMMUNITY_REPORT alert with manual location, description and reporter | Behaved as expected | Pass |
+| UT-C077 | UC-C | Server · service › community report workflow | Edge | community reports create alerts regardless of risk zones (0,0 accepted) and get a generated event id | Behaved as expected | Pass |
+| UT-C078 | UC-C | Server · service › community report workflow | Edge | an absent reporter name is stored as "Community Member" | Behaved as expected | Pass |
+| UT-C079 | UC-C | Server · service › community report workflow | Positive | without a severity, a DANGEROUS_WILDLIFE_ACTIVITY report is rated HIGH | Behaved as expected | Pass |
+| UT-C080 | UC-C | Server · service › community report workflow | Positive | without a severity, a LIVESTOCK_THREAT report is rated HIGH | Behaved as expected | Pass |
+| UT-C081 | UC-C | Server · service › community report workflow | Positive | without a severity, a CROP_RAID report is rated MEDIUM | Behaved as expected | Pass |
+| UT-C082 | UC-C | Server · service › community report workflow | Positive | without a severity, a WILDLIFE_NEAR_COMMUNITY report is rated LOW | Behaved as expected | Pass |
+| UT-C083 | UC-C | Server · service › community report workflow | Positive | without a severity, a OTHER report is rated LOW | Behaved as expected | Pass |
+| UT-C084 | UC-C | Server · service › community report workflow | Error | a database failure is reported and no audit entry is written | Behaved as expected | Pass |
+| UT-C085 | UC-C | Server · service › alert retrieval | Edge | without filters, at most 5 active alerts plus all historical alerts are merged newest first | Behaved as expected | Pass |
+| UT-C086 | UC-C | Server · service › alert retrieval | Positive | an active status filter queries only active alerts with that status | Behaved as expected | Pass |
+| UT-C087 | UC-C | Server · service › alert retrieval | Positive | a historical status filter queries only historical alerts; includeDeleted drops the deleted filter | Behaved as expected | Pass |
+| UT-C088 | UC-C | Server · service › alert retrieval | Edge | no matching alerts returns an empty list | Behaved as expected | Pass |
+| UT-C089 | UC-C | Server · service › alert retrieval | Positive | an alert is found by server id or client id, excluding deleted alerts unless requested | Behaved as expected | Pass |
+| UT-C090 | UC-C | Server · service › alert retrieval | Negative | an unknown alert is reported as not found | Behaved as expected | Pass |
+| UT-C091 | UC-C | Server · service › acknowledge | Positive | an OPEN alert becomes ACKNOWLEDGED with the responder and time stored and an audit entry | Behaved as expected | Pass |
+| UT-C092 | UC-C | Server · service › acknowledge | Edge | a replayed acknowledgement with the same client id returns the alert unchanged (offline retry) | Behaved as expected | Pass |
+| UT-C093 | UC-C | Server · service › acknowledge | Negative | an unknown alert cannot be acknowledged | Behaved as expected | Pass |
+| UT-C094 | UC-C | Server · service › acknowledge | Negative | a RESOLVED alert cannot be acknowledged | Behaved as expected | Pass |
+| UT-C095 | UC-C | Server · service › acknowledge | Negative | a ACKNOWLEDGED alert cannot be acknowledged again | Behaved as expected | Pass |
+| UT-C096 | UC-C | Server · service › acknowledge | Negative | a RESPONDING alert cannot be acknowledged again | Behaved as expected | Pass |
+| UT-C097 | UC-C | Server · service › acknowledge | Negative | a CANCELLED alert cannot be acknowledged again | Behaved as expected | Pass |
+| UT-C098 | UC-C | Server · service › respond | Positive | a response on an ACKNOWLEDGED alert is stored with responder, action, notes, outcome and time; status becomes RESPONDING | Behaved as expected | Pass |
+| UT-C099 | UC-C | Server · service › respond | Positive | additional responses are allowed while RESPONDING | Behaved as expected | Pass |
+| UT-C100 | UC-C | Server · service › respond | Positive | markResolved records the response and resolves the alert in one step, auditing both | Behaved as expected | Pass |
+| UT-C101 | UC-C | Server · service › respond | Positive | markResolved without resolution notes stores the response notes as the resolution | Behaved as expected | Pass |
+| UT-C102 | UC-C | Server · service › respond | Edge | a replayed response with an existing client response id is not stored twice | Behaved as expected | Pass |
+| UT-C103 | UC-C | Server · service › respond | Negative | an OPEN alert must be acknowledged before a response is recorded | Behaved as expected | Pass |
+| UT-C104 | UC-C | Server · service › respond | Negative | a RESOLVED alert cannot accept new responses | Behaved as expected | Pass |
+| UT-C105 | UC-C | Server · service › respond | Negative | a CANCELLED alert cannot accept responses | Behaved as expected | Pass |
+| UT-C106 | UC-C | Server · service › respond | Error | an unknown alert or a failed write is reported without an audit entry | Behaved as expected | Pass |
+| UT-C107 | UC-C | Server · service › resolve | Positive | a RESPONDING alert is RESOLVED with resolver, time, notes and client action id stored and audited | Behaved as expected | Pass |
+| UT-C108 | UC-C | Server · service › resolve | Edge | a replayed resolution with the same client action id is idempotent | Behaved as expected | Pass |
+| UT-C109 | UC-C | Server · service › resolve | Negative | a OPEN alert cannot be resolved before a response is recorded | Behaved as expected | Pass |
+| UT-C110 | UC-C | Server · service › resolve | Negative | a ACKNOWLEDGED alert cannot be resolved before a response is recorded | Behaved as expected | Pass |
+| UT-C111 | UC-C | Server · service › resolve | Negative | a CANCELLED alert cannot be resolved before a response is recorded | Behaved as expected | Pass |
+| UT-C112 | UC-C | Server · service › resolve | Negative | an already RESOLVED alert cannot be resolved again | Behaved as expected | Pass |
+| UT-C113 | UC-C | Server · service › resolve | Negative | an unknown alert cannot be resolved | Behaved as expected | Pass |
+| UT-C114 | UC-C | Server · service › update, cancel and delete | Positive | editing description and severity keeps the stored location and audits the old values | Behaved as expected | Pass |
+| UT-C115 | UC-C | Server · service › update, cancel and delete | Positive | editing one coordinate merges it into the existing location | Behaved as expected | Pass |
+| UT-C116 | UC-C | Server · service › update, cancel and delete | Negative | a RESOLVED alert is read-only | Behaved as expected | Pass |
+| UT-C117 | UC-C | Server · service › update, cancel and delete | Negative | a CANCELLED alert is read-only | Behaved as expected | Pass |
+| UT-C118 | UC-C | Server · service › update, cancel and delete | Positive | cancelling an active alert stores CANCELLED and audits the reason | Behaved as expected | Pass |
+| UT-C119 | UC-C | Server · service › update, cancel and delete | Negative | a RESOLVED alert cannot be cancelled | Behaved as expected | Pass |
+| UT-C120 | UC-C | Server · service › update, cancel and delete | Negative | a CANCELLED alert cannot be cancelled | Behaved as expected | Pass |
+| UT-C121 | UC-C | Server · service › update, cancel and delete | Positive | deleting soft-deletes with the ranger, time and reason (default reason when none given) | Behaved as expected | Pass |
+| UT-C122 | UC-C | Server · service › update, cancel and delete | Negative | update, cancel and delete of an unknown alert are reported as not found | Behaved as expected | Pass |
+| UT-C123 | UC-C | Server · service › responses and history | Negative | getResponses returns the alert responses; unknown alert is not found | Behaved as expected | Pass |
+| UT-C124 | UC-C | Server · service › responses and history | Positive | the original responder can edit a response; the change is audited and the refreshed alert returned | Behaved as expected | Pass |
+| UT-C125 | UC-C | Server · service › responses and history | Positive | the original responder can soft-delete a response | Behaved as expected | Pass |
+| UT-C126 | UC-C | Server · service › responses and history | Negative | another ranger may not edit or delete the response | Behaved as expected | Pass |
+| UT-C127 | UC-C | Server · service › responses and history | Negative | unknown responses, unknown alerts and terminal alerts are rejected | Behaved as expected | Pass |
+| UT-C128 | UC-C | Server · service › responses and history | Positive | history includes deleted alerts and is ordered oldest first | Behaved as expected | Pass |
+| UT-C129 | UC-C | Server · routes › alert creation | Positive | POST /simulate-collar returns 201 with the service result; omitted type and severity get schema defaults | Behaved as expected | Pass |
+| UT-C130 | UC-C | Server · routes › alert creation | Positive | a collar reading outside every zone is still a 201 that reports alertCreated: false | Behaved as expected | Pass |
+| UT-C131 | UC-C | Server · routes › alert creation | Negative | invalid collar coordinates are a 400 and never reach the service | Behaved as expected | Pass |
+| UT-C132 | UC-C | Server · routes › alert creation | Positive | POST /community-report returns 201 with the default reporter and severity applied | Behaved as expected | Pass |
+| UT-C133 | UC-C | Server · routes › alert creation | Negative | a community report without location or description is a 400 | Behaved as expected | Pass |
+| UT-C134 | UC-C | Server · routes › alert creation | Positive | POST / creates a direct alert with 201 | Behaved as expected | Pass |
+| UT-C135 | UC-C | Server · routes › alert creation | Error | an unexpected failure while creating is a 500 | Behaved as expected | Pass |
+| UT-C136 | UC-C | Server · routes › retrieval | Positive | GET / passes status, severity and type filters and includeDeleted only when "true" | Behaved as expected | Pass |
+| UT-C137 | UC-C | Server · routes › retrieval | Negative | GET /:id returns the alert; an unknown alert is a 404 with the not-found message | Behaved as expected | Pass |
+| UT-C138 | UC-C | Server · routes › retrieval | Positive | responses and history are returned for an alert | Behaved as expected | Pass |
+| UT-C139 | UC-C | Server · routes › retrieval | Error | read failures are 500s | Behaved as expected | Pass |
+| UT-C140 | UC-C | Server · routes › lifecycle actions | Positive | acknowledge uses the ranger headers and the client acknowledgement id | Behaved as expected | Pass |
+| UT-C141 | UC-C | Server · routes › lifecycle actions | Edge | without ranger headers the demo ranger is used; an empty body is accepted | Behaved as expected | Pass |
+| UT-C142 | UC-C | Server · routes › lifecycle actions | Negative | an invalid lifecycle transition is a 409 with the transition message and code | Behaved as expected | Pass |
+| UT-C143 | UC-C | Server · routes › lifecycle actions | Positive | a field response is recorded with markResolved defaulted to false | Behaved as expected | Pass |
+| UT-C144 | UC-C | Server · routes › lifecycle actions | Negative | a response with too-short notes is a 400; responding to an OPEN alert is a 409 | Behaved as expected | Pass |
+| UT-C145 | UC-C | Server · routes › lifecycle actions | Negative | resolve requires notes; resolving before a response is a 409; success returns RESOLVED | Behaved as expected | Pass |
+| UT-C146 | UC-C | Server · routes › lifecycle actions | Negative | cancel requires a reason and maps a terminal-state cancel to 409 | Behaved as expected | Pass |
+| UT-C147 | UC-C | Server · routes › lifecycle actions | Error | an unexpected failure during a lifecycle action is a 500 | Behaved as expected | Pass |
+| UT-C148 | UC-C | Server · routes › edit and delete | Positive | PUT /:id validates the edit and passes it on | Behaved as expected | Pass |
+| UT-C149 | UC-C | Server · routes › edit and delete | Negative | editing a read-only alert is a 403 | Behaved as expected | Pass |
+| UT-C150 | UC-C | Server · routes › edit and delete | Negative | DELETE /:id soft-deletes with an optional reason; unknown alerts are 404 | Behaved as expected | Pass |
+| UT-C151 | UC-C | Server · routes › edit and delete | Negative | responses can be edited and deleted by id; another ranger gets 403 | Behaved as expected | Pass |
+| UT-C152 | UC-C | Server · routes › edit and delete | Negative | edit/delete failures are passed to the error handler | Behaved as expected | Pass |
+| UT-C153 | UC-C | Server · collar ingestion › collar telemetry validation | Positive | a complete reading with an ISO timestamp (UTC or offset) is accepted | Behaved as expected | Pass |
+| UT-C154 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | latitude = -90 is on the valid boundary | Behaved as expected | Pass |
+| UT-C155 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | latitude = 90 is on the valid boundary | Behaved as expected | Pass |
+| UT-C156 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | longitude = -180 is on the valid boundary | Behaved as expected | Pass |
+| UT-C157 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | longitude = 180 is on the valid boundary | Behaved as expected | Pass |
+| UT-C158 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | batteryPercent = 0 is on the valid boundary | Behaved as expected | Pass |
+| UT-C159 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | batteryPercent = 100 is on the valid boundary | Behaved as expected | Pass |
+| UT-C160 | UC-C | Server · collar ingestion › collar telemetry validation | Edge | accuracyMeters = 0 is on the valid boundary | Behaved as expected | Pass |
+| UT-C161 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | latitude = -90.1 is rejected | Behaved as expected | Pass |
+| UT-C162 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | latitude = 90.1 is rejected | Behaved as expected | Pass |
+| UT-C163 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | longitude = -180.1 is rejected | Behaved as expected | Pass |
+| UT-C164 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | longitude = 180.1 is rejected | Behaved as expected | Pass |
+| UT-C165 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | latitude = Infinity is rejected | Behaved as expected | Pass |
+| UT-C166 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | longitude = "34.8" is rejected | Behaved as expected | Pass |
+| UT-C167 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | batteryPercent = 101 is rejected | Behaved as expected | Pass |
+| UT-C168 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | batteryPercent = 50.5 is rejected | Behaved as expected | Pass |
+| UT-C169 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | accuracyMeters = -1 is rejected | Behaved as expected | Pass |
+| UT-C170 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a missing or empty eventId is rejected | Behaved as expected | Pass |
+| UT-C171 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a missing or empty deviceId is rejected | Behaved as expected | Pass |
+| UT-C172 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a missing or empty animalId is rejected | Behaved as expected | Pass |
+| UT-C173 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a malformed timestamp "2026-10-09" is rejected | Behaved as expected | Pass |
+| UT-C174 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a malformed timestamp "09/10/2026 08:00" is rejected | Behaved as expected | Pass |
+| UT-C175 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a malformed timestamp "yesterday" is rejected | Behaved as expected | Pass |
+| UT-C176 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | a malformed timestamp "" is rejected | Behaved as expected | Pass |
+| UT-C177 | UC-C | Server · collar ingestion › collar telemetry validation | Negative | an unsupported alert type or a too-short description is rejected | Behaved as expected | Pass |
+| UT-C178 | UC-C | Server · collar ingestion › vendor payload normalisation | Positive | a payload already in the canonical shape is validated as-is | Behaved as expected | Pass |
+| UT-C179 | UC-C | Server · collar ingestion › vendor payload normalisation | Positive | a TTN / LoRaWAN uplink is mapped to a canonical reading | Behaved as expected | Pass |
+| UT-C180 | UC-C | Server · collar ingestion › vendor payload normalisation | Positive | flat alias fields (device_id, animal_id, lat, lng, timestamp) are recognised | Behaved as expected | Pass |
+| UT-C181 | UC-C | Server · collar ingestion › vendor payload normalisation | Edge | missing identifiers fall back to an UNKNOWN-DEVICE id and a generated event id; an unparseable time uses now | Behaved as expected | Pass |
+| UT-C182 | UC-C | Server · collar ingestion › vendor payload normalisation | Negative | a vendor payload without coordinates is rejected instead of being stored at NaN | Behaved as expected | Pass |
+| UT-C183 | UC-C | Server · collar ingestion › vendor payload normalisation | Negative | vendor coordinates out of range are rejected | Behaved as expected | Pass |
+| UT-C184 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Positive | the correct key in x-collar-api-key lets the request continue | Behaved as expected | Pass |
+| UT-C185 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Positive | the correct key in x-api-key lets the request continue | Behaved as expected | Pass |
+| UT-C186 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Positive | the correct key in Bearer authorization lets the request continue | Behaved as expected | Pass |
+| UT-C187 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Negative | a missing key is rejected with 401 | Behaved as expected | Pass |
+| UT-C188 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Negative | a wrong key, a key differing only in case, or a non-Bearer scheme is rejected | Behaved as expected | Pass |
+| UT-C189 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Negative | when neither a key nor a secret is configured, ingestion is unavailable (503) even with a key supplied | Behaved as expected | Pass |
+| UT-C190 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Positive | a valid HMAC-SHA256 signature of the body is accepted without a key (plain or "sha256=" prefixed) | Behaved as expected | Pass |
+| UT-C191 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Negative | a signature made with the wrong secret or for a different body is rejected | Behaved as expected | Pass |
+| UT-C192 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Negative | a malformed (wrong-length) signature is rejected as an invalid HMAC even when a valid key is present | Behaved as expected | Pass |
+| UT-C193 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Edge | a well-formed but wrong signature falls back to the API-key check | Behaved as expected | Pass |
+| UT-C194 | UC-C | Server · collar ingestion › collar gateway middleware (API key / HMAC signature) | Negative | a signature is ignored when no webhook secret is configured | Behaved as expected | Pass |
+| UT-C195 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Positive | a new reading inside a risk zone is stored, raises a COLLAR alert, is marked alertCreated and broadcast | Behaved as expected | Pass |
+| UT-C196 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Positive | a reading outside every zone is stored as tracking data only: no alert, no alert broadcast | Behaved as expected | Pass |
+| UT-C197 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Edge | a duplicate event whose alert was already raised is acknowledged without storing or alerting again | Behaved as expected | Pass |
+| UT-C198 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Edge | a duplicate outside-zone event stays a duplicate without an alert or broadcast | Behaved as expected | Pass |
+| UT-C199 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Error | if alert creation fails after the reading was stored, the error is reported and the reading is not marked alerted | Behaved as expected | Pass |
+| UT-C200 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Error | regression: a gateway retry after a failed alert step raises the missing alert instead of reporting a harmless duplicate | Behaved as expected | Pass |
+| UT-C201 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Error | a telemetry persistence failure is reported and no alert is created | Behaved as expected | Pass |
+| UT-C202 | UC-C | Server · collar ingestion › telemetry ingestion and risk-zone alerting | Error | a database read failure on the duplicate check is reported and nothing is written | Behaved as expected | Pass |
+| UT-C203 | UC-C | Server · collar ingestion › collar device monitoring | Positive | readings are grouped per device using the newest reading, counting all readings | Behaved as expected | Pass |
+| UT-C204 | UC-C | Server · collar ingestion › collar device monitoring | Edge | a collar is ONLINE up to exactly 24 hours since its last reading and OFFLINE after that | Behaved as expected | Pass |
+| UT-C205 | UC-C | Server · collar ingestion › collar device monitoring | Edge | battery null is classified UNKNOWN | Behaved as expected | Pass |
+| UT-C206 | UC-C | Server · collar ingestion › collar device monitoring | Edge | battery 0 is classified CRITICAL | Behaved as expected | Pass |
+| UT-C207 | UC-C | Server · collar ingestion › collar device monitoring | Edge | battery 20 is classified CRITICAL | Behaved as expected | Pass |
+| UT-C208 | UC-C | Server · collar ingestion › collar device monitoring | Edge | battery 21 is classified WARNING | Behaved as expected | Pass |
+| UT-C209 | UC-C | Server · collar ingestion › collar device monitoring | Edge | battery 50 is classified WARNING | Behaved as expected | Pass |
+| UT-C210 | UC-C | Server · collar ingestion › collar device monitoring | Edge | battery 51 is classified GOOD | Behaved as expected | Pass |
+| UT-C211 | UC-C | Server · collar ingestion › collar device monitoring | Positive | stats count online, offline, low-battery (<= 20%) and in-zone collars | Behaved as expected | Pass |
+| UT-C212 | UC-C | Server · collar ingestion › collar device monitoring | Edge | no telemetry means no devices and zeroed stats | Behaved as expected | Pass |
+| UT-C213 | UC-C | Server · collar ingestion › collar device monitoring | Edge | telemetry history matches device or animal id, newest first, capped at 100 | Behaved as expected | Pass |
+| UT-C214 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Positive | POST /collar-location with a valid key accepts a new reading with 202 | Behaved as expected | Pass |
+| UT-C215 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Edge | a duplicate delivery is answered with 200 | Behaved as expected | Pass |
+| UT-C216 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Negative | a rejected gateway request never reaches the ingestion service | Behaved as expected | Pass |
+| UT-C217 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Negative | an invalid reading is a 400 validation error and never reaches the service | Behaved as expected | Pass |
+| UT-C218 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Positive | a signed vendor webhook is normalised and tagged with the vendor | Behaved as expected | Pass |
+| UT-C219 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Error | an unexpected ingestion failure becomes a 500 | Behaved as expected | Pass |
+| UT-C220 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Positive | GET /collars returns devices with stats; GET telemetry returns the device history | Behaved as expected | Pass |
+| UT-C221 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Error | monitoring read failures become 500 | Behaved as expected | Pass |
+| UT-C222 | UC-C | Server · collar ingestion › collar ingestion HTTP routes | Positive | the live stream sends a ping, forwards telemetry and alert events, and unsubscribes when the client disconnects | Behaved as expected | Pass |
+| UT-C223 | UC-C | Client · conflictAlertApi › online requests | Positive | getAlerts sends the filters as query parameters and caches every alert as SYNCED | Behaved as expected | Pass |
+| UT-C224 | UC-C | Client · conflictAlertApi › online requests | Positive | refreshing the list updates an existing cached copy instead of duplicating it | Behaved as expected | Pass |
+| UT-C225 | UC-C | Client · conflictAlertApi › online requests | Positive | getAlertById and getHistory read the server | Behaved as expected | Pass |
+| UT-C226 | UC-C | Client · conflictAlertApi › online requests | Positive | acknowledgeAlert posts a client acknowledgement id and caches the server result as SYNCED | Behaved as expected | Pass |
+| UT-C227 | UC-C | Client · conflictAlertApi › online requests | Positive | addResponse, resolveAlert, updateAlert and cancelAlert call the matching endpoints with their payloads | Behaved as expected | Pass |
+| UT-C228 | UC-C | Client · conflictAlertApi › online requests | Positive | deleteAlert, updateResponse and deleteResponse call the matching endpoints | Behaved as expected | Pass |
+| UT-C229 | UC-C | Client · conflictAlertApi › online requests | Positive | simulateCollar sends the reading with a generated event id and returns the server result | Behaved as expected | Pass |
+| UT-C230 | UC-C | Client · conflictAlertApi › online requests | Positive | an outside-zone collar reading returns the telemetry-only answer (no alert) | Behaved as expected | Pass |
+| UT-C231 | UC-C | Client · conflictAlertApi › online requests | Positive | submitCommunityReport posts the report with a generated event id | Behaved as expected | Pass |
+| UT-C232 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | acknowledgeAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C233 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | addResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C234 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | resolveAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C235 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | updateAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C236 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | cancelAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C237 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | deleteAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C238 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | updateResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C239 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | deleteResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C240 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | simulateCollar throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C241 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 400 | Negative | submitCommunityReport throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C242 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | acknowledgeAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C243 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | addResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C244 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | resolveAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C245 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | updateAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C246 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | cancelAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C247 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | deleteAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C248 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | updateResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C249 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | deleteResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C250 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | simulateCollar throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C251 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 403 | Negative | submitCommunityReport throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C252 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | acknowledgeAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C253 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | addResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C254 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | resolveAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C255 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | updateAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C256 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | cancelAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C257 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | deleteAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C258 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | updateResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C259 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | deleteResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C260 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | simulateCollar throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C261 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 409 | Negative | submitCommunityReport throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C262 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | acknowledgeAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C263 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | addResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C264 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | resolveAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C265 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | updateAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C266 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | cancelAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C267 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | deleteAlert throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C268 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | updateResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C269 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | deleteResponse throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C270 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | simulateCollar throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C271 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline › HTTP 500 | Error | submitCommunityReport throws the server message and leaves the device copy and queue untouched | Behaved as expected | Pass |
+| UT-C272 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline | Negative | HTTP 404 on an action (other than delete) is shown as not found and nothing is queued | Behaved as expected | Pass |
+| UT-C273 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline | Edge | HTTP 404 on delete means the alert is already gone: the device copy is removed and nothing is queued | Behaved as expected | Pass |
+| UT-C274 | UC-C | Client · conflictAlertApi › a server rejection is shown, not treated as being offline | Negative | a 409 invalid transition keeps the exact lifecycle message for the ranger | Behaved as expected | Pass |
+| UT-C275 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | acknowledge offline: the device copy becomes ACKNOWLEDGED + PENDING and one ACKNOWLEDGE_ALERT is queued | Behaved as expected | Pass |
+| UT-C276 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | a request timeout (no response) is also treated as offline | Behaved as expected | Pass |
+| UT-C277 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Negative | acknowledging a RESOLVED alert offline is refused and nothing is queued | Behaved as expected | Pass |
+| UT-C278 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | respond offline: the response keeps action, notes, outcome and responder, the alert is RESPONDING + PENDING | Behaved as expected | Pass |
+| UT-C279 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | respond-and-resolve offline records the resolution locally | Behaved as expected | Pass |
+| UT-C280 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Negative | responding offline to a OPEN alert is refused | Behaved as expected | Pass |
+| UT-C281 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Negative | responding offline to a RESOLVED alert is refused | Behaved as expected | Pass |
+| UT-C282 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | resolve offline: RESOLVED + PENDING locally, earlier responses retained, RESOLVE_ALERT queued with its client action id | Behaved as expected | Pass |
+| UT-C283 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Negative | resolving an already resolved alert offline is refused | Behaved as expected | Pass |
+| UT-C284 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | update offline merges the edit and new coordinates into the device copy and queues UPDATE_ALERT | Behaved as expected | Pass |
+| UT-C285 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | cancel offline marks the alert CANCELLED; a resolved alert cannot be cancelled | Behaved as expected | Pass |
+| UT-C286 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | delete offline keeps the record on the device marked deleted and PENDING until the server confirms | Behaved as expected | Pass |
+| UT-C287 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | editing and deleting a response offline updates the device copy and queues both | Behaved as expected | Pass |
+| UT-C288 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | regression: a second offline edit of the same alert is queued too, so the newer edit is not lost | Behaved as expected | Pass |
+| UT-C289 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | regression: offline edits to two different responses of one alert are both queued | Behaved as expected | Pass |
+| UT-C290 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | an action on an alert that is neither reachable nor cached reports it as not found | Behaved as expected | Pass |
+| UT-C291 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Error | a collar reading and a community report are queued with their event ids and return null | Behaved as expected | Pass |
+| UT-C292 | UC-C | Client · conflictAlertApi › a lost connection switches to offline field mode | Edge | the same community report queued twice (same event id) is stored once | Behaved as expected | Pass |
+| UT-C293 | UC-C | Client · conflictAlertApi › offline alert list | Error | cached alerts are served newest first with their sync status and the requested filters | Behaved as expected | Pass |
+| UT-C294 | UC-C | Client · conflictAlertApi › offline alert list | Edge | like the server, at most 5 active alerts are listed but every historical alert is kept | Behaved as expected | Pass |
+| UT-C295 | UC-C | Client · conflictAlertApi › offline alert list | Error | with nothing cached the list fails clearly | Behaved as expected | Pass |
+| UT-C296 | UC-C | Client · conflictAlertApi › offline alert list | Error | getAlertById serves the cached copy offline | Behaved as expected | Pass |
+| UT-C297 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Positive | PENDING -> reconnect -> server accepts -> queue SYNCED and the device copy holds the server alert | Behaved as expected | Pass |
+| UT-C298 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Error | a lost connection during sync keeps the item PENDING for an automatic retry and keeps the local alert | Behaved as expected | Pass |
+| UT-C299 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Error | a server rejection during sync marks the item FAILED but never deletes the local alert or its response | Behaved as expected | Pass |
+| UT-C300 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Error | Retry: FAILED -> retryFailed -> server accepts -> SYNCED | Behaved as expected | Pass |
+| UT-C301 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Positive | every queued operation is replayed to its endpoint with the stored payload | Behaved as expected | Pass |
+| UT-C302 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Edge | cancel and delete are replayed with their reason; a delete answered 404 removes the device copy | Behaved as expected | Pass |
+| UT-C303 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Error | a delete rejected with another error during sync stays queued as FAILED and keeps the device copy | Behaved as expected | Pass |
+| UT-C304 | UC-C | Client · conflictAlertApi › synchronising offline field actions | Edge | regression: two offline edits sync in order, so the device ends with the newer edit | Behaved as expected | Pass |
+| UT-C305 | UC-C | Client · pages › ConflictAlertsPage | Positive | shows a loading state, then the alert cards with the active count | Behaved as expected | Pass |
+| UT-C306 | UC-C | Client · pages › ConflictAlertsPage | Edge | an empty list shows the quiet-boundaries empty state | Behaved as expected | Pass |
+| UT-C307 | UC-C | Client · pages › ConflictAlertsPage | Error | a load failure shows the error message | Behaved as expected | Pass |
+| UT-C308 | UC-C | Client · pages › ConflictAlertsPage | Positive | choosing historical or active status and severity filters reloads the list with those filters | Behaved as expected | Pass |
+| UT-C309 | UC-C | Client · pages › ConflictAlertsPage | Positive | Refresh reloads the alerts | Behaved as expected | Pass |
+| UT-C310 | UC-C | Client · pages › ConflictAlertsPage | Positive | pending and syncing queue items are announced | Behaved as expected | Pass |
+| UT-C311 | UC-C | Client · pages › ConflictAlertsPage | Error | failed synchronisation offers Retry sync, which retries the queue and reloads the alerts | Behaved as expected | Pass |
+| UT-C312 | UC-C | Client · pages › ConflictAlertsPage | Positive | collar simulator inside a risk zone: the new alert appears after the reading is sent | Behaved as expected | Pass |
+| UT-C313 | UC-C | Client · pages › ConflictAlertsPage | Positive | collar simulator outside every zone: no alert card is shown | Behaved as expected | Pass |
+| UT-C314 | UC-C | Client · pages › ConflictAlertsPage | Negative | collar simulator with invalid coordinates shows the server rejection and stays open | Behaved as expected | Pass |
+| UT-C315 | UC-C | Client · pages › ConflictAlertsPage | Negative | a community report is submitted from the modal; a failure is shown in the modal | Behaved as expected | Pass |
+| UT-C316 | UC-C | Client · pages › ConflictAlertsPage | Positive | deleting from the list asks for confirmation, removes the card and reports a pending offline delete | Behaved as expected | Pass |
+| UT-C317 | UC-C | Client · pages › ConflictAlertsPage | Negative | a failed delete shows the error and keeps the card | Behaved as expected | Pass |
+| UT-C318 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | shows a loading state, then the source, coordinates, sync status and map location | Behaved as expected | Pass |
+| UT-C319 | UC-C | Client · pages › ConflictAlertDetailPage | Error | a community alert shows its reporter; PENDING and FAILED sync states are visible | Behaved as expected | Pass |
+| UT-C320 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | an unknown alert shows the not-found message | Behaved as expected | Pass |
+| UT-C321 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | acknowledging an OPEN alert online confirms synchronisation and shows the responder in the history | Behaved as expected | Pass |
+| UT-C322 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | acknowledging offline reports that the action is queued | Behaved as expected | Pass |
+| UT-C323 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | a rejected acknowledgement (409) shows the server message | Behaved as expected | Pass |
+| UT-C324 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | an ACKNOWLEDGED alert offers a response form (not Resolve); a saved response moves it to RESPONDING | Behaved as expected | Pass |
+| UT-C325 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | saving a response offline, or saving and resolving, shows the matching confirmation | Behaved as expected | Pass |
+| UT-C326 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | resolving a RESPONDING alert requires notes and then records the resolution | Behaved as expected | Pass |
+| UT-C327 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | too-short resolution notes are refused before any request | Behaved as expected | Pass |
+| UT-C328 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | a RESOLVED alert is read-only: no lifecycle, edit, cancel or response edit controls | Behaved as expected | Pass |
+| UT-C329 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | a CANCELLED alert says no further lifecycle actions are allowed | Behaved as expected | Pass |
+| UT-C330 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | editing the alert sends the new description and severity | Behaved as expected | Pass |
+| UT-C331 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | cancelling the alert sends the reason and shows the CANCELLED state | Behaved as expected | Pass |
+| UT-C332 | UC-C | Client · pages › ConflictAlertDetailPage | Negative | a rejected cancel shows the server message | Behaved as expected | Pass |
+| UT-C333 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | deleting the alert after confirmation reports the soft delete | Behaved as expected | Pass |
+| UT-C334 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | a response can be edited and deleted from the history timeline | Behaved as expected | Pass |
+| UT-C335 | UC-C | Client · pages › ConflictAlertDetailPage | Positive | audit entries such as UPDATE and CANCEL appear in the history with their reason | Behaved as expected | Pass |
+| UT-C336 | UC-C | Client · components › ConflictAlertCard | Positive | an active alert offers Edit and Delete; Delete passes the alert to the handler | Behaved as expected | Pass |
+| UT-C337 | UC-C | Client · components › ConflictAlertCard | Negative | a RESOLVED alert is read-only (no Edit or Delete) | Behaved as expected | Pass |
+| UT-C338 | UC-C | Client · components › ConflictAlertCard | Negative | a CANCELLED alert is read-only (no Edit or Delete) | Behaved as expected | Pass |
+| UT-C339 | UC-C | Client · components › ConflictAlertCard | Positive | sync status, response count and unnamed sources are shown | Behaved as expected | Pass |
+| UT-C340 | UC-C | Client · components › ConflictResponseForm | Edge | submits the chosen action, trimmed notes and outcome; an empty outcome is omitted | Behaved as expected | Pass |
+| UT-C341 | UC-C | Client · components › ConflictResponseForm | Edge | notes of exactly 3 characters are accepted; 2 are refused | Behaved as expected | Pass |
+| UT-C342 | UC-C | Client · components › ConflictResponseForm | Negative | a rejected submission (e.g. 409 from the server) is shown in the form | Behaved as expected | Pass |
+| UT-C343 | UC-C | Client · components › ConflictResponseForm | Positive | Cancel calls back, and every control is disabled while submitting | Behaved as expected | Pass |
+| UT-C344 | UC-C | Client · components › ResponseHistoryTimeline | Positive | counts creation, acknowledgement, responses, resolution and non-lifecycle audit events | Behaved as expected | Pass |
+| UT-C345 | UC-C | Client · components › CommunityReportModal | Edge | sends the edited location, type, severity and description; a blank reporter becomes "Community Member" | Behaved as expected | Pass |
+| UT-C346 | UC-C | Client · components › CommunityReportModal | Error | an error without a message falls back to a generic report error and the modal stays open | Behaved as expected | Pass |
+| UT-C347 | UC-C | Client · components › CollarSimulatorModal used on its own (collar monitoring page) | Positive | sends the reading through the conflict-alert API and closes | Behaved as expected | Pass |
+| UT-C348 | UC-C | Client · components › CollarSimulatorModal used on its own (collar monitoring page) | Edge | regression: negative coordinates can be typed from an empty field (minus sign is not lost) | Behaved as expected | Pass |
+| UT-C349 | UC-C | Client · components › CollarSimulatorModal used on its own (collar monitoring page) | Error | an API failure is displayed, the modal stays open and the button is usable again | Behaved as expected | Pass |
+| UT-C350 | UC-C | Client · components › CollarSimulatorModal used on its own (collar monitoring page) | Error | an error without a message falls back to a generic simulator error | Behaved as expected | Pass |
+| UT-C351 | UC-C | Client · collars › collarApi | Positive | getCollarDevices returns the device list and stats from one request | Behaved as expected | Pass |
+| UT-C352 | UC-C | Client · collars › collarApi | Positive | getCollarTelemetryHistory URL-encodes the device id | Behaved as expected | Pass |
+| UT-C353 | UC-C | Client · collars › collarApi | Positive | ingestCollarLocation sends the reading with the gateway key header | Behaved as expected | Pass |
+| UT-C354 | UC-C | Client · collars › collarApi | Negative | a rejected gateway key (401) propagates to the caller | Behaved as expected | Pass |
+| UT-C355 | UC-C | Client · collars › CollarMonitoringPage | Positive | shows loading, then the KPI stats and one row per collar with its risk-zone state | Behaved as expected | Pass |
+| UT-C356 | UC-C | Client · collars › CollarMonitoringPage | Positive | search by collar or animal id and the status filters narrow the table | Behaved as expected | Pass |
+| UT-C357 | UC-C | Client · collars › CollarMonitoringPage | Edge | a filter with no matches and an empty registry show different empty states | Behaved as expected | Pass |
+| UT-C358 | UC-C | Client · collars › CollarMonitoringPage | Error | a load failure shows the error | Behaved as expected | Pass |
+| UT-C359 | UC-C | Client · collars › CollarMonitoringPage | Positive | the telemetry log opens for a collar and shows which readings generated alerts | Behaved as expected | Pass |
+| UT-C360 | UC-C | Client · collars › CollarMonitoringPage | Error | a telemetry log failure still opens the log, empty | Behaved as expected | Pass |
+| UT-C361 | UC-C | Client · collars › CollarMonitoringPage | Positive | the collar simulator sends a reading and the device list is reloaded when it closes | Behaved as expected | Pass |
+| UT-C362 | UC-C | Client · collars › CollarTelemetryHistoryModal | Positive | shows a loading message, then the reading count and coordinates | Behaved as expected | Pass |
+| UT-C363 | UC-C | Client · collars › CollarTelemetryHistoryModal | Positive | clicking the backdrop closes it; clicking inside does not | Behaved as expected | Pass |
+| UT-C364 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | AlertSeverityBadge renders all severities correctly | Behaved as expected | Pass |
+| UT-C365 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | AlertStatusBadge renders all statuses correctly | Behaved as expected | Pass |
+| UT-C366 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | ConflictAlertCard renders collar alert, urgent borders, and pending status | Behaved as expected | Pass |
+| UT-C367 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | ConflictAlertCard renders community reporter name and PENDING SYNC badge | Behaved as expected | Pass |
+| UT-C368 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Negative | ConflictAlertMap handles valid location and shows fallback on invalid coordinates | Behaved as expected | Pass |
+| UT-C369 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | ResponseHistoryTimeline renders complete audit history including actions and outcomes | Behaved as expected | Pass |
+| UT-C370 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Negative | ConflictResponseForm validates notes and resolution notes when markResolved checked | Behaved as expected | Pass |
+| UT-C371 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | CollarSimulatorModal submits configured animal and coordinates | Behaved as expected | Pass |
+| UT-C372 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | CommunityReportModal submits reporter name and details | Behaved as expected | Pass |
+| UT-C373 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | ConflictAlertsPage renders active alerts, filters, and modal controls | Behaved as expected | Pass |
+| UT-C374 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | ConflictAlertDetailPage handles OPEN alert acknowledgement and updates status | Behaved as expected | Pass |
+| UT-C375 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Negative | ConflictAlertDetailPage restricts direct resolve when ACKNOWLEDGED without prior response | Behaved as expected | Pass |
+| UT-C376 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Positive | ConflictAlertDetailPage allows resolve when RESPONDING with notes | Behaved as expected | Pass |
+| UT-C377 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Error | conflictAlertApi.acknowledgeAlert handles offline network error with Dexie PENDING update | Behaved as expected | Pass |
+| UT-C378 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Error | conflictAlertApi.addResponse handles offline network error with Dexie PENDING update and stable clientResponseId | Behaved as expected | Pass |
+| UT-C379 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Error | conflictAlertApi.resolveAlert handles offline network error with Dexie PENDING update and stable clientActionId | Behaved as expected | Pass |

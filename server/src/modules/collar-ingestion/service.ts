@@ -34,11 +34,13 @@ function findNearestRiskZone(lat: number, lon: number) {
 export class CollarIngestionService {
   async ingest(input: CollarTelemetryInput) {
     const existing = await prisma.collarTelemetry.findUnique({ where: { eventId: input.eventId } });
-    if (existing) {
-      return { duplicate: true, telemetrySaved: true, alertCreated: existing.alertCreated, telemetryId: existing.id };
+    if (existing?.alertCreated) {
+      return { duplicate: true, telemetrySaved: true, alertCreated: true, telemetryId: existing.id };
     }
 
-    const telemetry = await prisma.collarTelemetry.create({
+    // A stored reading without an alert may be a gateway retry after the alert step failed, so the
+    // risk zone is evaluated again; alert creation is idempotent on the event id.
+    const telemetry = existing ?? await prisma.collarTelemetry.create({
       data: {
         eventId: input.eventId,
         deviceId: input.deviceId,
@@ -62,6 +64,9 @@ export class CollarIngestionService {
     });
 
     const alertCreated = Boolean(alert.alertCreated);
+    if (existing && !alertCreated) {
+      return { duplicate: true, telemetrySaved: true, alertCreated: false, telemetryId: existing.id };
+    }
     await prisma.collarTelemetry.update({ where: { id: telemetry.id }, data: { alertCreated } });
 
     // Emit live events for connected stream listeners
@@ -70,7 +75,7 @@ export class CollarIngestionService {
       appEventEmitter.emit(EVENTS.ALERT_CREATED, alert);
     }
 
-    return { duplicate: false, telemetrySaved: true, alertCreated, telemetryId: telemetry.id, ...(alertCreated ? { alert } : { telemetry: alert }) };
+    return { duplicate: Boolean(existing), telemetrySaved: true, alertCreated, telemetryId: telemetry.id, ...(alertCreated ? { alert } : { telemetry: alert }) };
   }
 
   async getCollarDevices() {

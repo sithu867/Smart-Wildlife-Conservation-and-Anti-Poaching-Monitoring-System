@@ -266,6 +266,8 @@ describe('ActivePatrolPage', () => {
     expect(screen.getByText('1.831 km')).toBeInTheDocument();
     expect(screen.getByTestId('patrol-map')).toHaveTextContent('2 mapped waypoints');
     api.addWaypoint.mockResolvedValue(session());
+    // GPS tracking starts in an effect after the first render; wait for it so `gps` is this page's callback.
+    await screen.findByText('GPS Active');
     await act(async () => gps.onLocation({ latitude: 6.48, longitude: 80.9, accuracy: 4, timestamp: Date.now() }));
     expect(screen.getByText('GPS Active')).toBeInTheDocument();
     expect(screen.getByText('Lat: 6.48000°')).toBeInTheDocument();
@@ -274,6 +276,7 @@ describe('ActivePatrolPage', () => {
   test('a denied GPS permission is shown while the patrol continues', async () => {
     renderAt('/ranger/patrol/active/sess-1');
     await screen.findByText('ACTIVE PATROL');
+    await screen.findByText('GPS Active');
 
     act(() => gps.onError({ code: 1, message: 'denied' }));
 
@@ -368,6 +371,8 @@ describe('ActivePatrolPage', () => {
   test('losing connectivity is shown on the tracking screen', async () => {
     renderAt('/ranger/patrol/active/sess-1');
     await screen.findByText('ACTIVE PATROL');
+    // The connectivity listener is added by an effect of the same render that starts GPS tracking.
+    await screen.findByText('GPS Active');
 
     act(() => window.dispatchEvent(new Event('offline')));
 

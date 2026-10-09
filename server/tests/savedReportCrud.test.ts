@@ -806,3 +806,38 @@ describe('Batch 5 persisted report lifecycle', () => {
     }
   });
 });
+
+test('CSV and Excel exports list the saved ranked hotspots and conflict locations with their breakdowns', async () => {
+  source = [
+    { incidentType: 'SNARE', status: 'REPORTED', reportedAt: new Date('2026-10-06T10:00:00Z'), location: { latitude: -2.001, longitude: 34.001 } },
+    { incidentType: 'SNARE', status: 'REPORTED', reportedAt: new Date('2026-10-06T11:00:00Z'), location: { latitude: -2.002, longitude: 34.002 } },
+    { incidentType: 'ANIMAL_CARCASS', status: 'REPORTED', reportedAt: new Date('2026-10-06T12:00:00Z'), location: { latitude: -2.003, longitude: 34.003 } }
+  ];
+  const alert = (severity: string, alertType: string) => ({
+    location: { latitude: -2.0015, longitude: 34.0015 },
+    createdAt: new Date('2026-10-06T09:00:00Z'),
+    severity,
+    status: 'OPEN',
+    source: 'COLLAR',
+    alertType,
+    responses: []
+  });
+  prisma.wildlifeConflictAlert.findMany.mockResolvedValue([alert('HIGH', 'CROP_RAID'), alert('LOW', 'CROP_RAID')]);
+  const response = await endpoint('post').send({ criteria: { ...criteria, categories: ['INCIDENT_HOTSPOTS', 'HWC_TRENDS'] } });
+  expect(response.status).toBe(201);
+
+  const csv = (await endpoint('get', `/${response.body.data.id}/export`).query({ format: 'csv' })).text;
+
+  expect(csv).toMatch(/"Incident Hotspots","Ranked hotspots","1","[^"]+","-?\d+(\.\d+)?","\d+(\.\d+)?","3","/);
+  expect(csv).toMatch(/"Incident Hotspots","Hotspot incident types","[^"]+","SNARE","2"/);
+  expect(csv).toMatch(/"Incident Hotspots","Hotspot incident types","[^"]+","ANIMAL_CARCASS","1"/);
+  expect(csv).toMatch(/"HWC Trends","Conflict locations","1","[^"]+","-?\d+(\.\d+)?","\d+(\.\d+)?","2"/);
+  expect(csv).toMatch(/"HWC Trends","Conflict location breakdowns","[^"]+","Severity","HIGH","1"/);
+  expect(csv).toMatch(/"HWC Trends","Conflict location breakdowns","[^"]+","Type","CROP_RAID","2"/);
+  const sheets = Object.entries(unzipSync((await excel(response.body.data.id)).body as Buffer))
+    .filter(([key]) => key.startsWith('xl/'))
+    .map(([, value]) => strFromU8(value))
+    .join('\n');
+  expect(sheets).toContain('Ranked hotspots');
+  expect(sheets).toContain('Conflict location breakdowns');
+});

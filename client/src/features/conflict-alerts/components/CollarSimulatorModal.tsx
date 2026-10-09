@@ -12,8 +12,9 @@ interface Props {
 export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) => {
   const [animalId, setAnimalId] = useState('ELEPHANT-001');
   const [parkId, setParkId] = useState('');
-  const [latitude, setLatitude] = useState(-2.1523);
-  const [longitude, setLongitude] = useState(34.8214);
+  // Coordinates keep the typed text (converted on submit) so a leading '-' is not lost while typing.
+  const [latitude, setLatitude] = useState('-2.1523');
+  const [longitude, setLongitude] = useState('34.8214');
   const [alertType, setAlertType] = useState<ConflictAlertType>(ConflictAlertType.DANGEROUS_WILDLIFE_ACTIVITY);
   const [severity, setSeverity] = useState<AlertSeverity>(AlertSeverity.HIGH);
   const [description, setDescription] = useState('Tracked elephant breach near village agriculture buffer zone.');
@@ -86,7 +87,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
                 type="number"
                 step="any"
                 value={latitude}
-                onChange={e => setLatitude(parseFloat(e.target.value))}
+                onChange={e => setLatitude(e.target.value)}
                 className="w-full p-2.5 border rounded-lg font-mono text-sm border-slate-300 text-slate-900 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 required
               />
@@ -97,7 +98,7 @@ export const CollarSimulatorModal: React.FC<Props> = ({ onSimulate, onClose }) =
                 type="number"
                 step="any"
                 value={longitude}
-                onChange={e => setLongitude(parseFloat(e.target.value))}
+                onChange={e => setLongitude(e.target.value)}
                 className="w-full p-2.5 border rounded-lg font-mono text-sm border-slate-300 text-slate-900 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 required
               />

@@ -11,8 +11,9 @@ interface Props {
 export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => {
   const [reporterName, setReporterName] = useState('Mzee Juma');
   const [parkId, setParkId] = useState('');
-  const [latitude, setLatitude] = useState(-2.189);
-  const [longitude, setLongitude] = useState(34.841);
+  // Coordinates keep the typed text (converted on submit) so a leading '-' is not lost while typing.
+  const [latitude, setLatitude] = useState('-2.189');
+  const [longitude, setLongitude] = useState('34.841');
   const [reportType, setReportType] = useState<ConflictAlertType>(ConflictAlertType.CROP_RAID);
   const [severity, setSeverity] = useState<AlertSeverity>(AlertSeverity.MEDIUM);
   const [description, setDescription] = useState('Local farmer reported hippo pod feeding in maize field near river bank.');
@@ -78,7 +79,7 @@ export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => 
                 type="number"
                 step="any"
                 value={latitude}
-                onChange={e => setLatitude(parseFloat(e.target.value))}
+                onChange={e => setLatitude(e.target.value)}
                 className="w-full p-2.5 border rounded-lg font-mono text-sm border-slate-300 text-slate-900 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 required
               />
@@ -89,7 +90,7 @@ export const CommunityReportModal: React.FC<Props> = ({ onSubmit, onClose }) => 
                 type="number"
                 step="any"
                 value={longitude}
-                onChange={e => setLongitude(parseFloat(e.target.value))}
+                onChange={e => setLongitude(e.target.value)}
                 className="w-full p-2.5 border rounded-lg font-mono text-sm border-slate-300 text-slate-900 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                 required
               />

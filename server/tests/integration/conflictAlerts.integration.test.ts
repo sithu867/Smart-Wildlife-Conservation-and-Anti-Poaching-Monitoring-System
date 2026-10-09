@@ -203,7 +203,7 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
     expect(res.body.data._id).toBe(alertId);
 
     const notFoundRes = await request(app).get('/api/conflict-alerts/non-existent-alert-id');
-    expect(notFoundRes.status).toBe(500);
+    expect(notFoundRes.status).toBe(404);
     expect(notFoundRes.body.error.message).toContain('not found');
   });
 
@@ -406,7 +406,7 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
     const res = await request(app).post(`/api/conflict-alerts/${alertId}/resolve`).send({
       resolutionNotes: 'Cannot skip response step.'
     });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(409);
     expect(res.body.error.message).toContain('cannot be resolved');
   });
 
@@ -427,7 +427,7 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
 
     // Try acknowledging
     const ackStale = await request(app).post(`/api/conflict-alerts/${alertId}/acknowledge`);
-    expect(ackStale.status).toBe(500);
+    expect(ackStale.status).toBe(409);
     expect(ackStale.body.error.message).toContain('Resolved alert cannot be acknowledged');
 
     // Try responding
@@ -435,7 +435,7 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
       action: ResponseAction.MONITORED_WILDLIFE,
       notes: 'Late response attempt.'
     });
-    expect(respStale.status).toBe(500);
+    expect(respStale.status).toBe(409);
     expect(respStale.body.error.message).toContain('Resolved alert cannot accept new responses');
   });
 
@@ -450,7 +450,7 @@ describe('UC-C Wildlife Conflict Alerts & Response API Endpoints', () => {
       action: ResponseAction.INVESTIGATED_AREA,
       notes: 'Tried to respond without ack.'
     });
-    expect(resp.status).toBe(500);
+    expect(resp.status).toBe(409);
     expect(resp.body.error.message).toContain('must be acknowledged before recording response');
   });
 
@@ -537,8 +537,8 @@ describe('UC03 CRUD, cancellation and audit extensions', () => {
     expect((await request(app).post(`/api/conflict-alerts/${alert._id}/cancel`).send({})).status).toBe(400);
     const cancelled = await request(app).post(`/api/conflict-alerts/${alert._id}/cancel`).send({ reason: 'No longer an active conflict' });
     expect(cancelled.status).toBe(200); expect(cancelled.body.data.status).toBe(AlertStatus.CANCELLED);
-    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/acknowledge`)).status).toBe(500);
-    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/responses`).send({ action: ResponseAction.INVESTIGATED_AREA, notes: 'Late response' })).status).toBe(500);
+    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/acknowledge`)).status).toBe(409);
+    expect((await request(app).post(`/api/conflict-alerts/${alert._id}/responses`).send({ action: ResponseAction.INVESTIGATED_AREA, notes: 'Late response' })).status).toBe(409);
   });
 
   test('rejects response changes by a different ranger', async () => {

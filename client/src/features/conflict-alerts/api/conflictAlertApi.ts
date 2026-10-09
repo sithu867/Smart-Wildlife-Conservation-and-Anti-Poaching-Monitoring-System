@@ -1,4 +1,5 @@
 import { http } from '../../../shared/api/http';
+import { toApiError } from '../../../shared/api/apiError';
 import { offlineDb } from '../../../offline/db';
 import { syncService } from '../../../offline/syncService';
 import {
@@ -196,7 +197,7 @@ export const conflictAlertApi = {
   async getHistory(alertId: string): Promise<ConflictAuditEntry[]> { const response = await http.get(`/conflict-alerts/${alertId}/history`); return response.data.data; },
   async updateAlert(alertId: string, input: UpdateAlertInput): Promise<WildlifeConflictAlert> {
     try { const response = await http.put(`/conflict-alerts/${alertId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
-    catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, ...input, location: { ...alert.location, latitude: input.latitude ?? alert.location.latitude, longitude: input.longitude ?? alert.location.longitude, source: input.locationSource ?? alert.location.source }, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_ALERT', alertId, { alertId, input }); return updated; }
+    catch (error) { throwIfServerAnswered(error); const alert = await this.getAlertById(alertId); const updated = { ...alert, ...input, location: { ...alert.location, latitude: input.latitude ?? alert.location.latitude, longitude: input.longitude ?? alert.location.longitude, source: input.locationSource ?? alert.location.source }, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_ALERT', alertId, { alertId, input }); return updated; }
   },
   async deleteAlert(alertId: string, reason?: string): Promise<WildlifeConflictAlert> {
     try { const response = await http.delete(`/conflict-alerts/${alertId}`, { data: { reason } }); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
@@ -208,15 +209,16 @@ export const conflictAlertApi = {
         await safeDexieRemove(alertId);
         return { _id: alertId, isDeleted: true, syncStatus: SyncStatus.SYNCED } as WildlifeConflictAlert;
       }
+      throwIfServerAnswered(error);
       const alert = await this.getAlertById(alertId); const updated = { ...alert, isDeleted: true, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_ALERT', alertId, { alertId, reason }); return updated;
     }
   },
   async cancelAlert(alertId: string, reason: string): Promise<WildlifeConflictAlert> {
     try { const response = await http.post(`/conflict-alerts/${alertId}/cancel`, { reason }); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; }
-    catch { const alert = await this.getAlertById(alertId); if (alert.status === AlertStatus.RESOLVED || alert.status === AlertStatus.CANCELLED) throw new Error('Alert cannot be cancelled from its current state.'); const updated = { ...alert, status: AlertStatus.CANCELLED, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('CANCEL_ALERT', alertId, { alertId, reason }); return updated; }
+    catch (error) { throwIfServerAnswered(error); const alert = await this.getAlertById(alertId); if (alert.status === AlertStatus.RESOLVED || alert.status === AlertStatus.CANCELLED) throw new Error('Alert cannot be cancelled from its current state.'); const updated = { ...alert, status: AlertStatus.CANCELLED, updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('CANCEL_ALERT', alertId, { alertId, reason }); return updated; }
   },
-  async updateResponse(alertId: string, responseId: string, input: UpdateResponseInput): Promise<WildlifeConflictAlert> { try { const response = await http.put(`/conflict-alerts/${alertId}/responses/${responseId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.map(r => r.responseId === responseId ? { ...r, ...input } : r), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_RESPONSE', alertId, { alertId, responseId, input }); return updated; } },
-  async deleteResponse(alertId: string, responseId: string): Promise<WildlifeConflictAlert> { try { const response = await http.delete(`/conflict-alerts/${alertId}/responses/${responseId}`); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch { const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.filter(r => r.responseId !== responseId), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_RESPONSE', alertId, { alertId, responseId }); return updated; } },
+  async updateResponse(alertId: string, responseId: string, input: UpdateResponseInput): Promise<WildlifeConflictAlert> { try { const response = await http.put(`/conflict-alerts/${alertId}/responses/${responseId}`, input); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch (error) { throwIfServerAnswered(error); const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.map(r => r.responseId === responseId ? { ...r, ...input } : r), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('UPDATE_RESPONSE', alertId, { alertId, responseId, input }); return updated; } },
+  async deleteResponse(alertId: string, responseId: string): Promise<WildlifeConflictAlert> { try { const response = await http.delete(`/conflict-alerts/${alertId}/responses/${responseId}`); const updated = response.data.data; await safeDexieUpdate(alertId, updated, SyncStatus.SYNCED); return updated; } catch (error) { throwIfServerAnswered(error); const alert = await this.getAlertById(alertId); const updated = { ...alert, responses: alert.responses.filter(r => r.responseId !== responseId), updatedAt: new Date().toISOString(), syncStatus: SyncStatus.PENDING as SyncStatus }; await safeDexieUpdate(alertId, updated, SyncStatus.PENDING); await enqueueAction('DELETE_RESPONSE', alertId, { alertId, responseId }); return updated; } },
 
   async acknowledgeAlert(alertId: string): Promise<WildlifeConflictAlert> {
     const clientAcknowledgementId = crypto.randomUUID();
@@ -227,6 +229,7 @@ export const conflictAlertApi = {
       await safeDexieUpdate(alertId, updatedAlert, SyncStatus.SYNCED);
       return updatedAlert;
     } catch (error) {
+      throwIfServerAnswered(error);
       console.warn('Network failed on acknowledgeAlert, applying local state update:', error);
 
       const alert = await this.getAlertById(alertId);
@@ -258,6 +261,7 @@ export const conflictAlertApi = {
       await safeDexieUpdate(alertId, updatedAlert, SyncStatus.SYNCED);
       return updatedAlert;
     } catch (error) {
+      throwIfServerAnswered(error);
       console.warn('Network failed on addResponse, recording local response:', error);
 
       const alert = await this.getAlertById(alertId);
@@ -308,6 +312,7 @@ export const conflictAlertApi = {
       await safeDexieUpdate(alertId, updatedAlert, SyncStatus.SYNCED);
       return updatedAlert;
     } catch (error) {
+      throwIfServerAnswered(error);
       console.warn('Network failed on resolveAlert, updating state locally:', error);
 
       const alert = await this.getAlertById(alertId);
@@ -339,7 +344,7 @@ export const conflictAlertApi = {
       const response = await http.post('/conflict-alerts/simulate-collar', queuedInput);
       return response.data.data;
     } catch (error) {
-      if (!isRetryableNetworkError(error)) throw error;
+      throwIfServerAnswered(error);
       await enqueueAction('SIMULATE_COLLAR', queuedInput.sourceEventId!, { input: queuedInput });
       return null;
     }
@@ -351,25 +356,31 @@ export const conflictAlertApi = {
       const response = await http.post('/conflict-alerts/community-report', queuedInput);
       return response.data.data;
     } catch (error) {
-      if (!isRetryableNetworkError(error)) throw error;
+      throwIfServerAnswered(error);
       await enqueueAction('COMMUNITY_REPORT', queuedInput.sourceEventId!, { input: queuedInput });
       return null;
     }
   }
 };
 
-function isRetryableNetworkError(error: unknown): boolean {
-  const axiosError = error as { response?: unknown; code?: string };
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
-  if (axiosError?.code === 'ERR_NETWORK' || axiosError?.code === 'ECONNABORTED') return true;
-  if (!axiosError?.response) return true;
-  const status = (axiosError.response as { status?: number })?.status;
-  return status === 408 || status === 429 || (typeof status === 'number' && status >= 500);
+// Any HTTP answer (400/403/404/409/5xx) is the server's decision and is shown to the ranger, as in UC-B.
+// Only a request that got no response at all (offline, timeout) falls back to the offline field path.
+function throwIfServerAnswered(error: unknown) {
+  const apiError = toApiError(error);
+  if (apiError) throw apiError;
 }
 
 async function enqueueAction(operation: 'ACKNOWLEDGE_ALERT' | 'ADD_RESPONSE' | 'RESOLVE_ALERT' | 'UPDATE_ALERT' | 'DELETE_ALERT' | 'CANCEL_ALERT' | 'UPDATE_RESPONSE' | 'DELETE_RESPONSE' | 'SIMULATE_COLLAR' | 'COMMUNITY_REPORT', alertId: string, payload: unknown) {
-  const payloadObject = payload as { input?: { clientResponseId?: string; sourceEventId?: string } };
-  await syncService.enqueue({ entity: 'conflict-alerts', operation, recordId: 0, clientId: String(payloadObject.input?.clientResponseId ?? payloadObject.input?.sourceEventId ?? alertId), payload });
+  const payloadObject = payload as { responseId?: string; input?: { clientResponseId?: string; sourceEventId?: string } };
+  // The queue merges items with the same clientId. Every edit must reach the server in order, so each
+  // edit gets its own id (otherwise a later offline edit would be dropped and then overwritten by the
+  // server's copy of the earlier one); a response delete is keyed by the response it removes.
+  const clientId = operation === 'UPDATE_ALERT' || operation === 'UPDATE_RESPONSE'
+    ? crypto.randomUUID()
+    : operation === 'DELETE_RESPONSE'
+      ? `${alertId}:${payloadObject.responseId}`
+      : String(payloadObject.input?.clientResponseId ?? payloadObject.input?.sourceEventId ?? alertId);
+  await syncService.enqueue({ entity: 'conflict-alerts', operation, recordId: 0, clientId, payload });
 }
 
 syncService.registerTransport('conflict-alerts', async item => {

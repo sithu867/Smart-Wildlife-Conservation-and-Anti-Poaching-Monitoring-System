@@ -1,11 +1,14 @@
 import { prisma } from '../../config/prisma.js';
 import { validateOptionalPark } from '../shared/parkScope.js';
+import { AppError } from '../shared/appError.js';
 import { AlertSource, ConflictAlertType, AlertSeverity, AlertStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import type { AddResponseInput, CommunityReportInput, CreateAlertInput, ResolveAlertInput, SimulateCollarInput } from './validation.js';
 
 const alertInclude = { responses: { where: { isDeleted: false }, orderBy: { respondedAt: 'asc' as const } } } as const;
 function shapeAlert(alert: any): any { if (!alert) return alert; const { id, ...rest } = alert; return { _id: id, ...rest }; }
 async function findAlert(alertId: string, includeDeleted = false) { return prisma.wildlifeConflictAlert.findFirst({ where: { OR: [{ id: alertId }, { clientAlertId: alertId }], ...(includeDeleted ? {} : { isDeleted: false }) }, include: alertInclude }); }
+// A lifecycle action that does not fit the alert's current status is a client conflict (409), not a server fault.
+const invalidTransition = (message: string) => new AppError(409, 'INVALID_STATE_TRANSITION', message);
 async function audit(data: { alertId: string; responseId?: string; action: string; performedBy: string; performedName?: string; oldValue?: unknown; newValue?: unknown; reason?: string }) {
   await prisma.conflictAuditEntry.create({ data: { ...data, oldValue: data.oldValue as any, newValue: data.newValue as any } });
 }
@@ -133,7 +136,12 @@ export class ConflictAlertService {
 
     const shaped = shapeAlert(alert);
     await audit({ alertId: alert.id, action: 'CREATE', performedBy: 'SYSTEM', performedName: 'Alert ingestion', newValue: shaped });
-    this.notifyResponders(shaped);
+    // The alert is already persisted; a notification failure must not make the caller believe it was not created.
+    try {
+      this.notifyResponders(shaped);
+    } catch (error) {
+      console.error(`[UC03 NOTIFICATION FAILURE] Alert ${shaped._id} was saved but responders could not be notified.`, error);
+    }
     return shaped;
   }
 
@@ -246,8 +254,8 @@ export class ConflictAlertService {
     const alert = await findAlert(alertId);
     if (!alert) throw new Error('Wildlife conflict alert not found.');
     if (clientAcknowledgementId && alert.clientAcknowledgementId === clientAcknowledgementId) return shapeAlert(alert);
-    if (alert.status === AlertStatus.RESOLVED) throw new Error('Resolved alert cannot be acknowledged.');
-    if (alert.status !== AlertStatus.OPEN) throw new Error(`Invalid state transition: ${alert.status} alert cannot be acknowledged.`);
+    if (alert.status === AlertStatus.RESOLVED) throw invalidTransition('Resolved alert cannot be acknowledged.');
+    if (alert.status !== AlertStatus.OPEN) throw invalidTransition(`Invalid state transition: ${alert.status} alert cannot be acknowledged.`);
     const updated = await prisma.wildlifeConflictAlert.update({
       where: { id: alert.id },
       data: {
@@ -267,8 +275,8 @@ export class ConflictAlertService {
     const alert = await findAlert(alertId);
     if (!alert) throw new Error('Wildlife conflict alert not found.');
     if (input.clientResponseId && alert.responses.some((r: any) => r.clientResponseId === input.clientResponseId)) return shapeAlert(alert);
-    if (alert.status === AlertStatus.RESOLVED) throw new Error('Invalid state transition: Resolved alert cannot accept new responses.');
-    if (alert.status !== AlertStatus.ACKNOWLEDGED && alert.status !== AlertStatus.RESPONDING) throw new Error('Invalid state transition: Alert must be acknowledged before recording response.');
+    if (alert.status === AlertStatus.RESOLVED) throw invalidTransition('Invalid state transition: Resolved alert cannot accept new responses.');
+    if (alert.status !== AlertStatus.ACKNOWLEDGED && alert.status !== AlertStatus.RESPONDING) throw invalidTransition('Invalid state transition: Alert must be acknowledged before recording response.');
     const respondedAt = new Date();
     const updated = await prisma.wildlifeConflictAlert.update({
       where: { id: alert.id },
@@ -303,8 +311,8 @@ export class ConflictAlertService {
     const alert = await findAlert(alertId);
     if (!alert) throw new Error('Wildlife conflict alert not found.');
     if (input.clientActionId && alert.clientResolutionId === input.clientActionId) return shapeAlert(alert);
-    if (alert.status === AlertStatus.RESOLVED) throw new Error('Invalid state transition: Alert is already resolved.');
-    if (alert.status !== AlertStatus.RESPONDING) throw new Error(`Invalid state transition: ${alert.status} alert cannot be resolved.`);
+    if (alert.status === AlertStatus.RESOLVED) throw invalidTransition('Invalid state transition: Alert is already resolved.');
+    if (alert.status !== AlertStatus.RESPONDING) throw invalidTransition(`Invalid state transition: ${alert.status} alert cannot be resolved.`);
     const updated = await prisma.wildlifeConflictAlert.update({
       where: { id: alert.id },
       data: {
@@ -338,7 +346,7 @@ export class ConflictAlertService {
 
   async cancelAlert(rangerId: string, rangerName: string, alertId: string, reason: string): Promise<any> {
     const alert = await findAlert(alertId); if (!alert) throw new Error('Wildlife conflict alert not found.');
-    if (![AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED, AlertStatus.RESPONDING].includes(alert.status as any)) throw new Error(`Invalid state transition: ${alert.status} alert cannot be cancelled.`);
+    if (![AlertStatus.OPEN, AlertStatus.ACKNOWLEDGED, AlertStatus.RESPONDING].includes(alert.status as any)) throw invalidTransition(`Invalid state transition: ${alert.status} alert cannot be cancelled.`);
     const updated = await prisma.wildlifeConflictAlert.update({ where: { id: alert.id }, data: { status: AlertStatus.CANCELLED as any }, include: alertInclude });
     await audit({ alertId: alert.id, action: 'CANCEL', performedBy: rangerId, performedName: rangerName, reason, oldValue: { status: alert.status }, newValue: { status: AlertStatus.CANCELLED } }); return shapeAlert(updated);
   }
