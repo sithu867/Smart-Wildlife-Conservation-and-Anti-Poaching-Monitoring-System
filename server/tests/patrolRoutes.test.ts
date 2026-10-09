@@ -2,6 +2,7 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 import { resetPatrolPrisma } from './patrolPrismaMock.js';
 import { LocationSource, PatrolStatus } from '../src/types/enums.js';
+import { AppError } from '../src/modules/shared/appError.js';
 
 const { createApp } = await import('../src/app.js');
 const { patrolService } = await import('../src/modules/patrols/service.js');
@@ -126,9 +127,7 @@ test('POST /sessions/sync rejects an upload without a client session id', async 
 
 test.each([
   ['Patrol session not found.', 404],
-  ['Unauthorized: Patrol session does not belong to this ranger.', 403],
-  // Business-rule violations are plain Errors, which the shared handler currently maps to 500.
-  ['Cannot add waypoints to a patrol session that is not ACTIVE.', 500]
+  ['Unauthorized: Patrol session does not belong to this ranger.', 403]
 ])('service error "%s" is returned as HTTP %d with its message', async (message, status) => {
   jest.spyOn(patrolService, 'addWaypoint').mockRejectedValue(new Error(message));
 
@@ -136,6 +135,20 @@ test.each([
 
   expect(res.status).toBe(status);
   expect(res.body).toEqual({ success: false, error: { message } });
+});
+
+test('a business-rule violation is returned as HTTP 409 with its message and code', async () => {
+  jest.spyOn(patrolService, 'addWaypoint').mockRejectedValue(
+    new AppError(409, 'INVALID_STATE_TRANSITION', 'Cannot add waypoints to a patrol session that is not ACTIVE.')
+  );
+
+  const res = await request(app).post('/api/patrols/sessions/sess-1/waypoints').send(waypoint);
+
+  expect(res.status).toBe(409);
+  expect(res.body).toEqual({
+    success: false,
+    error: { message: 'Cannot add waypoints to a patrol session that is not ACTIVE.', code: 'INVALID_STATE_TRANSITION' }
+  });
 });
 
 test.each([
@@ -159,13 +172,14 @@ test.each([
 
 test('a database failure during sync is returned as HTTP 500', async () => {
   jest.spyOn(patrolService, 'syncPatrolSession').mockRejectedValue(new Error('connection reset'));
+  jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
   const res = await request(app)
     .post('/api/patrols/sessions/sync')
     .send({ clientSessionId: 'sess-off', startTime: '2026-10-01T06:00:00.000Z', status: PatrolStatus.ACTIVE });
 
   expect(res.status).toBe(500);
-  expect(res.body.error.message).toBe('connection reset');
+  expect(res.body.error.message).toBe('Internal server error');
 });
 
 test('the legacy /api/patrol-sessions alias reaches the same handlers', async () => {

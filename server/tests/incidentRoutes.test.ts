@@ -138,12 +138,13 @@ test.each([
   ['get', '/api/incidents/inc-1', 'getIncidentById', undefined],
   ['delete', '/api/incidents/inc-1', 'deleteIncident', withdrawal],
   ['post', '/api/incidents/inc-1/restore', 'restoreIncident', { restoredAt: '2026-10-08T12:01:00.000Z', clientRestoreId: 'r-1' }]
-] as const)('%s %s turns an unexpected failure into a 500 error response', async (method, url, serviceMethod, body) => {
-  // The shared error handler currently echoes the internal message for 500s (recorded as a known gap).
+] as const)('%s %s turns an unexpected failure into a generic 500 error response', async (method, url, serviceMethod, body) => {
+  // The shared error handler hides internal details of unexpected failures (see errorHandler.test.ts).
   jest.spyOn(incidentService, serviceMethod).mockRejectedValue(new Error('connection reset'));
+  jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
   const res = await request(app)[method](url).send(body as object);
 
   expect(res.status).toBe(500);
-  expect(res.body).toEqual({ success: false, error: { message: 'connection reset' } });
+  expect(res.body).toEqual({ success: false, error: { message: 'Internal server error' } });
 });

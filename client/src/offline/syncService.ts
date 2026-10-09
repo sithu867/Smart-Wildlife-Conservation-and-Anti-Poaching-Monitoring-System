@@ -8,6 +8,7 @@ export class SyncService {
   private online = typeof navigator !== 'undefined' ? navigator.onLine : true;
   private transports: Map<string, SyncTransport> = new Map();
   private isProcessing = false;
+  private rerunRequested = false;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -79,8 +80,14 @@ export class SyncService {
   }
 
   async processAll() {
-    if (!this.online || this.isProcessing) return;
+    if (!this.online) return;
+    if (this.isProcessing) {
+      // Items queued during a run were not in its snapshot; run once more afterwards.
+      this.rerunRequested = true;
+      return;
+    }
     this.isProcessing = true;
+    this.rerunRequested = false;
 
     try {
       const items = await offlineDb.syncQueue
@@ -121,6 +128,7 @@ export class SyncService {
       console.warn('SyncService batch execution error:', err);
     } finally {
       this.isProcessing = false;
+      if (this.rerunRequested) void this.processAll();
     }
   }
 

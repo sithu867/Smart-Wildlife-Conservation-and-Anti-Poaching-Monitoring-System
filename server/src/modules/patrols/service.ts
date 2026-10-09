@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma.js';
 import { PatrolStatus, SyncStatus, LocationSource } from '../../types/enums.js';
 import type { IWaypoint } from './models.js';
+import { AppError } from '../shared/appError.js';
 
 export function calculateHaversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -177,7 +178,7 @@ export class PatrolService {
       assignment = matched || seeded[0];
     }
 
-    if (!assignment) throw new Error('No valid patrol assignment found for ranger.');
+    if (!assignment) throw new AppError(404, 'ASSIGNMENT_NOT_FOUND', 'No valid patrol assignment found for ranger.');
 
     const existing = await prisma.patrolSession.findFirst({
       where: { rangerId, status: { in: [PatrolStatus.ACTIVE as any, PatrolStatus.PAUSED as any] } },
@@ -186,7 +187,7 @@ export class PatrolService {
 
     if (existing) {
       if (clientSessionId && existing.clientSessionId === clientSessionId) return sessionShape(existing);
-      throw new Error('A patrol session is already active or paused for this ranger.');
+      throw new AppError(409, 'PATROL_ALREADY_ACTIVE', 'A patrol session is already active or paused for this ranger.');
     }
 
     const session = await prisma.patrolSession.create({
@@ -211,7 +212,7 @@ export class PatrolService {
     const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: sessionInclude });
     if (!session) throw new Error('Patrol session not found.');
     if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    if (session.status !== (PatrolStatus.ACTIVE as any)) throw new Error('Only ACTIVE patrol sessions can be paused.');
+    if (session.status !== (PatrolStatus.ACTIVE as any)) throw new AppError(409, 'INVALID_STATE_TRANSITION', 'Only ACTIVE patrol sessions can be paused.');
 
     const updated = await prisma.patrolSession.update({
       where: { id: sessionId },
@@ -225,7 +226,7 @@ export class PatrolService {
     const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: sessionInclude });
     if (!session) throw new Error('Patrol session not found.');
     if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    if (session.status !== (PatrolStatus.PAUSED as any)) throw new Error('Only PAUSED patrol sessions can be resumed.');
+    if (session.status !== (PatrolStatus.PAUSED as any)) throw new AppError(409, 'INVALID_STATE_TRANSITION', 'Only PAUSED patrol sessions can be resumed.');
 
     const updated = await prisma.patrolSession.update({
       where: { id: sessionId },
@@ -239,7 +240,7 @@ export class PatrolService {
     const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: sessionInclude });
     if (!session) throw new Error('Patrol session not found.');
     if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    if (session.status === (PatrolStatus.COMPLETED as any)) throw new Error('Completed patrol session cannot be cancelled.');
+    if (session.status === (PatrolStatus.COMPLETED as any)) throw new AppError(409, 'INVALID_STATE_TRANSITION', 'Completed patrol session cannot be cancelled.');
 
     const updated = await prisma.$transaction(async (tx: any) => {
       const result = await tx.patrolSession.update({
@@ -262,12 +263,12 @@ export class PatrolService {
   }
 
   async addWaypoint(rangerId: string, sessionId: string, waypointData: { latitude: number; longitude: number; timestamp: Date; source: LocationSource; accuracy?: number; note?: string }) {
-    if (waypointData.latitude < -90 || waypointData.latitude > 90) throw new Error('Invalid latitude: must be between -90 and 90 degrees.');
-    if (waypointData.longitude < -180 || waypointData.longitude > 180) throw new Error('Invalid longitude: must be between -180 and 180 degrees.');
+    if (waypointData.latitude < -90 || waypointData.latitude > 90) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid latitude: must be between -90 and 90 degrees.');
+    if (waypointData.longitude < -180 || waypointData.longitude > 180) throw new AppError(400, 'VALIDATION_ERROR', 'Invalid longitude: must be between -180 and 180 degrees.');
     const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: { waypoints: true } });
     if (!session) throw new Error('Patrol session not found.');
     if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    if (session.status !== (PatrolStatus.ACTIVE as any)) throw new Error('Cannot add waypoints to a patrol session that is not ACTIVE.');
+    if (session.status !== (PatrolStatus.ACTIVE as any)) throw new AppError(409, 'INVALID_STATE_TRANSITION', 'Cannot add waypoints to a patrol session that is not ACTIVE.');
     const waypoints = [...session.waypoints, waypointData] as IWaypoint[];
     const updated = await prisma.$transaction(async (tx: any) => {
       await tx.waypoint.create({ data: { patrolSessionId: sessionId, latitude: waypointData.latitude, longitude: waypointData.longitude, timestamp: waypointData.timestamp || new Date(), source: waypointData.source as any, accuracy: waypointData.accuracy, note: waypointData.note } });
@@ -280,8 +281,8 @@ export class PatrolService {
     const session = await prisma.patrolSession.findUnique({ where: { id: sessionId }, include: { waypoints: true } });
     if (!session) throw new Error('Patrol session not found.');
     if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
-    if (session.status === (PatrolStatus.COMPLETED as any)) throw new Error('Patrol session is already COMPLETED.');
-    if (session.status === (PatrolStatus.CANCELLED as any)) throw new Error('Cancelled patrol session cannot be completed.');
+    if (session.status === (PatrolStatus.COMPLETED as any)) throw new AppError(409, 'INVALID_STATE_TRANSITION', 'Patrol session is already COMPLETED.');
+    if (session.status === (PatrolStatus.CANCELLED as any)) throw new AppError(409, 'INVALID_STATE_TRANSITION', 'Cancelled patrol session cannot be completed.');
     const updated = await prisma.$transaction(async (tx: any) => {
       const result = await tx.patrolSession.update({ where: { id: sessionId }, data: { status: PatrolStatus.COMPLETED as any, endTime, durationSeconds: Math.max(0, Math.round((endTime.getTime() - session.startTime.getTime()) / 1000)), totalDistanceKm: calculateTotalWaypointsDistanceKm(session.waypoints as IWaypoint[]), syncStatus: SyncStatus.SYNCED as any }, include: sessionInclude });
       await tx.patrolSession.updateMany({
@@ -319,7 +320,7 @@ export class PatrolService {
       const seedResult = await ensureSeedData(rangerId, rangerName);
       assignment = Array.isArray(seedResult) ? seedResult[0] : seedResult;
     }
-    if (!assignment) throw new Error('Failed to resolve assignment for sync.');
+    if (!assignment) throw new AppError(404, 'ASSIGNMENT_NOT_FOUND', 'Failed to resolve assignment for sync.');
     if (assignment.rangerId !== rangerId) throw new Error('Unauthorized: Patrol assignment does not belong to this ranger.');
     if (existing) {
       await prisma.waypoint.deleteMany({ where: { patrolSessionId: existing.id } });

@@ -165,9 +165,11 @@ describe('B. start patrol', () => {
     prisma.patrolAssignment.findUnique.mockResolvedValue(assignmentRow());
     prisma.patrolSession.findFirst.mockResolvedValue(sessionRow({ clientSessionId: 'sess-original' }));
 
-    await expect(patrolService.startPatrol(RANGER, 'Ranger One', 'assign-1', 'sess-different')).rejects.toThrow(
-      'A patrol session is already active or paused for this ranger.'
-    );
+    await expect(patrolService.startPatrol(RANGER, 'Ranger One', 'assign-1', 'sess-different')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'PATROL_ALREADY_ACTIVE',
+      message: 'A patrol session is already active or paused for this ranger.'
+    });
     expect(prisma.patrolSession.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { rangerId: RANGER, status: { in: [PatrolStatus.ACTIVE, PatrolStatus.PAUSED] } } })
     );
@@ -189,7 +191,7 @@ describe('B. start patrol', () => {
     prisma.patrolAssignment.findFirst.mockResolvedValue(null);
     mockSeededRanger({ assignment: null, createdAssignment: null });
 
-    await expect(patrolService.startPatrol(RANGER)).rejects.toThrow('No valid patrol assignment found for ranger.');
+    await expect(patrolService.startPatrol(RANGER)).rejects.toMatchObject({ statusCode: 404, code: 'ASSIGNMENT_NOT_FOUND', message: 'No valid patrol assignment found for ranger.' });
     expect(prisma.patrolSession.create).not.toHaveBeenCalled();
   });
 
@@ -259,7 +261,7 @@ describe('C/D. GPS and manual waypoints', () => {
     [{ longitude: 180.5 }, 'Invalid longitude: must be between -180 and 180 degrees.'],
     [{ longitude: -181 }, 'Invalid longitude: must be between -180 and 180 degrees.']
   ])('rejects invalid coordinates %o before touching the database', async (override, message) => {
-    await expect(patrolService.addWaypoint(RANGER, 'sess-1', { ...point(0, 0), ...override })).rejects.toThrow(message);
+    await expect(patrolService.addWaypoint(RANGER, 'sess-1', { ...point(0, 0), ...override })).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR', message: message });
     expect(prisma.patrolSession.findUnique).not.toHaveBeenCalled();
   });
 
@@ -276,7 +278,7 @@ describe('C/D. GPS and manual waypoints', () => {
 
   test.each([PatrolStatus.PAUSED, PatrolStatus.COMPLETED, PatrolStatus.CANCELLED])('rejects a waypoint while the session is %s', async status => {
     prisma.patrolSession.findUnique.mockResolvedValue(sessionRow({ status }));
-    await expect(patrolService.addWaypoint(RANGER, 'sess-1', point(1, 1))).rejects.toThrow('Cannot add waypoints to a patrol session that is not ACTIVE.');
+    await expect(patrolService.addWaypoint(RANGER, 'sess-1', point(1, 1))).rejects.toMatchObject({ statusCode: 409, code: 'INVALID_STATE_TRANSITION', message: 'Cannot add waypoints to a patrol session that is not ACTIVE.' });
     expect(prisma.waypoint.create).not.toHaveBeenCalled();
   });
 
@@ -301,13 +303,13 @@ describe('E. pause and resume', () => {
 
   test('rejects pausing a session that is already paused', async () => {
     prisma.patrolSession.findUnique.mockResolvedValue(sessionRow({ status: PatrolStatus.PAUSED }));
-    await expect(patrolService.pausePatrol(RANGER, 'sess-1')).rejects.toThrow('Only ACTIVE patrol sessions can be paused.');
+    await expect(patrolService.pausePatrol(RANGER, 'sess-1')).rejects.toMatchObject({ statusCode: 409, code: 'INVALID_STATE_TRANSITION', message: 'Only ACTIVE patrol sessions can be paused.' });
     expect(prisma.patrolSession.update).not.toHaveBeenCalled();
   });
 
   test('rejects resuming a session that is not paused', async () => {
     prisma.patrolSession.findUnique.mockResolvedValue(sessionRow({ status: PatrolStatus.ACTIVE }));
-    await expect(patrolService.resumePatrol(RANGER, 'sess-1')).rejects.toThrow('Only PAUSED patrol sessions can be resumed.');
+    await expect(patrolService.resumePatrol(RANGER, 'sess-1')).rejects.toMatchObject({ statusCode: 409, code: 'INVALID_STATE_TRANSITION', message: 'Only PAUSED patrol sessions can be resumed.' });
   });
 
   test.each(['pausePatrol', 'resumePatrol'] as const)('%s rejects unknown and foreign sessions', async method => {
@@ -370,14 +372,14 @@ describe('F. complete patrol', () => {
 
   test('rejects an already COMPLETED patrol', async () => {
     prisma.patrolSession.findUnique.mockResolvedValue(sessionRow({ status: PatrolStatus.COMPLETED }));
-    await expect(patrolService.completePatrol(RANGER, 'sess-1', end)).rejects.toThrow('Patrol session is already COMPLETED.');
+    await expect(patrolService.completePatrol(RANGER, 'sess-1', end)).rejects.toMatchObject({ statusCode: 409, code: 'INVALID_STATE_TRANSITION', message: 'Patrol session is already COMPLETED.' });
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   // Regression: a cancelled patrol used to be silently turned into a COMPLETED one.
   test('rejects completing a CANCELLED patrol', async () => {
     prisma.patrolSession.findUnique.mockResolvedValue(sessionRow({ status: PatrolStatus.CANCELLED }));
-    await expect(patrolService.completePatrol(RANGER, 'sess-1', end)).rejects.toThrow('Cancelled patrol session cannot be completed.');
+    await expect(patrolService.completePatrol(RANGER, 'sess-1', end)).rejects.toMatchObject({ statusCode: 409, code: 'INVALID_STATE_TRANSITION', message: 'Cancelled patrol session cannot be completed.' });
     expect(prisma.patrolAssignment.update).not.toHaveBeenCalled();
   });
 
@@ -415,7 +417,7 @@ describe('G. cancel patrol', () => {
 
   test('rejects cancelling a COMPLETED patrol', async () => {
     prisma.patrolSession.findUnique.mockResolvedValue(sessionRow({ status: PatrolStatus.COMPLETED }));
-    await expect(patrolService.cancelPatrol(RANGER, 'sess-1')).rejects.toThrow('Completed patrol session cannot be cancelled.');
+    await expect(patrolService.cancelPatrol(RANGER, 'sess-1')).rejects.toMatchObject({ statusCode: 409, code: 'INVALID_STATE_TRANSITION', message: 'Completed patrol session cannot be cancelled.' });
     expect(prisma.patrolSession.update).not.toHaveBeenCalled();
   });
 
@@ -539,7 +541,7 @@ describe('offline patrol synchronisation', () => {
     prisma.patrolAssignment.findUnique.mockResolvedValue(null);
     mockSeededRanger({ assignment: null, createdAssignment: null });
 
-    await expect(patrolService.syncPatrolSession(RANGER, 'Ranger One', payload())).rejects.toThrow('Failed to resolve assignment for sync.');
+    await expect(patrolService.syncPatrolSession(RANGER, 'Ranger One', payload())).rejects.toMatchObject({ statusCode: 404, code: 'ASSIGNMENT_NOT_FOUND', message: 'Failed to resolve assignment for sync.' });
   });
 
   test('propagates a database failure during sync', async () => {

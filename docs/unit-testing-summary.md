@@ -72,7 +72,7 @@ Each regression test was confirmed to fail against the code before the fix.
 
 - Any failed request in `patrolApi.ts`, including a server rejection such as "a patrol is already active", is treated as lost connectivity, and the action is saved locally as PENDING. The test "a server rejection while starting is treated like lost connectivity…" records this current behaviour.
 - Pausing or resuming offline is stored locally but not queued. It reaches the server only with the next queued change to the same patrol.
-- Patrol business-rule violations are plain `Error`s, which the shared error handler returns as HTTP 500 rather than 4xx.
+- *Resolved in the Shared phase (Shared defect 3):* patrol business-rule violations were plain `Error`s, which the shared error handler returned as HTTP 500 rather than 4xx.
 - An invalid waypoint timestamp string passes validation and becomes an invalid date.
 - `client/src/features/patrols/api/patrolApi.ts` always sends the built-in assignment id when starting a patrol. The server resolves the ranger's own assignment, so this has no visible effect while each ranger has a single assignment.
 
@@ -189,7 +189,7 @@ All rows below come from the Jest and Vitest JSON results of the final run. The 
 | UT-A105 | UC-A | Server · HTTP routes | Negative | POST /sessions/sync rejects an upload without a client session id | Behaved as expected | Pass |
 | UT-A106 | UC-A | Server · HTTP routes | Error | service error "Patrol session not found." is returned as HTTP 404 with its message | Behaved as expected | Pass |
 | UT-A107 | UC-A | Server · HTTP routes | Negative | service error "Unauthorized: Patrol session does not belong to this ranger." is returned as HTTP 403 with its message | Behaved as expected | Pass |
-| UT-A108 | UC-A | Server · HTTP routes | Error | service error "Cannot add waypoints to a patrol session that is not ACTIVE." is returned as HTTP 500 with its message | Behaved as expected | Pass |
+| UT-A108 | UC-A | Server · HTTP routes | Error | a business-rule violation is returned as HTTP 409 with its message and code (updated in the Shared phase) | Behaved as expected | Pass |
 | UT-A109 | UC-A | Server · HTTP routes | Error | get /api/patrols/my-assignment returns the service failure as an error response | Behaved as expected | Pass |
 | UT-A110 | UC-A | Server · HTTP routes | Error | get /api/patrols/routes/route-1 returns the service failure as an error response | Behaved as expected | Pass |
 | UT-A111 | UC-A | Server · HTTP routes | Error | post /api/patrols/sessions returns the service failure as an error response | Behaved as expected | Pass |
@@ -445,7 +445,7 @@ Network-failure handling was already correct for UC-B: only requests with no res
 
 ### Known gaps (not changed in this phase)
 
-- For unexpected failures, the shared error handler returns HTTP 500 with the internal error message. This applies to every module.
+- *Resolved in the Shared phase (Shared defect 2):* for unexpected failures, the shared error handler returned HTTP 500 with the internal error message.
 - When an upload fails only because the connection was lost, the device copy is marked FAILED while its queue item stays PENDING for the automatic retry. The history page then shows "SYNC FAILED" for a report that will still upload by itself. No data is lost.
 - Editing, withdrawing and restoring need a connection. Offline they report "OFFLINE", as designed.
 - A 5xx answer when creating a report is shown as an error rather than saved for a later retry. The code documents this as intended.
@@ -582,11 +582,11 @@ All rows below come from the Jest and Vitest JSON results of the final run. The 
 | UT-B123 | UC-B | Server · HTTP routes | Negative | a service AppError 409 EDIT_CONFLICT is returned with its code and details | Behaved as expected | Pass |
 | UT-B124 | UC-B | Server · HTTP routes | Negative | a service AppError 409 INCIDENT_LOCKED is returned with its code and details | Behaved as expected | Pass |
 | UT-B125 | UC-B | Server · HTTP routes | Negative | a service AppError 410 INCIDENT_DELETED is returned with its code and details | Behaved as expected | Pass |
-| UT-B126 | UC-B | Server · HTTP routes | Error | post /api/incidents turns an unexpected failure into a 500 error response | Behaved as expected | Pass |
-| UT-B127 | UC-B | Server · HTTP routes | Error | get /api/incidents/my turns an unexpected failure into a 500 error response | Behaved as expected | Pass |
-| UT-B128 | UC-B | Server · HTTP routes | Error | get /api/incidents/inc-1 turns an unexpected failure into a 500 error response | Behaved as expected | Pass |
-| UT-B129 | UC-B | Server · HTTP routes | Error | delete /api/incidents/inc-1 turns an unexpected failure into a 500 error response | Behaved as expected | Pass |
-| UT-B130 | UC-B | Server · HTTP routes | Error | post /api/incidents/inc-1/restore turns an unexpected failure into a 500 error response | Behaved as expected | Pass |
+| UT-B126 | UC-B | Server · HTTP routes | Error | post /api/incidents turns an unexpected failure into a generic 500 error response (updated in the Shared phase) | Behaved as expected | Pass |
+| UT-B127 | UC-B | Server · HTTP routes | Error | get /api/incidents/my turns an unexpected failure into a generic 500 error response (updated in the Shared phase) | Behaved as expected | Pass |
+| UT-B128 | UC-B | Server · HTTP routes | Error | get /api/incidents/inc-1 turns an unexpected failure into a generic 500 error response (updated in the Shared phase) | Behaved as expected | Pass |
+| UT-B129 | UC-B | Server · HTTP routes | Error | delete /api/incidents/inc-1 turns an unexpected failure into a generic 500 error response (updated in the Shared phase) | Behaved as expected | Pass |
+| UT-B130 | UC-B | Server · HTTP routes | Error | post /api/incidents/inc-1/restore turns an unexpected failure into a generic 500 error response (updated in the Shared phase) | Behaved as expected | Pass |
 | UT-B131 | UC-B | Server · place names | Positive | a new report waits at most 3 seconds for its place name | Behaved as expected | Pass |
 | UT-B132 | UC-B | Server · place names | Edge | only a location never looked up needs a place name (null means "no named place") | Behaved as expected | Pass |
 | UT-B133 | UC-B | Server · place names | Positive | fills in names for reports that lack one, and saves only for unchanged coordinates | Behaved as expected | Pass |
@@ -1280,3 +1280,754 @@ All rows below come from the Jest and Vitest JSON results of the final run. The 
 | UT-C377 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Error | conflictAlertApi.acknowledgeAlert handles offline network error with Dexie PENDING update | Behaved as expected | Pass |
 | UT-C378 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Error | conflictAlertApi.addResponse handles offline network error with Dexie PENDING update and stable clientResponseId | Behaved as expected | Pass |
 | UT-C379 | UC-C | Client · existing UC-C tests › UC-C Wildlife Conflict Alerts & Response Comprehensive Frontend Tests | Error | conflictAlertApi.resolveAlert handles offline network error with Dexie PENDING update and stable clientActionId | Behaved as expected | Pass |
+
+## UC-D – Analyze Conservation Data & Generate Reports
+
+Results recorded on 9 October 2026. UC-D was already well tested when this phase started, so the phase was a gap review: existing suites were run, coverage was checked per file, and tests were added only for meaningful untested behaviour.
+
+### Frameworks and isolation
+
+- **Server:** Jest, ts-jest and Supertest. Prisma is replaced by `server/tests/analyticsPrismaMock.ts`; the calculation, grouping, hotspot, patrol coverage, report validation and export code runs for real. Dates are fixed with Jest fake timers where "today" matters.
+- **Client:** Vitest, React Testing Library and userEvent. The analytics API is mocked at the HTTP boundary; the Leaflet map and Recharts charts render in jsdom.
+
+### Test files
+
+| File | Layer | Tests | Notes |
+|---|---|---|---|
+| `server/tests/analytics.test.ts` | Criteria validation, analytics HTTP API, manager authorisation, category scoping | 52 | Existing |
+| `server/tests/analyticsCalculations.test.ts` | Incident statistics, hotspot grid, calendar buckets, conflict trends | 16 | Existing |
+| `server/tests/analyticsBatch2.test.ts` | Shared park/date/type/ranger query, selected-category results, conflict filters | 10 | Existing |
+| `server/tests/parkScopedAnalysis.test.ts` | Park isolation for hotspots, coverage and conflict locations | 11 | Existing |
+| `server/tests/patrolCoverage.test.ts` | Route coverage classification and park-scoped patrol queries | 19 | Existing |
+| `server/tests/batch6Validation.test.ts` | Future/supported date rules, metadata allow-list, safe filenames | 24 | Existing |
+| `server/tests/conservationReport.test.ts` | Report generation, reviewed-snapshot validation, PDF output | 36 | Existing |
+| `server/tests/analyticsLegacyReport.test.ts` | Legacy summary report and its PDF route | 11 | Added after UC-C (commit b3163a6) |
+| `server/tests/reportEligibility.test.ts` | Rules deciding whether a report may be generated: selected categories have findings, and the analysis matches the reviewed criteria | 19 | New in this phase |
+| `server/tests/savedReportCrud.test.ts` | Saved reports: create, history, detail, update, versions, archive, PDF/CSV/XLSX export, failures | 87 | Existing, extended in b3163a6 |
+| `client/src/features/analytics/api.test.ts` | Analytics API client, export download safety | 16 | Added after UC-C (commit b3163a6) |
+| `client/src/features/analytics/AnalyticsPage.test.tsx` | Criteria form, validation, processing, no-data, retry, park loading | 33 | Existing |
+| `client/src/features/analytics/Batch2Results.test.tsx` | Statistics, hotspot map and conflict chart results | 11 | Existing |
+| `client/src/features/analytics/Batch3Results.test.tsx` | Patrol coverage results and map | 10 | Existing |
+| `client/src/features/analytics/Batch3UX.test.tsx` | Date presets, focus, reset, late responses | 18 | Existing |
+| `client/src/features/analytics/ParkScopedResults.test.tsx` | Park-scoped results and park context in report forms | 7 | Existing |
+| `client/src/features/analytics/Batch4Report.test.tsx` | Report generation preview and export | 18 | Existing |
+| `client/src/features/analytics/Batch5Report.test.tsx` | Saved report preview and PDF/CSV/XLSX export retry | 11 | Existing |
+| `client/src/features/analytics/SavedReports.test.tsx` | Saved report history, detail, edit, archive, regeneration | 13 | Existing |
+| `client/src/features/analytics/Batch6Polish.test.tsx` | Shared date rules, metadata feedback, unsaved-edit protection | 41 | Existing |
+
+Total UC-D unit tests executed: **463** (285 server, 178 client), **463 passed**. Of these, 19 are new in this phase.
+
+By type: **118 Positive, 202 Negative, 101 Edge, 42 Error.**
+
+### Scenarios covered
+
+- **Filters:** valid criteria; missing, reversed, impossible, future and unsupported dates; unknown categories and fields; malformed optional filters rejected before any data is read, on both client and server.
+- **Statistics and grouping:** counts by type, status and date with quiet days kept; day, week, month and year buckets with inclusive UTC boundaries; same-day periods.
+- **Hotspots and spatial grouping:** nearby points grouped, adjacent cells kept apart, exact decimal boundaries, LOW/MEDIUM/HIGH bands, invalid coordinates excluded, no fabricated hotspots on empty data.
+- **Patrol coverage:** completed, active and neglected routes; repeated sessions never inflate counts; zero routes; malformed waypoints and broken geometry ignored safely.
+- **Conflict trends:** alert and response breakdowns, response-only periods, optional conflict filters.
+- **No data:** a successful no-data answer is distinguished from a failure, and an empty analysis cannot be reported.
+- **Failures:** retrieval and database failures return a generic message without internal details; the client keeps previous results and offers retry.
+- **Reports:** generation only from a reviewed snapshot; forged or inconsistent findings rejected; PDF, CSV and XLSX exports use saved values only; CSV/spreadsheet formula and filename injection is prevented.
+- **Saved reports:** history and pagination, edits that keep findings unchanged, versioned regeneration, archive, manager-only access, uncertain writes.
+
+### Coverage
+
+Measured with Jest (server, unit suites only) and Vitest V8 (client). `reportContract.ts` lives in the server folder but is also imported by the client; Vitest measures only `client/src`, so its client use did not count towards server coverage before this phase.
+
+| Area | Stmts / Branch / Funcs / Lines |
+|---|---|
+| Server `src/modules/analytics` | before 97.94 / 93.05 / 96.68 / 98.39, after **99.04 / 95.80 / 99.17 / 99.56** |
+| Client `src/features/analytics` | **98.01 / 91.92 / 96.00 / 98.01** |
+| `analytics/reportEligibility.ts` | before 100 / 64.70 / 100 / 100, after **100 / 100 / 100 / 100** |
+| `analytics/reportContract.ts` | before 88.40 / 80.88 / 73.91 / 88.05, after **100 / 94.11 / 100 / 100** |
+
+Files named in earlier reviews: `grouping.ts`, `spatial.ts`, `pdfPrimitives.ts`, `reportCsv.ts` and `reportXlsx.ts` are at 100% on every metric; `reportTables.ts` is 97.56 / 86.66 / 95.83 / 100; `useSavedReports.ts` is 98.49 / 89.18 / 96.15 / 98.49 and `useConservationReport.ts` is 99.31 / 93.47 / 100 / 99.31. These were above the 80% target, so no tests were added for them.
+
+### Defects found
+
+None in this phase. The added tests passed against the existing code.
+
+### Known gaps (not changed in this phase)
+
+- The remaining uncovered branches in `reportContract.ts` and `legacyReportPdf.ts` are text fallbacks ("undated", "park", "Not recorded", an empty type list in the legacy PDF).
+- Conflict filters cannot yet produce park-scoped conflict results for alerts without a park (documented in `docs/uc-d-batch-1.md`).
+- PDF output is checked for headers, text content and layout limits, not by visual rendering.
+
+### UC-D test cases
+
+All rows below come from the Jest and Vitest JSON results of this phase. The type column was first assigned from each test's title by keyword rules, then reviewed per test; 147 rows were set by hand.
+
+| Test ID | Use Case | Scenario | Type | Expected Result | Actual Result | Status |
+|---|---|---|---|---|---|---|
+| UT-D001 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Positive | supported filter values match the generated Prisma enums | Behaved as expected | Pass |
+| UT-D002 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Positive | accepts a current CUID containing letters beyond hexadecimal | Behaved as expected | Pass |
+| UT-D003 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Positive | accepts valid criteria and deduplicates categories | Behaved as expected | Pass |
+| UT-D004 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects reversed dates independently of the frontend | Behaved as expected | Pass |
+| UT-D005 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects missing start independently of the frontend | Behaved as expected | Pass |
+| UT-D006 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects missing end independently of the frontend | Behaved as expected | Pass |
+| UT-D007 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects invalid date independently of the frontend | Behaved as expected | Pass |
+| UT-D008 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects impossible calendar date independently of the frontend | Behaved as expected | Pass |
+| UT-D009 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects no categories independently of the frontend | Behaved as expected | Pass |
+| UT-D010 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects missing categories independently of the frontend | Behaved as expected | Pass |
+| UT-D011 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects unsupported category independently of the frontend | Behaved as expected | Pass |
+| UT-D012 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed categories independently of the frontend | Behaved as expected | Pass |
+| UT-D013 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects invalid park independently of the frontend | Behaved as expected | Pass |
+| UT-D014 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects old ObjectID independently of the frontend | Behaved as expected | Pass |
+| UT-D015 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects blank park independently of the frontend | Behaved as expected | Pass |
+| UT-D016 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects non-string park independently of the frontend | Behaved as expected | Pass |
+| UT-D017 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects missing park independently of the frontend | Behaved as expected | Pass |
+| UT-D018 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects unsupported field independently of the frontend | Behaved as expected | Pass |
+| UT-D019 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects invalid optional filter independently of the frontend | Behaved as expected | Pass |
+| UT-D020 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Edge | accepts a same-day range | Behaved as expected | Pass |
+| UT-D021 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed incidentType at the API before querying any data | Behaved as expected | Pass |
+| UT-D022 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed incidentStatus at the API before querying any data | Behaved as expected | Pass |
+| UT-D023 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed severity at the API before querying any data | Behaved as expected | Pass |
+| UT-D024 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed conflictStatus at the API before querying any data | Behaved as expected | Pass |
+| UT-D025 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed conflictSource at the API before querying any data | Behaved as expected | Pass |
+| UT-D026 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed conflictType at the API before querying any data | Behaved as expected | Pass |
+| UT-D027 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed rangerId at the API before querying any data | Behaved as expected | Pass |
+| UT-D028 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed rangerId at the API before querying any data | Behaved as expected | Pass |
+| UT-D029 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed severity at the API before querying any data | Behaved as expected | Pass |
+| UT-D030 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed conflictSource at the API before querying any data | Behaved as expected | Pass |
+| UT-D031 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects malformed incidentType[] at the API before querying any data | Behaved as expected | Pass |
+| UT-D032 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | rejects non-string Ranger IDs before HTTP serialization | Behaved as expected | Pass |
+| UT-D033 | UC-D | Server · analytics API and criteria › UC-D Batch 1 criteria contract | Negative | accepts every supported optional filter and normalizes Ranger ID | Behaved as expected | Pass |
+| UT-D034 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | requires manager authorization (undefined) | Behaved as expected | Pass |
+| UT-D035 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | requires manager authorization (RANGER) | Behaved as expected | Pass |
+| UT-D036 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects invalid criteria before querying Prisma | Behaved as expected | Pass |
+| UT-D037 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects invalid criteria before querying Prisma | Behaved as expected | Pass |
+| UT-D038 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects invalid criteria before querying Prisma | Behaved as expected | Pass |
+| UT-D039 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects invalid criteria before querying Prisma | Behaved as expected | Pass |
+| UT-D040 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects invalid criteria before querying Prisma | Behaved as expected | Pass |
+| UT-D041 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects invalid criteria before querying Prisma | Behaved as expected | Pass |
+| UT-D042 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | rejects a well-formed but nonexistent park | Behaved as expected | Pass |
+| UT-D043 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Positive | passes park and categories through the real analytics logic | Behaved as expected | Pass |
+| UT-D044 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Edge | returns a legitimate no-data success with empty results | Behaved as expected | Pass |
+| UT-D045 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Error | masks internal failures and distinguishes them from no-data | Behaved as expected | Pass |
+| UT-D046 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Positive | lists actual park records without seeding | Behaved as expected | Pass |
+| UT-D047 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Edge | an empty park collection does not produce demo options | Behaved as expected | Pass |
+| UT-D048 | UC-D | Server · analytics API and criteria › UC-D analytics HTTP validation and authorization | Negative | preserves malformed-date validation on the legacy report route | Behaved as expected | Pass |
+| UT-D049 | UC-D | Server · analytics API and criteria › UC-D category and park-scoping boundaries | Negative | does not silently include other parks or unlinked incidents when no sessions exist | Behaved as expected | Pass |
+| UT-D050 | UC-D | Server · analytics API and criteria › UC-D category and park-scoping boundaries | Positive | patrol-only criteria query scoped sessions with dates and ranger, without querying incidents | Behaved as expected | Pass |
+| UT-D051 | UC-D | Server · analytics API and criteria › UC-D category and park-scoping boundaries | Positive | hotspots calculate selected geographic results without incident statistics | Behaved as expected | Pass |
+| UT-D052 | UC-D | Server · analytics API and criteria › UC-D category and park-scoping boundaries | Edge | HWC-only criteria query selected-park conflicts without unrelated categories | Behaved as expected | Pass |
+| UT-D053 | UC-D | Server · statistics calculations › UC-D Batch 2 incident statistics | Positive | counts real input rows by type, status and reported date, including quiet dates | Behaved as expected | Pass |
+| UT-D054 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Positive | groups nearby points, leaves separate cells apart and ranks by count | Behaved as expected | Pass |
+| UT-D055 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Edge | does not merge adjacent cells across an explicit grid boundary | Behaved as expected | Pass |
+| UT-D056 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Edge | exact decimal boundaries are stable despite binary floating-point representation | Behaved as expected | Pass |
+| UT-D057 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Negative | rejects malformed, missing, non-finite, out-of-range and string coordinates | Behaved as expected | Pass |
+| UT-D058 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Positive | labels concentration from count 2 as LOW | Behaved as expected | Pass |
+| UT-D059 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Positive | labels concentration from count 5 as MEDIUM | Behaved as expected | Pass |
+| UT-D060 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Positive | labels concentration from count 10 as HIGH | Behaved as expected | Pass |
+| UT-D061 | UC-D | Server · statistics calculations › UC-D deterministic hotspot grid | Edge | an empty dataset produces no fabricated hotspots | Behaved as expected | Pass |
+| UT-D062 | UC-D | Server · statistics calculations › UC-D calendar time buckets | Edge | uses day buckets with inclusive endpoints and ignores dates outside the range or malformed dates | Behaved as expected | Pass |
+| UT-D063 | UC-D | Server · statistics calculations › UC-D calendar time buckets | Edge | uses UTC Monday weeks, including a partial first week | Behaved as expected | Pass |
+| UT-D064 | UC-D | Server · statistics calculations › UC-D calendar time buckets | Edge | uses calendar months over longer periods and retains empty months | Behaved as expected | Pass |
+| UT-D065 | UC-D | Server · statistics calculations › UC-D calendar time buckets | Positive | uses bounded year buckets for multi-year periods | Behaved as expected | Pass |
+| UT-D066 | UC-D | Server · statistics calculations › UC-D calendar time buckets | Edge | a same-day period includes both midnight and the end of the day | Behaved as expected | Pass |
+| UT-D067 | UC-D | Server · statistics calculations › UC-D conflict trends | Positive | groups alert events, all four dimensions and independently dated response actions | Behaved as expected | Pass |
+| UT-D068 | UC-D | Server · statistics calculations › UC-D conflict trends | Edge | no alerts/responses returns empty breakdowns and zero-filled time axes, not fabricated events | Behaved as expected | Pass |
+| UT-D069 | UC-D | Server · grouping and time series › UC-D Batch 2 scoped incident query and category contract | Positive | shares the park/date/type/ranger query between statistics and hotspots | Behaved as expected | Pass |
+| UT-D070 | UC-D | Server · grouping and time series › UC-D Batch 2 scoped incident query and category contract | Positive | changing park changes route/session membership rather than broadening queries | Behaved as expected | Pass |
+| UT-D071 | UC-D | Server · grouping and time series › UC-D Batch 2 scoped incident query and category contract | Positive | only returns details for selected INCIDENT_STATISTICS | Behaved as expected | Pass |
+| UT-D072 | UC-D | Server · grouping and time series › UC-D Batch 2 scoped incident query and category contract | Positive | only returns details for selected INCIDENT_HOTSPOTS | Behaved as expected | Pass |
+| UT-D073 | UC-D | Server · grouping and time series › UC-D Batch 2 scoped incident query and category contract | Edge | empty scoped incidents retain successful no-data and empty hotspots | Behaved as expected | Pass |
+| UT-D074 | UC-D | Server · grouping and time series › UC-D Batch 2 scoped incident query and category contract | Negative | basic scoped PDF refuses an empty analysis | Behaved as expected | Pass |
+| UT-D075 | UC-D | Server · grouping and time series › UC-D selected-park conflict trends | Positive | applies reliable conflict filters and includes responses to alerts created before the period | Behaved as expected | Pass |
+| UT-D076 | UC-D | Server · grouping and time series › UC-D selected-park conflict trends | Edge | response-only activity is meaningful data, not an empty analysis | Behaved as expected | Pass |
+| UT-D077 | UC-D | Server · grouping and time series › UC-D selected-park conflict trends | Edge | an empty park query is no-data and explains legacy exclusion | Behaved as expected | Pass |
+| UT-D078 | UC-D | Server · grouping and time series › UC-D selected-park conflict trends | Positive | mixed categories retain the selected park scope in the JSON and basic PDF | Behaved as expected | Pass |
+| UT-D079 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Edge | park switching isolates all categories, retains explicit incidents, excludes legacy and honors inclusive UTC dates | Behaved as expected | Pass |
+| UT-D080 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | incident type/status/ranger filters narrow scope before both calculations | Behaved as expected | Pass |
+| UT-D081 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | HWC optional filters narrow assigned alerts and parent-scoped responses: {"severity":"HIGH"} | Behaved as expected | Pass |
+| UT-D082 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | HWC optional filters narrow assigned alerts and parent-scoped responses: {"conflictStatus":"OPEN"} | Behaved as expected | Pass |
+| UT-D083 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | HWC optional filters narrow assigned alerts and parent-scoped responses: {"conflictSource":"COLLAR"} | Behaved as expected | Pass |
+| UT-D084 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | HWC optional filters narrow assigned alerts and parent-scoped responses: {"conflictType":"CROP_RAID"} | Behaved as expected | Pass |
+| UT-D085 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | HWC optional filters narrow assigned alerts and parent-scoped responses: {"rangerId":"R-101","severity":"HIGH","conflictStatus":"OPEN","conflictSource":"COLLAR","conflictType":"CROP_RAID"} | Behaved as expected | Pass |
+| UT-D086 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Edge | zero responses, response-only periods, and neglected-only periods retain meaningful analysis | Behaved as expected | Pass |
+| UT-D087 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Edge | conflict locations use a stable grid, deterministic ranks, singles and safe invalid-coordinate exclusion | Behaved as expected | Pass |
+| UT-D088 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | adjacent cells with equal rounded representatives retain deterministic hotspot and conflict ranks | Behaved as expected | Pass |
+| UT-D089 | UC-D | Server · park-scoped hotspots, coverage, conflicts | Positive | waypoints are deduplicated and date/lifecycle scoped even if retrieval supplies extra rows | Behaved as expected | Pass |
+| UT-D090 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | Prisma patrolRouteId links establish coverage and repeated session IDs count once | Behaved as expected | Pass |
+| UT-D091 | UC-D | Server · patrol coverage › UC-D route coverage classification | Positive | counts every registered route, classifies completed/active/neglected, and calculates rounded route coverage | Behaved as expected | Pass |
+| UT-D092 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | multiple sessions never inflate the route denominator or covered-route count | Behaved as expected | Pass |
+| UT-D093 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | zero routes returns zero percentage and no fabricated routes | Behaved as expected | Pass |
+| UT-D094 | UC-D | Server · patrol coverage › UC-D route coverage classification | Positive | completed patrols are dated by completion, including those started before the period | Behaved as expected | Pass |
+| UT-D095 | UC-D | Server · patrol coverage › UC-D route coverage classification | Positive | dates are inclusive and sessions outside the period are ignored | Behaved as expected | Pass |
+| UT-D096 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | valid waypoints evidence in-period activity on an older session; invalid or out-of-period waypoints do not | Behaved as expected | Pass |
+| UT-D097 | UC-D | Server · patrol coverage › UC-D route coverage classification | Negative | ASSIGNED alone and unknown states are not activity, but valid waypoint evidence is usable | Behaved as expected | Pass |
+| UT-D098 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | malformed historical waypoint entries or arrays are ignored without failing the analysis | Behaved as expected | Pass |
+| UT-D099 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | legacy completed documents without endTime use startTime; invalid dates never fabricate activity | Behaved as expected | Pass |
+| UT-D100 | UC-D | Server · patrol coverage › UC-D route coverage classification | Negative | invalid completion dates and waypoints outside the known session lifecycle never fabricate coverage | Behaved as expected | Pass |
+| UT-D101 | UC-D | Server · patrol coverage › UC-D route coverage classification | Negative | missing, malformed and other-park route links are ignored and counted without assigning them by proximity | Behaved as expected | Pass |
+| UT-D102 | UC-D | Server · patrol coverage › UC-D route coverage classification | Edge | missing or broken geometry preserves route classification without connecting fake paths | Behaved as expected | Pass |
+| UT-D103 | UC-D | Server · patrol coverage › UC-D patrol coverage query integration | Positive | queries the selected park and its route IDs with all activity dates and ranger filtering | Behaved as expected | Pass |
+| UT-D104 | UC-D | Server · patrol coverage › UC-D patrol coverage query integration | Edge | changing park changes the route set and excludes another park session even if the database boundary returns it | Behaved as expected | Pass |
+| UT-D105 | UC-D | Server · patrol coverage › UC-D patrol coverage query integration | Edge | no activity yields meaningful neglected-route results rather than hiding registered routes | Behaved as expected | Pass |
+| UT-D106 | UC-D | Server · patrol coverage › UC-D patrol coverage query integration | Negative | neglected-route results do not bypass the existing basic report source-record guard | Behaved as expected | Pass |
+| UT-D107 | UC-D | Server · patrol coverage › UC-D patrol coverage query integration | Edge | a park with no routes returns successful no-data and a zero coverage section | Behaved as expected | Pass |
+| UT-D108 | UC-D | Server · patrol coverage › UC-D patrol coverage query integration | Edge | coverage is omitted and patrol source queries are skipped when only HWC is selected | Behaved as expected | Pass |
+| UT-D109 | UC-D | Server · date and metadata validation | Positive | historical period validation is evaluated at parse time | Behaved as expected | Pass |
+| UT-D110 | UC-D | Server · date and metadata validation | Edge | today period validation is evaluated at parse time | Behaved as expected | Pass |
+| UT-D111 | UC-D | Server · date and metadata validation | Edge | today through future period validation is evaluated at parse time | Behaved as expected | Pass |
+| UT-D112 | UC-D | Server · date and metadata validation | Negative | tomorrow period validation is evaluated at parse time | Behaved as expected | Pass |
+| UT-D113 | UC-D | Server · date and metadata validation | Negative | entirely future period validation is evaluated at parse time | Behaved as expected | Pass |
+| UT-D114 | UC-D | Server · date and metadata validation | Negative | reversed period validation is evaluated at parse time | Behaved as expected | Pass |
+| UT-D115 | UC-D | Server · date and metadata validation | Edge | UTC day rollover is independent of local timezone and schema creation time | Behaved as expected | Pass |
+| UT-D116 | UC-D | Server · date and metadata validation | Negative | supported boundary 0000-01-01 | Behaved as expected | Pass |
+| UT-D117 | UC-D | Server · date and metadata validation | Negative | supported boundary not-a-date | Behaved as expected | Pass |
+| UT-D118 | UC-D | Server · date and metadata validation | Negative | supported boundary 2026-02-30 | Behaved as expected | Pass |
+| UT-D119 | UC-D | Server · date and metadata validation | Edge | supported boundary 0001-01-01 | Behaved as expected | Pass |
+| UT-D120 | UC-D | Server · date and metadata validation | Positive | supported boundary 2026-09-01 | Behaved as expected | Pass |
+| UT-D121 | UC-D | Server · date and metadata validation | Positive | metadata keeps the strict allow-list: {"title":" Manager review ","notes":" Evidence "} | Behaved as expected | Pass |
+| UT-D122 | UC-D | Server · date and metadata validation | Edge | metadata keeps the strict allow-list: {"notes":null} | Behaved as expected | Pass |
+| UT-D123 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"title":" "} | Behaved as expected | Pass |
+| UT-D124 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"title":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"} | Behaved as expected | Pass |
+| UT-D125 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"notes":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"} | Behaved as expected | Pass |
+| UT-D126 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"title":123} | Behaved as expected | Pass |
+| UT-D127 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"notes":{}} | Behaved as expected | Pass |
+| UT-D128 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"title":"Valid","version":9} | Behaved as expected | Pass |
+| UT-D129 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"title":"Valid","criteria":{"parkId":"c67a000000000000000000001","categories":["PATROL_COVERAGE"],"start":"2026-10-07","end":"2026-10-07"}} | Behaved as expected | Pass |
+| UT-D130 | UC-D | Server · date and metadata validation | Negative | metadata keeps the strict allow-list: {"snapshot":{}} | Behaved as expected | Pass |
+| UT-D131 | UC-D | Server · date and metadata validation | Negative | metadata errors contain only approved field messages | Behaved as expected | Pass |
+| UT-D132 | UC-D | Server · date and metadata validation | Negative | filename versions reject unsafe runtime values | Behaved as expected | Pass |
+| UT-D133 | UC-D | Server · report generation and export › UC-D report payload validation | Positive | valid reviewed snapshot is accepted and retained verbatim, including empty optional controls | Behaved as expected | Pass |
+| UT-D134 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject obsolete ObjectID park with safe feedback | Behaved as expected | Pass |
+| UT-D135 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject missing scope with safe feedback | Behaved as expected | Pass |
+| UT-D136 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject missing park with safe feedback | Behaved as expected | Pass |
+| UT-D137 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject bad date range with safe feedback | Behaved as expected | Pass |
+| UT-D138 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject invalid timestamp with safe feedback | Behaved as expected | Pass |
+| UT-D139 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject impossible timestamp with safe feedback | Behaved as expected | Pass |
+| UT-D140 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject unsupported category with safe feedback | Behaved as expected | Pass |
+| UT-D141 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject duplicate categories with safe feedback | Behaved as expected | Pass |
+| UT-D142 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject wrong selected categories with safe feedback | Behaved as expected | Pass |
+| UT-D143 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject criteria differ from review with safe feedback | Behaved as expected | Pass |
+| UT-D144 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject park differs from review with safe feedback | Behaved as expected | Pass |
+| UT-D145 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject missing selected section with safe feedback | Behaved as expected | Pass |
+| UT-D146 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject negative total with safe feedback | Behaved as expected | Pass |
+| UT-D147 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject string count with safe feedback | Behaved as expected | Pass |
+| UT-D148 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject inconsistent total with safe feedback | Behaved as expected | Pass |
+| UT-D149 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject contradictory incident breakdown with safe feedback | Behaved as expected | Pass |
+| UT-D150 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject contradictory hotspot count with safe feedback | Behaved as expected | Pass |
+| UT-D151 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject contradictory route status with safe feedback | Behaved as expected | Pass |
+| UT-D152 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject contradictory conflict breakdown with safe feedback | Behaved as expected | Pass |
+| UT-D153 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject missing HWC scope limitation with safe feedback | Behaved as expected | Pass |
+| UT-D154 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject malformed coordinates with safe feedback | Behaved as expected | Pass |
+| UT-D155 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject no matching data with safe feedback | Behaved as expected | Pass |
+| UT-D156 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject fake DATA without matching records with safe feedback | Behaved as expected | Pass |
+| UT-D157 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | generation and export reject unsupported field with safe feedback | Behaved as expected | Pass |
+| UT-D158 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | rejects unselected category content and unrelated matching records | Behaved as expected | Pass |
+| UT-D159 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | requires existing manager role for | Behaved as expected | Pass |
+| UT-D160 | UC-D | Server · report generation and export › UC-D report payload validation | Negative | requires existing manager role for /pdf | Behaved as expected | Pass |
+| UT-D161 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Positive | returns valid PDF headers, title, reviewed scope, filters, selected categories and expected numbers | Behaved as expected | Pass |
+| UT-D162 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Edge | INCIDENT_STATISTICS export includes only its selected category | Behaved as expected | Pass |
+| UT-D163 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Edge | INCIDENT_HOTSPOTS export includes only its selected category | Behaved as expected | Pass |
+| UT-D164 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Edge | PATROL_COVERAGE export includes only its selected category | Behaved as expected | Pass |
+| UT-D165 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Edge | HWC_TRENDS export includes only its selected category | Behaved as expected | Pass |
+| UT-D166 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Positive | saved PDF exports do not query or recalculate analytics | Behaved as expected | Pass |
+| UT-D167 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Edge | multi-page sections and unbroken long filters wrap within margins and retain every finding | Behaved as expected | Pass |
+| UT-D168 | UC-D | Server · report generation and export › UC-D PDF snapshot export | Edge | filenames and download headers safely handle hostile park code characters | Behaved as expected | Pass |
+| UT-D169 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Positive | summarises patrols, incidents, conflicts and responses and groups them by type, status, ranger and action | Behaved as expected | Pass |
+| UT-D170 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Edge | without filters no date or ranger condition is applied, and withdrawn incidents are always excluded | Behaved as expected | Pass |
+| UT-D171 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Positive | a date range and ranger filter each records source on its own date field and ranger column | Behaved as expected | Pass |
+| UT-D172 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Edge | an open-ended range applies only the bound that was given | Behaved as expected | Pass |
+| UT-D173 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Edge | responses count only inside the date range, with both boundaries inclusive | Behaved as expected | Pass |
+| UT-D174 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Edge | no matching records gives zero totals and empty groups | Behaved as expected | Pass |
+| UT-D175 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Edge | a single record is counted once in every grouping; a missing group value is reported as UNKNOWN | Behaved as expected | Pass |
+| UT-D176 | UC-D | Server · legacy summary report (PDF) › getLegacyAnalytics | Error | a data retrieval failure is passed to the caller | Behaved as expected | Pass |
+| UT-D177 | UC-D | Server · legacy summary report (PDF) › GET /api/analytics/report (legacy, unscoped) | Positive | a manager receives a PDF built from the legacy summary, with calendar dates expanded to whole days | Behaved as expected | Pass |
+| UT-D178 | UC-D | Server · legacy summary report (PDF) › GET /api/analytics/report (legacy, unscoped) | Negative | a start date after the end date is rejected with 400 before any query | Behaved as expected | Pass |
+| UT-D179 | UC-D | Server · legacy summary report (PDF) › GET /api/analytics/report (legacy, unscoped) | Error | a database failure is a 500 with a generic message that does not expose the internal error | Behaved as expected | Pass |
+| UT-D180 | UC-D | Server · report eligibility › hasReportableFindings | Negative | no analysis result is not reportable | Behaved as expected | Pass |
+| UT-D181 | UC-D | Server · report eligibility › hasReportableFindings | Negative | a NO_MATCHING_DATA result is not reportable even if counts are present | Behaved as expected | Pass |
+| UT-D182 | UC-D | Server · report eligibility › hasReportableFindings | Positive | selected INCIDENT_STATISTICS with matched incidents is reportable | Behaved as expected | Pass |
+| UT-D183 | UC-D | Server · report eligibility › hasReportableFindings | Positive | selected INCIDENT_HOTSPOTS with matched incidents is reportable | Behaved as expected | Pass |
+| UT-D184 | UC-D | Server · report eligibility › hasReportableFindings | Negative | incidents that match but were not selected do not make the report eligible | Behaved as expected | Pass |
+| UT-D185 | UC-D | Server · report eligibility › hasReportableFindings | Edge | patrol coverage with registered routes but no sessions is reportable (every route is neglected) | Behaved as expected | Pass |
+| UT-D186 | UC-D | Server · report eligibility › hasReportableFindings | Edge | patrol coverage with sessions but no coverage block is reportable | Behaved as expected | Pass |
+| UT-D187 | UC-D | Server · report eligibility › hasReportableFindings | Negative | patrol coverage with no routes and no sessions is not reportable | Behaved as expected | Pass |
+| UT-D188 | UC-D | Server · report eligibility › hasReportableFindings | Edge | conflict trends with conflicts only are reportable | Behaved as expected | Pass |
+| UT-D189 | UC-D | Server · report eligibility › hasReportableFindings | Edge | conflict trends with responses only are reportable | Behaved as expected | Pass |
+| UT-D190 | UC-D | Server · report eligibility › hasReportableFindings | Negative | conflict trends without conflict or response counts (older results) are not reportable | Behaved as expected | Pass |
+| UT-D191 | UC-D | Server · report eligibility › hasReportableFindings | Positive | several categories: one category with findings is enough | Behaved as expected | Pass |
+| UT-D192 | UC-D | Server · report eligibility › matchesReviewedReportScope | Positive | identical criteria and all selected sections present match | Behaved as expected | Pass |
+| UT-D193 | UC-D | Server · report eligibility › matchesReviewedReportScope | Edge | blank optional controls equal absent parameters, key order and ranger whitespace do not matter | Behaved as expected | Pass |
+| UT-D194 | UC-D | Server · report eligibility › matchesReviewedReportScope | Negative | a different active filter does not match | Behaved as expected | Pass |
+| UT-D195 | UC-D | Server · report eligibility › matchesReviewedReportScope | Negative | a different date range does not match | Behaved as expected | Pass |
+| UT-D196 | UC-D | Server · report eligibility › matchesReviewedReportScope | Negative | category order must match the reviewed selection | Behaved as expected | Pass |
+| UT-D197 | UC-D | Server · report eligibility › matchesReviewedReportScope | Negative | results for another park do not match even with the same filters | Behaved as expected | Pass |
+| UT-D198 | UC-D | Server · report eligibility › matchesReviewedReportScope | Negative | a selected category whose section is missing does not match | Behaved as expected | Pass |
+| UT-D199 | UC-D | Server · saved reports | Positive | saved pdf filenames use each persisted version | Behaved as expected | Pass |
+| UT-D200 | UC-D | Server · saved reports | Positive | saved csv filenames use each persisted version | Behaved as expected | Pass |
+| UT-D201 | UC-D | Server · saved reports | Positive | saved xlsx filenames use each persisted version | Behaved as expected | Pass |
+| UT-D202 | UC-D | Server · saved reports | Negative | HTTP metadata rejection reports the affected field | Behaved as expected | Pass |
+| UT-D203 | UC-D | Server · saved reports | Negative | HTTP metadata rejection reports the affected field | Behaved as expected | Pass |
+| UT-D204 | UC-D | Server · saved reports | Negative | HTTP metadata rejection reports the affected field | Behaved as expected | Pass |
+| UT-D205 | UC-D | Server · saved reports | Negative | HTTP analysis and generation reject unsupported start 0000-01-01 before reading sources | Behaved as expected | Pass |
+| UT-D206 | UC-D | Server · saved reports | Negative | HTTP analysis and generation reject unsupported start 9999-10-20 before reading sources | Behaved as expected | Pass |
+| UT-D207 | UC-D | Server · saved reports | Edge | reading/exporting old future-period evidence stays possible but regeneration revalidates today | Behaved as expected | Pass |
+| UT-D208 | UC-D | Server · saved reports | Positive | CREATE persists server analysis and gives a real ID with scope, filters and findings | Behaved as expected | Pass |
+| UT-D209 | UC-D | Server · saved reports | Negative | CREATE rejects missing park before persistence | Behaved as expected | Pass |
+| UT-D210 | UC-D | Server · saved reports | Negative | CREATE rejects old ObjectID before persistence | Behaved as expected | Pass |
+| UT-D211 | UC-D | Server · saved reports | Negative | CREATE rejects missing start before persistence | Behaved as expected | Pass |
+| UT-D212 | UC-D | Server · saved reports | Negative | CREATE rejects bad start before persistence | Behaved as expected | Pass |
+| UT-D213 | UC-D | Server · saved reports | Negative | CREATE rejects reversed range before persistence | Behaved as expected | Pass |
+| UT-D214 | UC-D | Server · saved reports | Negative | CREATE rejects no categories before persistence | Behaved as expected | Pass |
+| UT-D215 | UC-D | Server · saved reports | Negative | CREATE rejects invalid category before persistence | Behaved as expected | Pass |
+| UT-D216 | UC-D | Server · saved reports | Negative | CREATE rejects invalid filter before persistence | Behaved as expected | Pass |
+| UT-D217 | UC-D | Server · saved reports | Negative | CREATE rejects unknown filter before persistence | Behaved as expected | Pass |
+| UT-D218 | UC-D | Server · saved reports | Negative | CREATE validates metadata {"title": ""} | Behaved as expected | Pass |
+| UT-D219 | UC-D | Server · saved reports | Negative | CREATE validates metadata {"title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} | Behaved as expected | Pass |
+| UT-D220 | UC-D | Server · saved reports | Negative | CREATE validates metadata {"notes": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} | Behaved as expected | Pass |
+| UT-D221 | UC-D | Server · saved reports | Negative | CREATE validates metadata {"notes": 10} | Behaved as expected | Pass |
+| UT-D222 | UC-D | Server · saved reports | Negative | CREATE validates metadata {"title": null} | Behaved as expected | Pass |
+| UT-D223 | UC-D | Server · saved reports | Negative | CREATE verifies park existence and rejects no matching conservation data | Behaved as expected | Pass |
+| UT-D224 | UC-D | Server · saved reports | Negative | CREATE rejects forged analyticsResult | Behaved as expected | Pass |
+| UT-D225 | UC-D | Server · saved reports | Negative | CREATE rejects forged incidentTotals | Behaved as expected | Pass |
+| UT-D226 | UC-D | Server · saved reports | Negative | CREATE rejects forged snapshot | Behaved as expected | Pass |
+| UT-D227 | UC-D | Server · saved reports | Negative | CREATE rejects forged park | Behaved as expected | Pass |
+| UT-D228 | UC-D | Server · saved reports | Negative | CREATE rejects forged generatedAt | Behaved as expected | Pass |
+| UT-D229 | UC-D | Server · saved reports | Negative | old client-owned generation and PDF submission cannot issue authoritative reports | Behaved as expected | Pass |
+| UT-D230 | UC-D | Server · saved reports | Negative | malformed JSON produces a controlled 400 without echoing request content | Behaved as expected | Pass |
+| UT-D231 | UC-D | Server · saved reports | Edge | READ history supports empty, newest first, summaries and pagination | Behaved as expected | Pass |
+| UT-D232 | UC-D | Server · saved reports | Positive | READ detail and PDF retain saved evidence when source data and park labels change | Behaved as expected | Pass |
+| UT-D233 | UC-D | Server · saved reports | Negative | get missing and malformed IDs fail safely | Behaved as expected | Pass |
+| UT-D234 | UC-D | Server · saved reports | Negative | patch missing and malformed IDs fail safely | Behaved as expected | Pass |
+| UT-D235 | UC-D | Server · saved reports | Negative | delete missing and malformed IDs fail safely | Behaved as expected | Pass |
+| UT-D236 | UC-D | Server · saved reports | Positive | UPDATE title and notes preserves criteria, findings and generated timestamp | Behaved as expected | Pass |
+| UT-D237 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {} | Behaved as expected | Pass |
+| UT-D238 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"title": " "} | Behaved as expected | Pass |
+| UT-D239 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"title": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} | Behaved as expected | Pass |
+| UT-D240 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"notes": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} | Behaved as expected | Pass |
+| UT-D241 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"snapshot": [Object]} | Behaved as expected | Pass |
+| UT-D242 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"criteria": [Object]} | Behaved as expected | Pass |
+| UT-D243 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"parkId": "c67a000000000000000000001"} | Behaved as expected | Pass |
+| UT-D244 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"analyticsResult": [Object]} | Behaved as expected | Pass |
+| UT-D245 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"version": 99} | Behaved as expected | Pass |
+| UT-D246 | UC-D | Server · saved reports | Negative | UPDATE rejects invalid or analytical fields {"archivedAt": null} | Behaved as expected | Pass |
+| UT-D247 | UC-D | Server · saved reports | Edge | REGENERATION creates next version with new evidence, keeping original unchanged; duplicate regeneration is controlled | Behaved as expected | Pass |
+| UT-D248 | UC-D | Server · saved reports | Negative | ARCHIVE is idempotent, hides history, blocks detail/edit/export/regenerate, and preserves sources | Behaved as expected | Pass |
+| UT-D249 | UC-D | Server · saved reports | Negative | manager boundary protects post | Behaved as expected | Pass |
+| UT-D250 | UC-D | Server · saved reports | Negative | manager boundary protects get | Behaved as expected | Pass |
+| UT-D251 | UC-D | Server · saved reports | Negative | manager boundary protects get /c000000000000000000000001 | Behaved as expected | Pass |
+| UT-D252 | UC-D | Server · saved reports | Negative | manager boundary protects patch /c000000000000000000000001 | Behaved as expected | Pass |
+| UT-D253 | UC-D | Server · saved reports | Negative | manager boundary protects delete /c000000000000000000000001 | Behaved as expected | Pass |
+| UT-D254 | UC-D | Server · saved reports | Negative | manager boundary protects get /c000000000000000000000001/pdf | Behaved as expected | Pass |
+| UT-D255 | UC-D | Server · saved reports | Negative | manager boundary protects post /c000000000000000000000001/regenerate | Behaved as expected | Pass |
+| UT-D256 | UC-D | Server · saved reports | Error | create database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D257 | UC-D | Server · saved reports | Error | list database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D258 | UC-D | Server · saved reports | Error | detail database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D259 | UC-D | Server · saved reports | Error | update database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D260 | UC-D | Server · saved reports | Error | archive database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D261 | UC-D | Server · saved reports | Error | pdf database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D262 | UC-D | Server · saved reports | Error | regenerate database failure hides internals and permits retry | Behaved as expected | Pass |
+| UT-D263 | UC-D | Server · saved reports | Error | invalid persisted evidence returns a safe 500 and is never replaced by current analytics | Behaved as expected | Pass |
+| UT-D264 | UC-D | Server · saved reports | Edge | history limits pages to 50 and supplies a usable cursor for older saved reports | Behaved as expected | Pass |
+| UT-D265 | UC-D | Server · saved reports | Negative | missing and malformed report IDs are controlled on /pdf | Behaved as expected | Pass |
+| UT-D266 | UC-D | Server · saved reports | Negative | missing and malformed report IDs are controlled on /regenerate | Behaved as expected | Pass |
+| UT-D267 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Edge | neglected-only registered routes generate and save a valid report without fabricated activity | Behaved as expected | Pass |
+| UT-D268 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Edge | genuinely empty selected coverage stays no-data even when unrelated source incidents exist | Behaved as expected | Pass |
+| UT-D269 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Positive | pdf exports only saved values and never calls analytics | Behaved as expected | Pass |
+| UT-D270 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Positive | csv exports only saved values and never calls analytics | Behaved as expected | Pass |
+| UT-D271 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Positive | xlsx exports only saved values and never calls analytics | Behaved as expected | Pass |
+| UT-D272 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Positive | all selected CSV sections and Excel sheets contain saved tables | Behaved as expected | Pass |
+| UT-D273 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Error | pdf handles missing, malformed, archived and corrupt reports without recalculation | Behaved as expected | Pass |
+| UT-D274 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Error | csv handles missing, malformed, archived and corrupt reports without recalculation | Behaved as expected | Pass |
+| UT-D275 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Error | xlsx handles missing, malformed, archived and corrupt reports without recalculation | Behaved as expected | Pass |
+| UT-D276 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | rejects unsupported export format undefined | Behaved as expected | Pass |
+| UT-D277 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | rejects unsupported export format "xml" | Behaved as expected | Pass |
+| UT-D278 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | rejects unsupported export format "PDF" | Behaved as expected | Pass |
+| UT-D279 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | rejects unsupported export format "../xlsx" | Behaved as expected | Pass |
+| UT-D280 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | rejects unsupported export format ["pdf", "csv"] | Behaved as expected | Pass |
+| UT-D281 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | rejects unsupported export format "" | Behaved as expected | Pass |
+| UT-D282 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | export rejects arbitrary query payload and manager guard still applies | Behaved as expected | Pass |
+| UT-D283 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Edge | CSV quotes commas, quotes and line breaks, and spreadsheet formats protect text from formulas | Behaved as expected | Pass |
+| UT-D284 | UC-D | Server · saved reports › Batch 5 persisted report lifecycle | Negative | filenames strip unsafe park characters and cannot contain path separators or header injection | Behaved as expected | Pass |
+| UT-D285 | UC-D | Server · saved reports | Positive | CSV and Excel exports list the saved ranked hotspots and conflict locations with their breakdowns | Behaved as expected | Pass |
+| UT-D286 | UC-D | Client · analytics API › analytics requests | Positive | listParks reads the park list without the manager header | Behaved as expected | Pass |
+| UT-D287 | UC-D | Client · analytics API › analytics requests | Positive | analyze sends the criteria as repeated query parameters with the manager role | Behaved as expected | Pass |
+| UT-D288 | UC-D | Client · analytics API › analytics requests | Positive | saved-report calls use the matching endpoints and send only criteria / metadata | Behaved as expected | Pass |
+| UT-D289 | UC-D | Client · analytics API › analytics requests | Error | a server error (e.g. 409 report changed elsewhere) is passed to the caller unchanged | Behaved as expected | Pass |
+| UT-D290 | UC-D | Client · analytics API › exportReport | Positive | a PDF export downloads the file under the server-issued filename | Behaved as expected | Pass |
+| UT-D291 | UC-D | Client · analytics API › exportReport | Positive | a csv export uses the export endpoint with the format parameter | Behaved as expected | Pass |
+| UT-D292 | UC-D | Client · analytics API › exportReport | Positive | a xlsx export uses the export endpoint with the format parameter | Behaved as expected | Pass |
+| UT-D293 | UC-D | Client · analytics API › exportReport | Negative | a path traversal name from the server is not used; a safe local name is built instead | Behaved as expected | Pass |
+| UT-D294 | UC-D | Client · analytics API › exportReport | Edge | a name with spaces and capitals from the server is not used; a safe local name is built instead | Behaved as expected | Pass |
+| UT-D295 | UC-D | Client · analytics API › exportReport | Negative | a name with the wrong extension from the server is not used; a safe local name is built instead | Behaved as expected | Pass |
+| UT-D296 | UC-D | Client · analytics API › exportReport | Negative | an invalid report id is refused before any request is made | Behaved as expected | Pass |
+| UT-D297 | UC-D | Client · analytics API › exportReport | Negative | an unsupported format is refused before any request is made | Behaved as expected | Pass |
+| UT-D298 | UC-D | Client · analytics API › exportReport | Error | an HTML error page instead of a PDF is rejected and nothing is downloaded | Behaved as expected | Pass |
+| UT-D299 | UC-D | Client · analytics API › exportReport | Negative | an empty file is rejected and nothing is downloaded | Behaved as expected | Pass |
+| UT-D300 | UC-D | Client · analytics API › exportReport | Edge | an export cancelled while downloading is not saved | Behaved as expected | Pass |
+| UT-D301 | UC-D | Client · analytics API › exportReport | Error | a failed download request is passed to the caller | Behaved as expected | Pass |
+| UT-D302 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Positive | renders real park options, date controls, optional filters and four categories | Behaved as expected | Pass |
+| UT-D303 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Positive | park selection and multiple categories reach Analyze | Behaved as expected | Pass |
+| UT-D304 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Negative | requires at least one category before requesting data | Behaved as expected | Pass |
+| UT-D305 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Negative | validates missing park/dates and reversed dates in the frontend | Behaved as expected | Pass |
+| UT-D306 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Negative | validation banner and inline descriptions stay visible until the invalid fields are corrected | Behaved as expected | Pass |
+| UT-D307 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Negative | category and date-range errors describe the affected controls and clear after correction | Behaved as expected | Pass |
+| UT-D308 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Positive | draft park/date/category/filter edits preserve applied criteria until re-analysis succeeds | Behaved as expected | Pass |
+| UT-D309 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Edge | shows no matching data without fake statistics and permits refinement | Behaved as expected | Pass |
+| UT-D310 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Edge | preserves entered values, shows processing and prevents duplicate requests | Behaved as expected | Pass |
+| UT-D311 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Error | a failed re-analysis keeps previous results; Retry analyzes the corrected current draft | Behaved as expected | Pass |
+| UT-D312 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Negative | a new invalid attempt replaces old API feedback without clearing reviewed results | Behaved as expected | Pass |
+| UT-D313 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Error | shows backend validation messages without treating failures as no-data | Behaved as expected | Pass |
+| UT-D314 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Edge | Reset clears criteria/results and a late response cannot replace a newer analysis | Behaved as expected | Pass |
+| UT-D315 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Positive | edits made during processing stay draft while results use the submitted snapshot | Behaved as expected | Pass |
+| UT-D316 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Negative | Generate Report requires meaningful matching records even for a DATA response | Behaved as expected | Pass |
+| UT-D317 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Positive | report generation uses applied criteria after draft edits | Behaved as expected | Pass |
+| UT-D318 | UC-D | Client · analytics page › UC-D criteria and Analyze workflow | Positive | Patrol Coverage displays computed route results | Behaved as expected | Pass |
+| UT-D319 | UC-D | Client · analytics page › park loading and recovery | Error | keeps criteria available during park loading, then allows retry on failure | Behaved as expected | Pass |
+| UT-D320 | UC-D | Client · analytics page › park loading and recovery | Error | recovers from a park-list API failure without losing draft values | Behaved as expected | Pass |
+| UT-D321 | UC-D | Client · analytics page › park loading and recovery | Positive | does not create hardcoded parks when no real records exist | Behaved as expected | Pass |
+| UT-D322 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional rangerId using shared API rules | Behaved as expected | Pass |
+| UT-D323 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional rangerId using shared API rules | Behaved as expected | Pass |
+| UT-D324 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional rangerId using shared API rules | Behaved as expected | Pass |
+| UT-D325 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional incidentType using shared API rules | Behaved as expected | Pass |
+| UT-D326 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional incidentStatus using shared API rules | Behaved as expected | Pass |
+| UT-D327 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional severity using shared API rules | Behaved as expected | Pass |
+| UT-D328 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional conflictStatus using shared API rules | Behaved as expected | Pass |
+| UT-D329 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional conflictSource using shared API rules | Behaved as expected | Pass |
+| UT-D330 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed optional conflictType using shared API rules | Behaved as expected | Pass |
+| UT-D331 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects malformed IDs even if they appear in a corrupted park list | Behaved as expected | Pass |
+| UT-D332 | UC-D | Client · analytics page › criteria validation and API serialization | Negative | rejects impossible dates and unsupported categories in frontend validation | Behaved as expected | Pass |
+| UT-D333 | UC-D | Client · analytics page › criteria validation and API serialization | Positive | copying criteria isolates the category array | Behaved as expected | Pass |
+| UT-D334 | UC-D | Client · analytics page › criteria validation and API serialization | Positive | API sends a bracket-encoded category array, real park and unchanged calendar dates | Behaved as expected | Pass |
+| UT-D335 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Positive | statistics-only analysis shows actual total, status/type table and a real chart with accessible data | Behaved as expected | Pass |
+| UT-D336 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Positive | hotspots-only analysis renders a real map and backend-ranked list without incident statistics | Behaved as expected | Pass |
+| UT-D337 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Positive | multiple hotspots render separate markers and ranks | Behaved as expected | Pass |
+| UT-D338 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Edge | zero qualifying hotspots gives an honest category empty state and no map | Behaved as expected | Pass |
+| UT-D339 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Negative | invalid/missing coordinates are ignored safely by the map | Behaved as expected | Pass |
+| UT-D340 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Positive | conflict-only analysis renders actual alert/response charts and all breakdowns with selected park scope | Behaved as expected | Pass |
+| UT-D341 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Edge | response-only conflict activity shows real response data without a fake alert chart | Behaved as expected | Pass |
+| UT-D342 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Positive | a mixed analysis displays only selected categories and exposes category-specific no-data | Behaved as expected | Pass |
+| UT-D343 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Edge | global no-data remains informational with category zero results and no available report | Behaved as expected | Pass |
+| UT-D344 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Positive | re-analysis changes rendered categories only after success; buttons keep primary/secondary states | Behaved as expected | Pass |
+| UT-D345 | UC-D | Client · statistics results › UC-D Batch 2 selected analytics sections | Edge | re-analysis updates the existing map instead of leaving stale markers | Behaved as expected | Pass |
+| UT-D346 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Positive | shows real coverage percentage, summary counts and each route classification | Behaved as expected | Pass |
+| UT-D347 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Edge | maps only usable geometry, with distinct solid/dashed paths and all routes retained in the list | Behaved as expected | Pass |
+| UT-D348 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Edge | neglected geometry is dotted and re-analysis replaces map paths and refits to the new data | Behaved as expected | Pass |
+| UT-D349 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Negative | missing or invalid geometry uses an honest map fallback and keeps route statuses | Behaved as expected | Pass |
+| UT-D350 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Edge | zero routes displays zero coverage with a successful informational no-data state | Behaved as expected | Pass |
+| UT-D351 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Edge | registered neglected routes remain actionable findings without claiming matching patrol sessions | Behaved as expected | Pass |
+| UT-D352 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Positive | applied categories control coverage visibility even when the response contains other category data | Behaved as expected | Pass |
+| UT-D353 | UC-D | Client · hotspot and coverage results › UC-D Patrol Coverage dashboard | Positive | coverage coexists with Batch 2 statistics, hotspot map and HWC charts | Behaved as expected | Pass |
+| UT-D354 | UC-D | Client · hotspot and coverage results › UC-D processing and refinement experience | Positive | processing announces selected work with indeterminate progress and no invented percentage | Behaved as expected | Pass |
+| UT-D355 | UC-D | Client · hotspot and coverage results › UC-D processing and refinement experience | Edge | Update Analysis uses the new criteria only after success while loading stays tied to its request snapshot | Behaved as expected | Pass |
+| UT-D356 | UC-D | Client · results UX | Edge | Last 7 Days includes exactly N UTC days | Behaved as expected | Pass |
+| UT-D357 | UC-D | Client · results UX | Edge | Last 30 Days includes exactly N UTC days | Behaved as expected | Pass |
+| UT-D358 | UC-D | Client · results UX | Edge | Last 90 Days includes exactly N UTC days | Behaved as expected | Pass |
+| UT-D359 | UC-D | Client · results UX | Edge | presets handle timezone, year/leap-day and DST boundaries: 2026-01-02T00:15:00+05:30 | Behaved as expected | Pass |
+| UT-D360 | UC-D | Client · results UX | Edge | presets handle timezone, year/leap-day and DST boundaries: 2024-03-01T01:00:00Z | Behaved as expected | Pass |
+| UT-D361 | UC-D | Client · results UX | Edge | presets handle timezone, year/leap-day and DST boundaries: 2026-03-09T01:00:00-07:00 | Behaved as expected | Pass |
+| UT-D362 | UC-D | Client · results UX | Edge | presets edit only the draft; custom dates remain editable and apply after Update succeeds | Behaved as expected | Pass |
+| UT-D363 | UC-D | Client · results UX | Positive | inactive filters explain their category and retain values when reselected | Behaved as expected | Pass |
+| UT-D364 | UC-D | Client · results UX | Positive | keyboard Refine, validation and Reset have usable focus destinations | Behaved as expected | Pass |
+| UT-D365 | UC-D | Client · results UX | Error | standalone failure retries the current draft once; processing is announced and prevents duplicates | Behaved as expected | Pass |
+| UT-D366 | UC-D | Client · results UX | Negative | Retry revalidates an invalid corrected draft without requesting data or losing reviewed results | Behaved as expected | Pass |
+| UT-D367 | UC-D | Client · results UX | Negative | unexpected validation response text is never exposed | Behaved as expected | Pass |
+| UT-D368 | UC-D | Client · results UX | Positive | Reset clears filters, errors and results without write/delete requests | Behaved as expected | Pass |
+| UT-D369 | UC-D | Client · results UX | Edge | a late rejected request cannot replace newer successful results with an error | Behaved as expected | Pass |
+| UT-D370 | UC-D | Client · results UX | Error | park recovery prevents duplicate retry and retains current draft while loading | Behaved as expected | Pass |
+| UT-D371 | UC-D | Client · results UX | Positive | shared park metadata lookup does not send a manager role header | Behaved as expected | Pass |
+| UT-D372 | UC-D | Client · results UX | Edge | empty findings offer refinement choices while zero HWC remains informational | Behaved as expected | Pass |
+| UT-D373 | UC-D | Client · results UX | Edge | chart data fallback exposes exact counts and a keyboard-scrollable viewport | Behaved as expected | Pass |
+| UT-D374 | UC-D | Client · park-scoped results | Edge | zero-data categories render truthful totals and separate spatial empty states | Behaved as expected | Pass |
+| UT-D375 | UC-D | Client · park-scoped results | Edge | HWC locations render real Leaflet markers and ranked counts; zero responses remain valid | Behaved as expected | Pass |
+| UT-D376 | UC-D | Client · park-scoped results | Error | park lookup failure keeps standalone submission available and offers retry | Behaved as expected | Pass |
+| UT-D377 | UC-D | Client · park-scoped results | Positive | community form retains existing submission and sends explicit park context | Behaved as expected | Pass |
+| UT-D378 | UC-D | Client · park-scoped results | Positive | collar form retains existing submission and sends explicit park context | Behaved as expected | Pass |
+| UT-D379 | UC-D | Client · park-scoped results | Positive | standalone incident exposes optional park capture; patrol-linked reporting derives park server-side | Behaved as expected | Pass |
+| UT-D380 | UC-D | Client · park-scoped results | Positive | offline incident payload retains park through its later sync transport | Behaved as expected | Pass |
+| UT-D381 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Error | an incomplete generation response preserves analysis and offers retry | Behaved as expected | Pass |
+| UT-D382 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Positive | generation previews the server-issued saved findings when source data changed after Analyze | Behaved as expected | Pass |
+| UT-D383 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Negative | generation starts disabled and cannot export without a generated report | Behaved as expected | Pass |
+| UT-D384 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Positive | draft edits do not change scope, selected categories or retained values | Behaved as expected | Pass |
+| UT-D385 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Error | generating state prevents duplicate requests; failure preserves analysis and retry uses its captured attempt | Behaved as expected | Pass |
+| UT-D386 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Error | export loading/failure preserves preview and retry exports the same snapshot without regeneration | Behaved as expected | Pass |
+| UT-D387 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Error | failed updates retain the report and disable generation; successful updates invalidate it | Behaved as expected | Pass |
+| UT-D388 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Negative | late generation cannot resurrect a report after Reset | Behaved as expected | Pass |
+| UT-D389 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Error | validation failure blocks generation while keeping the applied analysis | Behaved as expected | Pass |
+| UT-D390 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Negative | results with a different criteria scope cannot enable generation | Behaved as expected | Pass |
+| UT-D391 | UC-D | Client · report generation › UC-D Batch 4 snapshot lifecycle | Positive | native calendars expose accessible range hints, preserve date strings and use whole-field activation | Behaved as expected | Pass |
+| UT-D392 | UC-D | Client · report generation › saved report cache consistency | Positive | metadata updates synchronize the generated preview and archive removes its cached actions | Behaved as expected | Pass |
+| UT-D393 | UC-D | Client · report generation › selected report content and shared document rendering | Positive | INCIDENT_STATISTICS preview includes reviewed values and excludes other category sections | Behaved as expected | Pass |
+| UT-D394 | UC-D | Client · report generation › selected report content and shared document rendering | Positive | INCIDENT_HOTSPOTS preview includes reviewed values and excludes other category sections | Behaved as expected | Pass |
+| UT-D395 | UC-D | Client · report generation › selected report content and shared document rendering | Positive | PATROL_COVERAGE preview includes reviewed values and excludes other category sections | Behaved as expected | Pass |
+| UT-D396 | UC-D | Client · report generation › selected report content and shared document rendering | Positive | HWC_TRENDS preview includes reviewed values and excludes other category sections | Behaved as expected | Pass |
+| UT-D397 | UC-D | Client · report generation › selected report content and shared document rendering | Positive | snapshot deeply detaches original result objects | Behaved as expected | Pass |
+| UT-D398 | UC-D | Client · report generation › selected report content and shared document rendering | Positive | API submits only criteria and exports saved PDF by ID | Behaved as expected | Pass |
+| UT-D399 | UC-D | Client · report lifecycle | Positive | saved preview shows identity, inclusive UTC scope, meaningful filters, executive summary and only persisted selected sections | Behaved as expected | Pass |
+| UT-D400 | UC-D | Client · report lifecycle | Error | reopened saved pdf export failure preserves preview/format and Retry exports by the same ID | Behaved as expected | Pass |
+| UT-D401 | UC-D | Client · report lifecycle | Error | reopened saved csv export failure preserves preview/format and Retry exports by the same ID | Behaved as expected | Pass |
+| UT-D402 | UC-D | Client · report lifecycle | Error | reopened saved xlsx export failure preserves preview/format and Retry exports by the same ID | Behaved as expected | Pass |
+| UT-D403 | UC-D | Client · report lifecycle | Error | another format can be chosen after failure without losing the saved report | Behaved as expected | Pass |
+| UT-D404 | UC-D | Client · report lifecycle | Negative | generated Excel retry preserves saved evidence, blocks same-tick duplicates, and ignores late responses after Reset | Behaved as expected | Pass |
+| UT-D405 | UC-D | Client · report lifecycle | Edge | eligibility allows registered neglected routes while unrelated totals cannot authorize an empty selected category | Behaved as expected | Pass |
+| UT-D406 | UC-D | Client · report lifecycle | Positive | pdf API validates file response before download/success and sends no findings | Behaved as expected | Pass |
+| UT-D407 | UC-D | Client · report lifecycle | Positive | csv API validates file response before download/success and sends no findings | Behaved as expected | Pass |
+| UT-D408 | UC-D | Client · report lifecycle | Positive | xlsx API validates file response before download/success and sends no findings | Behaved as expected | Pass |
+| UT-D409 | UC-D | Client · report lifecycle | Negative | API rejects invalid format/ID before making a request | Behaved as expected | Pass |
+| UT-D410 | UC-D | Client · saved reports | Error | history loading, empty state, safe database error and Retry | Behaved as expected | Pass |
+| UT-D411 | UC-D | Client · saved reports | Positive | history displays scope, categories, dates, version and accessible actions | Behaved as expected | Pass |
+| UT-D412 | UC-D | Client · saved reports | Positive | detail uses saved findings, filters, notes, limitations and ID, without Analyze | Behaved as expected | Pass |
+| UT-D413 | UC-D | Client · saved reports | Negative | missing detail shows safe feedback and can retry | Behaved as expected | Pass |
+| UT-D414 | UC-D | Client · saved reports | Negative | edit safely saves metadata and prevents duplicate submissions while preserving findings | Behaved as expected | Pass |
+| UT-D415 | UC-D | Client · saved reports | Error | edit validation blocks whitespace title, supports cancel, and safely retries database failure | Behaved as expected | Pass |
+| UT-D416 | UC-D | Client · saved reports | Positive | archive requires an identified modal confirmation; Cancel performs no write | Behaved as expected | Pass |
+| UT-D417 | UC-D | Client · saved reports | Edge | confirmed archive prevents double submission and removes active history | Behaved as expected | Pass |
+| UT-D418 | UC-D | Client · saved reports | Error | uncertain archive retains the modal and offers history refresh before another write | Behaved as expected | Pass |
+| UT-D419 | UC-D | Client · saved reports | Positive | regeneration creates a new ID/version and keeps the original in history; duplicate clicks are blocked | Behaved as expected | Pass |
+| UT-D420 | UC-D | Client · saved reports | Error | regeneration conflicts retain original preview and direct manager to newest history version | Behaved as expected | Pass |
+| UT-D421 | UC-D | Client · saved reports | Error | saved PDF failure offers retry by saved ID, without regeneration | Behaved as expected | Pass |
+| UT-D422 | UC-D | Client · saved reports | Edge | pagination appends older reports and unmount cancels pending reads | Behaved as expected | Pass |
+| UT-D423 | UC-D | Client · saved report editing and versions | Positive | client shares authoritative date rules for 2026-09-01 to 2026-09-30 | Behaved as expected | Pass |
+| UT-D424 | UC-D | Client · saved report editing and versions | Edge | client shares authoritative date rules for 2026-10-07 to 2026-10-07 | Behaved as expected | Pass |
+| UT-D425 | UC-D | Client · saved report editing and versions | Negative | client shares authoritative date rules for 2026-10-08 to 2026-10-08 | Behaved as expected | Pass |
+| UT-D426 | UC-D | Client · saved report editing and versions | Negative | client shares authoritative date rules for 2026-10-20 to 2026-10-30 | Behaved as expected | Pass |
+| UT-D427 | UC-D | Client · saved report editing and versions | Negative | client shares authoritative date rules for 2026-10-07 to 2026-10-06 | Behaved as expected | Pass |
+| UT-D428 | UC-D | Client · saved report editing and versions | Negative | client shares authoritative date rules for 0000-01-01 to 2026-10-07 | Behaved as expected | Pass |
+| UT-D429 | UC-D | Client · saved report editing and versions | Negative | client shares authoritative date rules for malformed to 2026-10-07 | Behaved as expected | Pass |
+| UT-D430 | UC-D | Client · saved report editing and versions | Edge | client shares authoritative date rules for 0001-01-01 to 2026-10-07 | Behaved as expected | Pass |
+| UT-D431 | UC-D | Client · saved report editing and versions | Positive | Last 7/30/90 Days continue to pass shared date validation | Behaved as expected | Pass |
+| UT-D432 | UC-D | Client · saved report editing and versions | Negative | recognized server date rejection stays actionable when the browser clock differs | Behaved as expected | Pass |
+| UT-D433 | UC-D | Client · saved report editing and versions | Negative | future period feedback focuses Start Date without sending an analysis | Behaved as expected | Pass |
+| UT-D434 | UC-D | Client · saved report editing and versions | Negative | local metadata feedback beside Report Title preserves typed text | Behaved as expected | Pass |
+| UT-D435 | UC-D | Client · saved report editing and versions | Negative | local metadata feedback beside Report Title preserves typed text | Behaved as expected | Pass |
+| UT-D436 | UC-D | Client · saved report editing and versions | Negative | local metadata feedback beside Report Notes preserves typed text | Behaved as expected | Pass |
+| UT-D437 | UC-D | Client · saved report editing and versions | Error | server title error is safe, inline, focused and preserves both fields | Behaved as expected | Pass |
+| UT-D438 | UC-D | Client · saved report editing and versions | Error | server notes error is safe, inline, focused and preserves both fields | Behaved as expected | Pass |
+| UT-D439 | UC-D | Client · saved report editing and versions | Negative | untrusted field messages are never shown | Behaved as expected | Pass |
+| UT-D440 | UC-D | Client · saved report editing and versions | Positive | unchanged metadata leaves via Cancel Edit without a warning | Behaved as expected | Pass |
+| UT-D441 | UC-D | Client · saved report editing and versions | Positive | unchanged metadata leaves via Edit Report Details without a warning | Behaved as expected | Pass |
+| UT-D442 | UC-D | Client · saved report editing and versions | Positive | unchanged metadata leaves via Return to Report History without a warning | Behaved as expected | Pass |
+| UT-D443 | UC-D | Client · saved report editing and versions | Positive | unchanged metadata leaves via Back to History without a warning | Behaved as expected | Pass |
+| UT-D444 | UC-D | Client · saved report editing and versions | Positive | unchanged metadata leaves via Analysis without a warning | Behaved as expected | Pass |
+| UT-D445 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Cancel Edit | Behaved as expected | Pass |
+| UT-D446 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Edit Report Details | Behaved as expected | Pass |
+| UT-D447 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Return to Report History | Behaved as expected | Pass |
+| UT-D448 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Back to History | Behaved as expected | Pass |
+| UT-D449 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Analysis | Behaved as expected | Pass |
+| UT-D450 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Create New Version | Behaved as expected | Pass |
+| UT-D451 | UC-D | Client · saved report editing and versions | Edge | dirty metadata is protected when choosing Archive Report | Behaved as expected | Pass |
+| UT-D452 | UC-D | Client · saved report editing and versions | Edge | Escape keeps dirty edits; explicit discard closes the editor and restores persisted text | Behaved as expected | Pass |
+| UT-D453 | UC-D | Client · saved report editing and versions | Positive | discard confirmed during view switching opens Analysis | Behaved as expected | Pass |
+| UT-D454 | UC-D | Client · saved report editing and versions | Edge | reverting edits and successful saves clear dirty state | Behaved as expected | Pass |
+| UT-D455 | UC-D | Client · saved report editing and versions | Edge | pending metadata write disables view switches and duplicate submits until settlement | Behaved as expected | Pass |
+| UT-D456 | UC-D | Client · saved report editing and versions | Edge | pending version write disables view switches and duplicate submits until settlement | Behaved as expected | Pass |
+| UT-D457 | UC-D | Client · saved report editing and versions | Edge | pending archive write disables view switches and duplicate submits until settlement | Behaved as expected | Pass |
+| UT-D458 | UC-D | Client · saved report editing and versions | Error | uncertain metadata writes keep drafts and require refreshing history before retry | Behaved as expected | Pass |
+| UT-D459 | UC-D | Client · saved report editing and versions | Error | uncertain version writes keep drafts and require refreshing history before retry | Behaved as expected | Pass |
+| UT-D460 | UC-D | Client · saved report editing and versions | Positive | enum ANIMAL_CARCASS has a readable presentation | Behaved as expected | Pass |
+| UT-D461 | UC-D | Client · saved report editing and versions | Positive | enum IN_PROGRESS has a readable presentation | Behaved as expected | Pass |
+| UT-D462 | UC-D | Client · saved report editing and versions | Positive | enum HIGH_SEVERITY has a readable presentation | Behaved as expected | Pass |
+| UT-D463 | UC-D | Client · saved report editing and versions | Edge | timestamps use UTC without altering saved values; IDs/names and exported cells stay exact | Behaved as expected | Pass |
+
+## Shared – Offline Synchronisation, API Errors and Error Handling
+
+Results recorded on 9 October 2026. This section covers code used by more than one use case: the Dexie offline database, the sync queue, client API error conversion, the server's shared error handler and the shared park lookup.
+
+### Frameworks and isolation
+
+- **Client:** Vitest with Dexie on `fake-indexeddb`. The sync tests use the real `SyncService` and real IndexedDB tables; only the transports (the functions that send a queued item to the server) are replaced by test functions. Each test uses its own queue entity, so services created by earlier tests cannot process its items.
+- **Server:** Jest and Supertest. The error handler is tested inside a minimal Express app that throws controlled errors, so no module or database is involved.
+
+### Test files
+
+| File | Layer | Tests | Notes |
+|---|---|---|---|
+| `client/src/offline/syncService.test.ts` | Sync queue: enqueue, de-duplication, processing, failure classification, retry, recovery, connectivity events | 45 | New |
+| `client/src/offline/db.test.ts` | Dexie schema, insert, read, update, delete, transactions | 8 | 1 existing, 7 added |
+| `client/src/shared/api/apiError.test.ts` | Conversion of HTTP errors to `ApiError`; no-response errors; HTTP client base URL | 21 | New |
+| `client/src/App.test.tsx` | Application shell and routes | 2 | Existing |
+| `server/tests/errorHandler.test.ts` | Shared Express error handler | 14 | New |
+| `server/tests/parkLookup.test.ts` | Shared park lookup used by UC-B, UC-C and UC-D forms | 9 | Existing |
+| `server/tests/parkAssociationWorkflows.test.ts` | Park context across incidents, conflict alerts and collars | 13 | Existing |
+| `server/tests/placeNames.test.ts` | Reverse geocoding of incident locations | 6 | Existing |
+| `server/tests/health.test.ts` | Health endpoint | 1 | Existing |
+
+Total shared unit tests executed: **119** (76 client, 43 server), **119 passed**. Of these, 87 are new.
+
+By type: **39 Positive, 22 Negative, 28 Edge, 30 Error.**
+
+The shared geolocation service is tested with UC-A (`client/src/shared/geolocation/geolocation.test.ts`, UT-A rows) and is not repeated here. `scripts/dev.test.mjs` tests the development launcher with `node --test` and is not part of the application unit suites.
+
+### Scenarios covered
+
+- **Dexie:** every table and index exists; records keep their data and sync status through insert, update and query; a failed transaction stores neither the record nor its queue item.
+- **Enqueue:** a new item is PENDING with its entity, operation, record, client ID, payload and zero attempts. An unsynced or FAILED item with the same entity, operation and client ID is reused, never duplicated, and keeps its first payload, so callers keep the newest state on the device (the UC-A defect 1 rule). A different client ID, operation or entity makes a new item. Once an item is SYNCED, the same client ID can be queued again.
+- **Processing:** empty queue, one item, several items in order; SYNCING while in flight; SYNCED on success; one item failing does not stop the next. A failed sync never deletes the queued action or the local business record.
+- **Classification of failures** (what happens to a queued item):
+
+  | Failure | Result |
+  |---|---|
+  | No response, `ERR_NETWORK`, timeout (`ECONNABORTED`) | PENDING, retried automatically |
+  | HTTP 408, 429, 500, 502, 503 | PENDING, retried automatically |
+  | HTTP 400, 401, 403, 404, 409 | FAILED, shown for manual retry |
+  | Any failure while the browser reports offline | PENDING, processing stops |
+
+- **Retry and counts:** `retryFailed` clears the error and resends; a repeated rejection is FAILED again with the new message; counts per entity and in total.
+- **Interruptions:** items left SYNCING by a closed tab are recovered on start-up; going offline returns in-flight items to PENDING; repeated `online` events send each item once; overlapping sync runs never send an item twice.
+- **API errors:** the server's message, status, code and details are kept; empty, malformed and HTML error bodies fall back to "Request failed (status)."; a request with no response returns `null`, so the caller can use offline mode.
+- **Error handler:** application errors keep their status, message, code and details; validation errors list each field; malformed JSON is not echoed; unexpected errors return a generic message without internal text, database details or stack traces, and the original error is logged on the server.
+
+### Coverage
+
+Measured with Vitest V8 (client) and Jest (server, unit suites only).
+
+| Area | Before: Stmts / Branch / Funcs / Lines | After: Stmts / Branch / Funcs / Lines |
+|---|---|---|
+| Client `src/offline` | 88.72 / 85.19 / 76.92 / 88.72 | **98.57 / 95.83 / 92.31 / 98.57** |
+| Client `offline/syncService.ts` | 87.50 / 84.61 / 80.00 / 87.50 | **99.15 / 95.71 / 100 / 99.15** |
+| Client `shared/api/apiError.ts` | 95.83 / 77.77 / 100 / 95.83 | **95.83 / 92.85 / 100 / 95.83** |
+| Client `src/shared/api` | – | **82.76 / 83.33 / 80.00 / 82.76** |
+| Server `middleware/errors.ts` | 90.90 / 84.37 / 100 / 94.73 | **100 / 95.23 / 100 / 100** |
+| Server `modules/shared` | – | **98.28 / 87.50 / 92.86 / 97.87** |
+
+"Before" is the start of this phase, after UC-C and UC-D. Before this phase, the sync service was covered only indirectly through the feature tests.
+
+### Defects found and fixed
+
+Each regression test was confirmed to fail against the code before the fix.
+
+| # | File | Defect | Fix | Regression tests |
+|---|---|---|---|---|
+| 1 | `client/src/offline/syncService.ts` | An item queued while a sync run was in progress was skipped. The run had already read the queue, and the re-entrancy guard dropped the new trigger, so the item stayed PENDING while the device was online, until the next `online` event, enqueue or reload. | A trigger that arrives during a run is remembered, and one more run starts when the current one finishes. | UT-S021 |
+| 2 | `server/src/middleware/errors.ts` | For unexpected errors, the shared handler returned HTTP 500 with the raw internal message, for example a database driver message with host and port. This applied to every module (the UC-B known gap). | Unexpected errors return `{ message: 'Internal server error' }` and the original error is logged on the server. Application errors (`AppError`), validation errors and the existing "not found" and "Unauthorized" messages are unchanged. A duplicated, unreachable 413 branch was removed. | UT-S085 to UT-S087 |
+| 3 | `server/src/modules/patrols/service.ts` | Patrol business-rule violations, such as starting a second patrol or adding a waypoint to a paused patrol, were plain `Error`s returned as HTTP 500 (the UC-A known gap). After fix 2 they would have reached the ranger as "Internal server error". A 500 from a queued patrol sync is also kept PENDING and retried, instead of being marked FAILED. | They throw `AppError` with the same messages: 409 `PATROL_ALREADY_ACTIVE`, 409 `INVALID_STATE_TRANSITION`, 400 `VALIDATION_ERROR` for out-of-range coordinates, and 404 `ASSIGNMENT_NOT_FOUND`. | 15 tests in `server/tests/patrolService.test.ts` (UT-A rows) now check status and code; all 15 fail against the old service. UT-A108 checks the HTTP mapping. |
+
+Existing tests updated because they asserted the old behaviour: UT-A108 and UT-A118 (patrol routes), and UT-B126 to UT-B130 (incident routes, which were recorded as the UC-B known gap). Two expectations in `server/tests/integration/patrols.integration.test.ts` were changed from 500 to 409 without being run.
+
+### Known gaps (not changed in this phase)
+
+- A transport error that is not an HTTP error, for example a programming error inside a transport, has no `response`, so it is treated like a lost connection and retried rather than marked FAILED. The current transports rethrow raw HTTP client errors, which are classified correctly.
+- FAILED items are also resent on every later sync run (any reconnect, new queued item or retry), not only by "Retry".
+- A plain `Error` whose message happens to contain "not found" or "Unauthorized" is still returned with its message as 404 or 403. Modules still use this text-based mapping for those two cases.
+- `client/src/shared/api/health.ts` is not used by the application and has no tests.
+
+### Shared test cases
+
+All rows below come from the Jest and Vitest JSON results of this phase. The type column was first assigned from each test's title by keyword rules, then reviewed per test and corrected where needed.
+
+| Test ID | Use Case | Scenario | Type | Expected Result | Actual Result | Status |
+|---|---|---|---|---|---|---|
+| UT-S001 | Shared | Client · sync queue › enqueue | Positive | stores a PENDING item with the entity, operation, client id and payload | Behaved as expected | Pass |
+| UT-S002 | Shared | Client · sync queue › enqueue | Edge | an unsynced item with the same entity, operation and client id is reused and keeps its first payload | Behaved as expected | Pass |
+| UT-S003 | Shared | Client · sync queue › enqueue | Edge | a FAILED item with the same client id is also reused instead of duplicated | Behaved as expected | Pass |
+| UT-S004 | Shared | Client · sync queue › enqueue | Positive | a different client id creates a separate queue item | Behaved as expected | Pass |
+| UT-S005 | Shared | Client · sync queue › enqueue | Positive | a different operation creates a separate queue item | Behaved as expected | Pass |
+| UT-S006 | Shared | Client · sync queue › enqueue | Positive | a different entity creates a separate queue item | Behaved as expected | Pass |
+| UT-S007 | Shared | Client · sync queue › enqueue | Positive | once an item is SYNCED, the same client id queues a new action | Behaved as expected | Pass |
+| UT-S008 | Shared | Client · sync queue › enqueue | Positive | enqueueing while online sends the item straight away | Behaved as expected | Pass |
+| UT-S009 | Shared | Client · sync queue › enqueue | Edge | enqueueing while offline does not attempt to send | Behaved as expected | Pass |
+| UT-S010 | Shared | Client · sync queue › processAll | Edge | an empty queue sends nothing and announces nothing | Behaved as expected | Pass |
+| UT-S011 | Shared | Client · sync queue › processAll | Positive | a successful item becomes SYNCED and a sync-completed event is dispatched | Behaved as expected | Pass |
+| UT-S012 | Shared | Client · sync queue › processAll | Positive | the item is marked SYNCING while its request is in flight | Behaved as expected | Pass |
+| UT-S013 | Shared | Client · sync queue › processAll | Positive | several items are sent in queue order | Behaved as expected | Pass |
+| UT-S014 | Shared | Client · sync queue › processAll | Error | a server rejection marks only that item FAILED and the next item is still sent | Behaved as expected | Pass |
+| UT-S015 | Shared | Client · sync queue › processAll | Error | a lost connection keeps the item PENDING and counts the attempt | Behaved as expected | Pass |
+| UT-S016 | Shared | Client · sync queue › processAll | Error | when the device reports it went offline mid-sync, processing stops and the rest stay PENDING | Behaved as expected | Pass |
+| UT-S017 | Shared | Client · sync queue › processAll | Error | a failed sync never deletes the queued action or the local business record | Behaved as expected | Pass |
+| UT-S018 | Shared | Client · sync queue › processAll | Edge | items without a registered transport are left untouched | Behaved as expected | Pass |
+| UT-S019 | Shared | Client · sync queue › processAll | Edge | nothing is sent while the service is offline | Behaved as expected | Pass |
+| UT-S020 | Shared | Client · sync queue › processAll | Edge | a second call while a sync is running does not send any item twice | Behaved as expected | Pass |
+| UT-S021 | Shared | Client · sync queue › processAll | Edge | an item queued while a sync is already running is still sent in the same session | Behaved as expected | Pass |
+| UT-S022 | Shared | Client · sync queue › processAll | Edge | a FAILED item is attempted again on the next sync run | Behaved as expected | Pass |
+| UT-S023 | Shared | Client · sync queue › processAll | Error | a transport that throws a non-Error value records a generic message | Behaved as expected | Pass |
+| UT-S024 | Shared | Client · sync queue › processAll | Error | a queue read failure is logged and the service can sync again afterwards | Behaved as expected | Pass |
+| UT-S025 | Shared | Client · sync queue › connection failure classification | Error | no response (connection refused) leaves the item PENDING | Behaved as expected | Pass |
+| UT-S026 | Shared | Client · sync queue › connection failure classification | Error | network error code leaves the item PENDING | Behaved as expected | Pass |
+| UT-S027 | Shared | Client · sync queue › connection failure classification | Error | request timeout (ECONNABORTED) leaves the item PENDING | Behaved as expected | Pass |
+| UT-S028 | Shared | Client · sync queue › connection failure classification | Negative | HTTP 400 leaves the item FAILED | Behaved as expected | Pass |
+| UT-S029 | Shared | Client · sync queue › connection failure classification | Negative | HTTP 401 leaves the item FAILED | Behaved as expected | Pass |
+| UT-S030 | Shared | Client · sync queue › connection failure classification | Negative | HTTP 403 leaves the item FAILED | Behaved as expected | Pass |
+| UT-S031 | Shared | Client · sync queue › connection failure classification | Negative | HTTP 404 leaves the item FAILED | Behaved as expected | Pass |
+| UT-S032 | Shared | Client · sync queue › connection failure classification | Error | HTTP 408 leaves the item PENDING | Behaved as expected | Pass |
+| UT-S033 | Shared | Client · sync queue › connection failure classification | Negative | HTTP 409 leaves the item FAILED | Behaved as expected | Pass |
+| UT-S034 | Shared | Client · sync queue › connection failure classification | Error | HTTP 429 leaves the item PENDING | Behaved as expected | Pass |
+| UT-S035 | Shared | Client · sync queue › connection failure classification | Error | HTTP 500 leaves the item PENDING | Behaved as expected | Pass |
+| UT-S036 | Shared | Client · sync queue › connection failure classification | Error | HTTP 502 leaves the item PENDING | Behaved as expected | Pass |
+| UT-S037 | Shared | Client · sync queue › connection failure classification | Error | HTTP 503 leaves the item PENDING | Behaved as expected | Pass |
+| UT-S038 | Shared | Client · sync queue › connection failure classification | Edge | any failure while the browser reports offline is treated as a lost connection, even an HTTP 400 | Behaved as expected | Pass |
+| UT-S039 | Shared | Client · sync queue › retryFailed and queue counts | Positive | retryFailed resets FAILED items to PENDING, clears the error and sends them | Behaved as expected | Pass |
+| UT-S040 | Shared | Client · sync queue › retryFailed and queue counts | Error | a retry that fails again is marked FAILED with the new error | Behaved as expected | Pass |
+| UT-S041 | Shared | Client · sync queue › retryFailed and queue counts | Positive | queue counts are reported per entity and in total; SYNCED items are not counted | Behaved as expected | Pass |
+| UT-S042 | Shared | Client · sync queue › connectivity events and interrupted syncs | Edge | items left SYNCING by a closed tab are recovered on start-up and sent | Behaved as expected | Pass |
+| UT-S043 | Shared | Client · sync queue › connectivity events and interrupted syncs | Error | a recovery failure on start-up is logged and does not break the service | Behaved as expected | Pass |
+| UT-S044 | Shared | Client · sync queue › connectivity events and interrupted syncs | Edge | going offline stops sending and returns in-flight items to PENDING | Behaved as expected | Pass |
+| UT-S045 | Shared | Client · sync queue › connectivity events and interrupted syncs | Edge | coming back online sends pending items once, even after repeated online events | Behaved as expected | Pass |
+| UT-S046 | Shared | Client · Dexie offline database | Positive | initializes the offline database schema without opening a network connection | Behaved as expected | Pass |
+| UT-S047 | Shared | Client · Dexie offline database | Positive | business tables index remote id, sync status and update time; the queue indexes status, entity and creation time | Behaved as expected | Pass |
+| UT-S048 | Shared | Client · Dexie offline database | Positive | a record is stored with a generated id and read back unchanged | Behaved as expected | Pass |
+| UT-S049 | Shared | Client · Dexie offline database | Positive | updating a record keeps unchanged fields and persists the new sync status | Behaved as expected | Pass |
+| UT-S050 | Shared | Client · Dexie offline database | Positive | records can be found by sync status and by remote id | Behaved as expected | Pass |
+| UT-S051 | Shared | Client · Dexie offline database | Positive | deleting a record removes only that record | Behaved as expected | Pass |
+| UT-S052 | Shared | Client · Dexie offline database | Error | a failed transaction saves neither the record nor its queue item | Behaved as expected | Pass |
+| UT-S053 | Shared | Client · Dexie offline database | Positive | a successful transaction saves the record and its queue item together | Behaved as expected | Pass |
+| UT-S054 | Shared | Client · API errors and HTTP client › toApiError | Positive | keeps the server message, status, code and details | Behaved as expected | Pass |
+| UT-S055 | Shared | Client · API errors and HTTP client › toApiError | Negative | HTTP 401 is converted with its status | Behaved as expected | Pass |
+| UT-S056 | Shared | Client · API errors and HTTP client › toApiError | Negative | HTTP 403 is converted with its status | Behaved as expected | Pass |
+| UT-S057 | Shared | Client · API errors and HTTP client › toApiError | Negative | HTTP 404 is converted with its status | Behaved as expected | Pass |
+| UT-S058 | Shared | Client · API errors and HTTP client › toApiError | Negative | HTTP 409 is converted with its status | Behaved as expected | Pass |
+| UT-S059 | Shared | Client · API errors and HTTP client › toApiError | Positive | HTTP 429 is converted with its status | Behaved as expected | Pass |
+| UT-S060 | Shared | Client · API errors and HTTP client › toApiError | Error | HTTP 500 is converted with its status | Behaved as expected | Pass |
+| UT-S061 | Shared | Client · API errors and HTTP client › toApiError | Error | HTTP 503 is converted with its status | Behaved as expected | Pass |
+| UT-S062 | Shared | Client · API errors and HTTP client › toApiError | Edge | an empty body falls back to a message with the status | Behaved as expected | Pass |
+| UT-S063 | Shared | Client · API errors and HTTP client › toApiError | Edge | a body without an error object falls back to a message with the status | Behaved as expected | Pass |
+| UT-S064 | Shared | Client · API errors and HTTP client › toApiError | Edge | an error object without a message falls back to a message with the status | Behaved as expected | Pass |
+| UT-S065 | Shared | Client · API errors and HTTP client › toApiError | Edge | an empty message falls back to a message with the status | Behaved as expected | Pass |
+| UT-S066 | Shared | Client · API errors and HTTP client › toApiError | Error | an HTML error page falls back to a message with the status | Behaved as expected | Pass |
+| UT-S067 | Shared | Client · API errors and HTTP client › toApiError | Edge | a response without details does not invent them | Behaved as expected | Pass |
+| UT-S068 | Shared | Client · API errors and HTTP client › toApiError | Error | a network failure (no response) returns null so the caller can treat it as offline | Behaved as expected | Pass |
+| UT-S069 | Shared | Client · API errors and HTTP client › toApiError | Error | a timeout returns null so the caller can treat it as offline | Behaved as expected | Pass |
+| UT-S070 | Shared | Client · API errors and HTTP client › toApiError | Edge | a plain Error returns null so the caller can treat it as offline | Behaved as expected | Pass |
+| UT-S071 | Shared | Client · API errors and HTTP client › toApiError | Edge | a thrown string returns null so the caller can treat it as offline | Behaved as expected | Pass |
+| UT-S072 | Shared | Client · API errors and HTTP client › toApiError | Edge | undefined returns null so the caller can treat it as offline | Behaved as expected | Pass |
+| UT-S073 | Shared | Client · API errors and HTTP client › http client | Positive | uses the configured API address | Behaved as expected | Pass |
+| UT-S074 | Shared | Client · API errors and HTTP client › http client | Edge | falls back to the local development API when none is configured | Behaved as expected | Pass |
+| UT-S075 | Shared | Client · app shell | Positive | renders the application foundation | Behaved as expected | Pass |
+| UT-S076 | Shared | Client · app shell | Positive | renders ranger and manager route pages | Behaved as expected | Pass |
+| UT-S077 | Shared | Server · shared error handler › known application errors | Positive | an AppError keeps its status, message, code and details | Behaved as expected | Pass |
+| UT-S078 | Shared | Server · shared error handler › known application errors | Positive | an AppError without details does not add a details field | Behaved as expected | Pass |
+| UT-S079 | Shared | Server · shared error handler › known application errors | Negative | a zod validation error is a 400 listing each field | Behaved as expected | Pass |
+| UT-S080 | Shared | Server · shared error handler › known application errors | Negative | a legacy "not found" error is a 404 with its message | Behaved as expected | Pass |
+| UT-S081 | Shared | Server · shared error handler › known application errors | Negative | a legacy "Unauthorized" error is a 403 with its message | Behaved as expected | Pass |
+| UT-S082 | Shared | Server · shared error handler › known application errors | Negative | an unknown route is a 404 with a stable code | Behaved as expected | Pass |
+| UT-S083 | Shared | Server · shared error handler › request body errors | Negative | malformed JSON is a 400 that does not echo the body | Behaved as expected | Pass |
+| UT-S084 | Shared | Server · shared error handler › request body errors | Edge | a body over the size limit is a 413 with a stable code | Behaved as expected | Pass |
+| UT-S085 | Shared | Server · shared error handler › unexpected internal errors | Error | an internal error message is not returned to the client | Behaved as expected | Pass |
+| UT-S086 | Shared | Server · shared error handler › unexpected internal errors | Error | a database driver error exposes neither its message nor its stack trace | Behaved as expected | Pass |
+| UT-S087 | Shared | Server · shared error handler › unexpected internal errors | Error | the original error is still logged on the server for diagnosis | Behaved as expected | Pass |
+| UT-S088 | Shared | Server · shared error handler › unexpected internal errors | Error | a thrown string becomes a generic 500 | Behaved as expected | Pass |
+| UT-S089 | Shared | Server · shared error handler › unexpected internal errors | Error | a thrown object becomes a generic 500 | Behaved as expected | Pass |
+| UT-S090 | Shared | Server · shared error handler › unexpected internal errors | Edge | an error raised after the response started is passed on to Express instead of writing a second response | Behaved as expected | Pass |
+| UT-S091 | Shared | Server · shared park lookup | Positive | shared park lookup returns only selection metadata with role undefined | Behaved as expected | Pass |
+| UT-S092 | Shared | Server · shared park lookup | Positive | shared park lookup returns only selection metadata with role RANGER | Behaved as expected | Pass |
+| UT-S093 | Shared | Server · shared park lookup | Positive | shared park lookup returns only selection metadata with role MANAGER | Behaved as expected | Pass |
+| UT-S094 | Shared | Server · shared park lookup | Edge | shared lookup supports an empty park list | Behaved as expected | Pass |
+| UT-S095 | Shared | Server · shared park lookup | Error | shared lookup does not expose database errors | Behaved as expected | Pass |
+| UT-S096 | Shared | Server · shared park lookup | Negative | shared lookup exposes no park mutation routes | Behaved as expected | Pass |
+| UT-S097 | Shared | Server · shared park lookup | Negative | shared lookup does not grant analytics access with role undefined | Behaved as expected | Pass |
+| UT-S098 | Shared | Server · shared park lookup | Negative | shared lookup does not grant analytics access with role RANGER | Behaved as expected | Pass |
+| UT-S099 | Shared | Server · shared park lookup | Positive | manager park lookup remains compatible | Behaved as expected | Pass |
+| UT-S100 | Shared | Server · park association across use cases | Positive | standalone incident creation remains compatible and accepts explicit park undefined | Behaved as expected | Pass |
+| UT-S101 | Shared | Server · park association across use cases | Positive | standalone incident creation remains compatible and accepts explicit park c67a000000000000000000001 | Behaved as expected | Pass |
+| UT-S102 | Shared | Server · park association across use cases | Negative | patrol incident derives and persists the route park; rejects conflicting explicit park and another ranger | Behaved as expected | Pass |
+| UT-S103 | Shared | Server · park association across use cases | Negative | /api/incidents rejects nonexistent and malformed parks before writing | Behaved as expected | Pass |
+| UT-S104 | Shared | Server · park association across use cases | Negative | /api/conflict-alerts rejects nonexistent and malformed parks before writing | Behaved as expected | Pass |
+| UT-S105 | Shared | Server · park association across use cases | Negative | /api/conflict-alerts/community-report rejects nonexistent and malformed parks before writing | Behaved as expected | Pass |
+| UT-S106 | Shared | Server · park association across use cases | Negative | /api/conflict-alerts/simulate-collar rejects nonexistent and malformed parks before writing | Behaved as expected | Pass |
+| UT-S107 | Shared | Server · park association across use cases | Positive | API/collar/community creation preserve optional park context undefined | Behaved as expected | Pass |
+| UT-S108 | Shared | Server · park association across use cases | Positive | API/collar/community creation preserve optional park context c67a000000000000000000001 | Behaved as expected | Pass |
+| UT-S109 | Shared | Server · park association across use cases | Edge | collar outside risk zones remains telemetry-only, without creating an alert | Behaved as expected | Pass |
+| UT-S110 | Shared | Server · park association across use cases | Edge | generated collar event keys retain same-park idempotency without swallowing another explicit park context | Behaved as expected | Pass |
+| UT-S111 | Shared | Server · park association across use cases | Positive | assigned alerts retain list/detail/acknowledge/respond/resolve/history and idempotent create behavior | Behaved as expected | Pass |
+| UT-S112 | Shared | Server · park association across use cases | Edge | incident retry returns the existing record without changing its park or duplicating evidence | Behaved as expected | Pass |
+| UT-S113 | Shared | Server · reverse geocoding › formatPlaceName | Positive | uses the most specific named place and the country | Behaved as expected | Pass |
+| UT-S114 | Shared | Server · reverse geocoding › formatPlaceName | Positive | falls back to the region, and returns null when there is nothing named | Behaved as expected | Pass |
+| UT-S115 | Shared | Server · reverse geocoding › ReverseGeocoder | Positive | calls Nominatim reverse with an identifying User-Agent and caches the answer | Behaved as expected | Pass |
+| UT-S116 | Shared | Server · reverse geocoding › ReverseGeocoder | Error | null when there is no named place; undefined when the service fails or is disabled | Behaved as expected | Pass |
+| UT-S117 | Shared | Server · reverse geocoding › ReverseGeocoder | Positive | waits between requests (Nominatim allows 1 per second) | Behaved as expected | Pass |
+| UT-S118 | Shared | Server · reverse geocoding › ReverseGeocoder | Error | gives up when the wait would exceed the timeout | Behaved as expected | Pass |
+| UT-S119 | Shared | Server · health endpoint | Positive | GET /api/health returns structured HTTP 200 response | Behaved as expected | Pass |

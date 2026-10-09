@@ -40,7 +40,7 @@ describe('UC-A Backend Comprehensive Integration & Quality Audit Test Suite', ()
 
     // Second start attempt
     const res = await request(app).post('/api/patrols/sessions').set('x-ranger-id', rangerId).send();
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(409);
     expect(res.body.error.message).toContain('already active');
   });
 
@@ -158,7 +158,7 @@ describe('UC-A Backend Comprehensive Integration & Quality Audit Test Suite', ()
         source: LocationSource.GPS
       });
 
-    expect(wpRes.status).toBe(500);
+    expect(wpRes.status).toBe(409);
     expect(wpRes.body.error.message).toContain('not ACTIVE');
   });
 

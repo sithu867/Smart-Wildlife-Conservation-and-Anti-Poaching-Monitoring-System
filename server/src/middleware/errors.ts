@@ -22,9 +22,6 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
     return res.status(413).json({ success: false, error: { message: 'Request body exceeds the 8 MB limit.', code: 'PAYLOAD_TOO_LARGE' } });
   }
-  if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
-    return res.status(413).json({ success: false, error: { message: 'Request body exceeds the 8 MB limit.', code: 'PAYLOAD_TOO_LARGE' } });
-  }
 
   if (error instanceof ZodError) {
     const msg = error.issues.map(i => i.message).join(', ') || 'Validation error';
@@ -40,11 +37,11 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   // Legacy path for modules that still throw plain Errors
-  const message = error instanceof Error ? error.message : 'Internal server error';
-  const statusCode = error.message && error.message.includes('Unauthorized')
-    ? 403
-    : error.message && error.message.includes('not found')
-      ? 404
-      : 500;
-  return res.status(statusCode).json({ success: false, error: { message } });
+  const message = error instanceof Error ? error.message : '';
+  if (message.includes('Unauthorized')) return res.status(403).json({ success: false, error: { message } });
+  if (message.includes('not found')) return res.status(404).json({ success: false, error: { message } });
+
+  // Anything else is unexpected: keep database/internal details and stack traces in the server log only.
+  console.error('Unhandled API error:', error);
+  return res.status(500).json({ success: false, error: { message: 'Internal server error' } });
 };
