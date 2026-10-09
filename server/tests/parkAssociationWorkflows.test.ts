@@ -20,6 +20,21 @@ const prisma = {
         patrolRoute: { parkId: string };
       } | null>
     >(),
+    // Incident creation resolves the attached (or covering) patrol before deriving its park.
+    findFirst: jest.fn<
+      (args: Prisma.PatrolSessionFindFirstArgs) => Promise<{
+        id: string;
+        rangerId: string;
+        startTime: Date;
+      } | null>
+    >(),
+  },
+  conflictAuditEntry: {
+    // Alert create/acknowledge/respond/resolve record an audit entry.
+    create:
+      jest.fn<
+        (args: Prisma.ConflictAuditEntryCreateArgs) => Promise<Record<string, unknown>>
+      >(),
   },
   conservationIncident: {
     findFirst:
@@ -82,7 +97,8 @@ const incident = {
   description: 'Recorded snare',
   latitude: -2.152,
   longitude: 34.822,
-  evidence: [{ imageUrl: 'photo.jpg' }],
+  // Evidence must be a JPEG/PNG/WebP data URL (see incidents/validation.ts).
+  evidence: [{ imageUrl: 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD' }],
 };
 const alert = {
   source: 'COLLAR',
@@ -107,6 +123,13 @@ beforeEach(() => {
     rangerId: 'R-101',
     patrolRoute: { parkId: parkA },
   });
+  // Only an explicitly requested 'session-a' resolves; no patrol covers standalone reports.
+  prisma.patrolSession.findFirst.mockImplementation(async (args) =>
+    args.where?.OR?.some((clause) => clause.id === 'session-a')
+      ? { id: 'session-a', rangerId: 'R-101', startTime: new Date(0) }
+      : null,
+  );
+  prisma.conflictAuditEntry.create.mockResolvedValue({});
   prisma.conservationIncident.findFirst.mockResolvedValue(null);
   prisma.conservationIncident.create.mockImplementation(async (args) => ({
     id: 'incident-a',
@@ -133,15 +156,23 @@ beforeEach(() => {
   prisma.wildlifeConflictAlert.create.mockImplementation(async (args) => {
     const row = {
       id: `alert-${storedAlerts.size}`,
+      createdAt: new Date(),
       ...args.data,
       responses: [],
     };
     storedAlerts.set(row.id, row);
     return row;
   });
-  prisma.wildlifeConflictAlert.findMany.mockImplementation(async () => [
-    ...storedAlerts.values(),
-  ]);
+  // getAlerts queries active and historical statuses separately.
+  prisma.wildlifeConflictAlert.findMany.mockImplementation(async (args) => {
+    const status = args.where?.status;
+    const matches = (value: unknown) =>
+      status === undefined ||
+      (typeof status === 'object' && status !== null && 'in' in status
+        ? (status.in as unknown[]).includes(value)
+        : status === value);
+    return [...storedAlerts.values()].filter((row) => matches(row.status));
+  });
   prisma.wildlifeConflictAlert.update.mockImplementation(async (args) => {
     const row = storedAlerts.get(String(args.where.id))!;
     const { responses, ...values } = args.data;

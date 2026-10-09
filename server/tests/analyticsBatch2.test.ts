@@ -66,6 +66,8 @@ describe('UC-D Batch 2 scoped incident query and category contract', () => {
             { patrolSessionId: { in: [session] } },
             { patrolSessionId: null, parkId },
           ],
+          // Withdrawn incident reports are excluded from analytics.
+          deletedAt: null,
           reportedAt: {
             gte: new Date('2026-09-01T00:00:00Z'),
             lte: new Date('2026-09-30T23:59:59.999Z'),

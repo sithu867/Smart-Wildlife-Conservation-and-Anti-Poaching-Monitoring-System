@@ -1,6 +1,6 @@
 import request from 'supertest';
 import { jest } from '@jest/globals';
-import { createApp } from '../src/app.js';
+import { createApp } from '../../src/app.js';
 import {
   AlertSource,
   ConflictAlertType,
@@ -8,7 +8,7 @@ import {
   AlertStatus,
   ResponseAction,
   LocationSource
-} from '../src/types/enums.js';
+} from '../../src/types/enums.js';
 
 const app = createApp();
 

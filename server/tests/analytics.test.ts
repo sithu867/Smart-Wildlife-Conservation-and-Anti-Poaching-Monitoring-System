@@ -234,6 +234,8 @@ describe('UC-D analytics HTTP validation and authorization', () => {
             { patrolSessionId: { in: [sessionId] } },
             { patrolSessionId: null, parkId },
           ],
+          // Withdrawn incident reports are excluded from analytics.
+          deletedAt: null,
           reportedAt: {
             gte: new Date('2026-09-01T00:00:00.000Z'),
             lte: new Date('2026-09-30T23:59:59.999Z'),

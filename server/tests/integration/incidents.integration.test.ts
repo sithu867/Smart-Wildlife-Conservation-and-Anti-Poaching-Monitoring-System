@@ -1,9 +1,9 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
-import { createApp } from '../src/app.js';
-import { prisma } from '../src/config/prisma.js';
-import { IncidentDeletionReason, IncidentStatus, IncidentType, LocationSource } from '../src/types/enums.js';
-import { analyticsService } from '../src/modules/analytics/service.js';
+import { createApp } from '../../src/app.js';
+import { prisma } from '../../src/config/prisma.js';
+import { IncidentDeletionReason, IncidentStatus, IncidentType, LocationSource } from '../../src/types/enums.js';
+import { analyticsService } from '../../src/modules/analytics/service.js';
 
 const app = createApp();
 
