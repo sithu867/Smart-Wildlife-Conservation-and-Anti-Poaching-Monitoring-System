@@ -228,12 +228,16 @@ export const incidentApi = {
 
     // Clean up repeated demo/test copies of the same SNARE report while
     // retaining the newest local copy. Genuine reports with other content
-    // are not affected.
+    // are not affected, and unsynced reports are never removed: they exist only on this device.
     const duplicateSnareDescription = 'Wire snare found attached to acacia tree near waterhole.';
     const duplicateSnareRecords = cached
       .filter(record => {
         const incident = record.payload as ConservationIncident;
-        return incident?.incidentType === 'SNARE' && incident.description?.trim() === duplicateSnareDescription;
+        return (
+          record.syncStatus === SyncStatus.SYNCED &&
+          incident?.incidentType === 'SNARE' &&
+          incident.description?.trim() === duplicateSnareDescription
+        );
       })
       .sort((a, b) => new Date((b.payload as ConservationIncident).reportedAt).getTime() - new Date((a.payload as ConservationIncident).reportedAt).getTime());
 
