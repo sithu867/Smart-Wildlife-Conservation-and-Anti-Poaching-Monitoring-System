@@ -281,6 +281,7 @@ export class PatrolService {
     if (!session) throw new Error('Patrol session not found.');
     if (session.rangerId !== rangerId) throw new Error('Unauthorized: Patrol session does not belong to this ranger.');
     if (session.status === (PatrolStatus.COMPLETED as any)) throw new Error('Patrol session is already COMPLETED.');
+    if (session.status === (PatrolStatus.CANCELLED as any)) throw new Error('Cancelled patrol session cannot be completed.');
     const updated = await prisma.$transaction(async (tx: any) => {
       const result = await tx.patrolSession.update({ where: { id: sessionId }, data: { status: PatrolStatus.COMPLETED as any, endTime, durationSeconds: Math.max(0, Math.round((endTime.getTime() - session.startTime.getTime()) / 1000)), totalDistanceKm: calculateTotalWaypointsDistanceKm(session.waypoints as IWaypoint[]), syncStatus: SyncStatus.SYNCED as any }, include: sessionInclude });
       await tx.patrolSession.updateMany({

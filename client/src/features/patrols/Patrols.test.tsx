@@ -6,6 +6,7 @@ import { WaypointFormModal } from './components/WaypointForm';
 import { SyncStatusIndicator } from './components/SyncStatus';
 import { patrolApi, calculateHaversineDistanceKm, calculateTotalWaypointsDistanceKm } from './api/patrolApi';
 import { manualWaypointSchema } from './schemas/patrolSchemas';
+import { http } from '../../shared/api/http';
 import { PatrolStatus, SyncStatus, LocationSource } from '../../shared/types/enums';
 
 describe('UC-A Patrol Component & Offline Sync Tests', () => {
@@ -42,20 +43,20 @@ describe('UC-A Patrol Component & Offline Sync Tests', () => {
     ).rejects.toThrow('Invalid latitude: must be between -90 and 90 degrees.');
   });
 
-  test('validates offline session payload format for PENDING synchronization', () => {
-    const offlineSession = {
-      _id: 'client-sess-1001',
-      clientSessionId: 'client-sess-1001',
-      status: PatrolStatus.COMPLETED,
-      syncStatus: SyncStatus.PENDING,
-      waypoints: [
-        { latitude: -2.1523, longitude: 34.8214, timestamp: new Date().toISOString(), source: LocationSource.GPS }
-      ]
-    };
+  test('validates offline session payload format for PENDING synchronization', async () => {
+    window.dispatchEvent(new Event('offline'));
+    const post = vi.spyOn(http, 'post').mockRejectedValue(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    expect(offlineSession.syncStatus).toBe(SyncStatus.PENDING);
-    expect(offlineSession.status).toBe(PatrolStatus.COMPLETED);
-    expect(offlineSession.waypoints.length).toBe(1);
+    const started = await patrolApi.startPatrol();
+    const completed = await patrolApi.completePatrol(started._id);
+
+    // The locally completed session carries everything the sync upload needs.
+    expect(completed).toMatchObject({ _id: started.clientSessionId, status: PatrolStatus.COMPLETED, syncStatus: SyncStatus.PENDING, waypoints: [] });
+    expect(completed.patrolRoute._id).toBe('route-seed-udawalawe-01');
+    expect(completed.endTime).toEqual(expect.any(String));
+    post.mockRestore();
+    window.dispatchEvent(new Event('online'));
   });
 
   test('PatrolCard renders assignment details, route name, distance and buttons', () => {

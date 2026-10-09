@@ -250,6 +250,7 @@ export const patrolApi = {
           entity: 'PATROL_SESSION',
           operation: 'CREATE',
           recordId: id,
+          clientId: clientSessionId,
           payload: offlineSession
         });
       } catch (dbErr) {
@@ -336,6 +337,7 @@ export const patrolApi = {
           entity: 'PATROL_SESSION',
           operation: 'UPDATE',
           recordId: local.id,
+          clientId: session.clientSessionId || session._id,
           payload: updatedSession
         });
       } catch (dbErr) {
@@ -426,6 +428,14 @@ export const patrolApi = {
         syncStatus: SyncStatus.PENDING
       };
       await offlineDb.patrolSessions.update(local.id, { syncStatus: SyncStatus.PENDING, updatedAt: new Date().toISOString(), payload: cancelledSession });
+      // Queue the cancellation so the server does not keep the patrol ACTIVE.
+      await syncService.enqueue({
+        entity: 'PATROL_SESSION',
+        operation: 'UPDATE',
+        recordId: local.id,
+        clientId: session.clientSessionId || session._id,
+        payload: cancelledSession
+      });
       return cancelledSession;
     }
   },
@@ -497,6 +507,7 @@ export const patrolApi = {
           entity: 'PATROL_SESSION',
           operation: 'UPDATE',
           recordId: local.id,
+          clientId: session.clientSessionId || session._id,
           payload: completedSession
         });
       } catch (dbErr) {
@@ -594,8 +605,12 @@ export const patrolApi = {
 };
 
 // Register Patrol Session Sync Transport with SyncService
+// A queued item keeps the snapshot from when it was first enqueued, and later offline changes to the
+// same session reuse that pending item. Sync the latest local state so no waypoints or status are lost.
 syncService.registerTransport('PATROL_SESSION', async item => {
-  if (item.payload) {
-    await patrolApi.syncSessionPayload(item.payload);
+  const local = await offlineDb.patrolSessions.get(item.recordId);
+  const payload = local?.payload ?? item.payload;
+  if (payload) {
+    await patrolApi.syncSessionPayload(payload);
   }
 });
